@@ -1,0 +1,59 @@
+name: Deploy Utopian CRM to GitHub Pages
+
+# Builds config.js from repo secrets at deploy time, then publishes the
+# static app. The real Supabase URL and anon key never touch git history —
+# they live only in Settings -> Secrets and variables -> Actions, and get
+# written into config.js inside the runner, which then gets thrown away
+# once the job finishes.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # lets you trigger a redeploy manually from the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deploy runs at a time; a second push while one is in flight
+# cancels the older run rather than racing it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Confirm required secrets are set
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "::error::SUPABASE_URL or SUPABASE_ANON_KEY is missing."
+            echo "::error::Set both under Settings -> Secrets and variables -> Actions, then re-run this workflow."
+            exit 1
+          fi
+
+      - name: Generate config.js from secrets
+        run: |
+          cat > config.js <<EOF
+          window.CRM_CONFIG = {
+            supabaseUrl: '${{ secrets.SUPABASE_URL }}',
+            supabaseKey: '${{ secrets.SUPABASE_ANON_KEY }}'
+          };
+          EOF
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
