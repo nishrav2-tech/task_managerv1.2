@@ -1,0 +1,32 @@
+# Real Supabase credentials — never commit these to a public repo.
+# Copy config.example.js to config.js locally and fill in your own values.
+config.js
+
+# API tokens (GHL, Smarter Contact, QuickSigner) — never commit.
+.env
+.env.*
+!.env.example
+
+# Local snapshots taken before risky edits — useful on disk, noise in git.
+*.bak
+*.bak-*
+*.bak2-*
+*.pre-auth-revert
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+
+# Local snapshots and the superseded duplicate copy of the app.
+_backups/
+
+# Session handoff notes — local working context, not part of the app.
+01 Daily Logs/
+
+# Probe output — stage names, tags and counts. Local only.
+probe-output.txt
+
+# Supabase CLI local cache — project ref, pooler URL, disposable state.
+# Never contains secrets by itself, but it's machine-local, not repo content.
+supabase/.temp
+supabase/.branches
