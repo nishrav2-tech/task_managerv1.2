@@ -1,23 +1,15 @@
 name: Deploy Utopian CRM to GitHub Pages
 
-# Builds config.js from repo secrets at deploy time, then publishes the
-# static app. The real Supabase URL and anon key never touch git history —
-# they live only in Settings -> Secrets and variables -> Actions, and get
-# written into config.js inside the runner, which then gets thrown away
-# once the job finishes.
-
 on:
   push:
     branches: [main]
-  workflow_dispatch:   # lets you trigger a redeploy manually from the Actions tab
+  workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Only one deploy runs at a time; a second push while one is in flight
-# cancels the older run rather than racing it.
 concurrency:
   group: pages
   cancel-in-progress: true
