@@ -2667,14 +2667,27 @@ const KPI_DEFS = [
   // ---- Lead Conversion / management ----
   {key:'firstContact7',  section:'leadConv',label:'Avg time to first contact', win:7,  unit:'hrs',   dir:'down',
    calc:{type:'avg', total:'firstContactHrs', count:'leadsContacted'}},
+  // CHANGED 2026-08-15: was calc type 'ratio' (leadsContacted/leadsOfferedOn/
+  // contractsSent/contractsClosed summed over the trailing 7 days, divided by
+  // leadsProduced summed over the SAME 7 days). That compared two different
+  // cohorts -- a lead produced 10 days ago can still get contacted this
+  // week, inflating the numerator without ever counting in this week's
+  // denominator -- so the ratio could (and did) exceed 100%. Now reads a
+  // *CohortRate7 value the GHL rollup computes server-side: of the leads
+  // PRODUCED in the trailing 7 days specifically, what % of THAT group has
+  // EVER reached this stage (checked against full history, not just the
+  // window). Gated to leadsProduced membership the same way the raw counts
+  // are, so this can never exceed 100%. calc type 'latest' because the
+  // stored value is already a computed percentage, same pattern as
+  // touchPerActiveLead -- summing it across days would be meaningless.
   {key:'pctContacted7',  section:'leadConv',label:'% of leads contacted',      win:7,  unit:'pct',   dir:'up',
-   calc:{type:'ratio', num:'leadsContacted', den:'leadsProduced'}},
+   calc:{type:'latest', of:'contactedCohortRate7'}},
   {key:'pctOffered7',    section:'leadConv',label:'% of leads offered on',     win:7,  unit:'pct',   dir:'up',
-   calc:{type:'ratio', num:'leadsOfferedOn', den:'leadsProduced'}},
+   calc:{type:'latest', of:'offeredCohortRate7'}},
   {key:'pctContract7',   section:'leadConv',label:'% of leads contract sent',  win:7,  unit:'pct',   dir:'up',
-   calc:{type:'ratio', num:'contractsSent', den:'leadsProduced'}},
+   calc:{type:'latest', of:'contractSentCohortRate7'}},
   {key:'pctClosed7',     section:'leadConv',label:'% of leads closed',         win:7,  unit:'pct',   dir:'up',
-   calc:{type:'ratio', num:'contractsClosed', den:'leadsProduced'}},
+   calc:{type:'latest', of:'closedCohortRate7'}},
   // 2026-08-15: was touchPoints/leadsProduced (total conversation volume
   // that week over new leads that week — a blunt ratio, not really "per
   // lead"). Now reads touchPerActiveLead, a value the GHL rollup computes

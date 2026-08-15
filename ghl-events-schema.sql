@@ -281,29 +281,33 @@ declare
   v_first_contact_avg numeric;
 begin
 
-  -- leadsProduced: opportunities whose first-ever appearance in the
-  -- Lead-->Contract pipeline was IN THE VETTED LEAD STAGE specifically,
-  -- that day. (2026-08-14: narrowed from "any stage in the pipeline" — an
-  -- opportunity created or stage-updated into some other stage no longer
-  -- counts as "produced.")
-  perform set_kpi_entry('leadsProduced', target_date, (
-    select count(*) from ghl_events
-    where event_type in ('OpportunityCreate', 'OpportunityStageUpdate')
-      and pipeline_id = PIPE_LEAD_TO_CONTRACT
-      and stage_id = STAGE_VETTED_LEAD
-      and occurred_at >= day_start and occurred_at < day_end
-      and opportunity_id not in (
-        select entity_id from ghl_locked_events where metric_key = 'leadsProduced'
-      )
-  ));
+  -- leadsProduced: CHANGED 2026-08-15 (again). Now counts every opportunity
+  -- CREATED in the Lead-->Contract pipeline, full stop — "every time a lead
+  -- comes in and a contact is made" — not restricted to a specific stage
+  -- (earlier versions narrowed this to "any stage" then to "Vetted Lead
+  -- only"; both undercounted per an explicit correction). OpportunityCreate
+  -- fires exactly once per opportunity by construction, so this is
+  -- naturally a one-time count; still routed through the lock table (same
+  -- idempotent pattern as the others below) purely as a safety net against
+  -- duplicate event ingestion, not because dedup logic is doing real work
+  -- here. (Also FIXED 2026-08-15, same day: earlier versions of this block
+  -- counted directly from ghl_events while excluding already-locked
+  -- opportunities, which is NOT idempotent — re-running refresh_ghl_kpis
+  -- for an already-backfilled date found zero "new" opportunities and
+  -- silently overwrote a correct historical value with 0. Lock first, then
+  -- count rows already locked for that exact log_date — safe to re-run.)
   insert into ghl_locked_events (metric_key, entity_id, log_date)
   select 'leadsProduced', opportunity_id, target_date
   from ghl_events
-  where event_type in ('OpportunityCreate', 'OpportunityStageUpdate')
+  where event_type = 'OpportunityCreate'
     and pipeline_id = PIPE_LEAD_TO_CONTRACT
-    and stage_id = STAGE_VETTED_LEAD
     and occurred_at >= day_start and occurred_at < day_end
+    and opportunity_id not in (select entity_id from ghl_locked_events where metric_key = 'leadsProduced')
   on conflict (metric_key, entity_id) do nothing;
+
+  perform set_kpi_entry('leadsProduced', target_date, (
+    select count(*) from ghl_locked_events where metric_key = 'leadsProduced' and log_date = target_date
+  ));
 
   -- hotLeadsProduced: first-ever entry into Priority Offer Ready, locked permanently.
   insert into ghl_locked_events (metric_key, entity_id, log_date)
@@ -322,15 +326,24 @@ begin
   -- counts each time, including re-entries. This was the one place the
   -- exact counting rule was never fully pinned down; flip this to the
   -- locked pattern above if "count once per lead" turns out to be right instead.)
+  -- FIXED 2026-08-15: added the pipeline_id filter (previously missing)
+  -- and restricted to opportunity_ids already locked in leadsProduced, so
+  -- this can never count a stage-update for a lead that was never counted
+  -- as produced (numerator ⊆ denominator, enforced).
   perform set_kpi_entry('leadsOfferedOn', target_date, (
     select count(*) from ghl_events
     where event_type = 'OpportunityStageUpdate'
+      and pipeline_id = PIPE_LEAD_TO_CONTRACT
       and stage_id = STAGE_SEND_PAPERWORK
       and occurred_at >= day_start and occurred_at < day_end
+      and opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsProduced')
   ));
 
   -- contractsClosed / dealsProduced: first-ever entry into Deal Closed!
   -- in Lead-->Contract, locked permanently. Same underlying event feeds both metrics.
+  -- FIXED 2026-08-15: added an explicit leadsProduced membership check
+  -- (belt-and-suspenders alongside the existing pipeline_id filter) so a
+  -- deal can never close and count without ever appearing in leadsProduced.
   insert into ghl_locked_events (metric_key, entity_id, log_date)
   select 'dealsProduced', opportunity_id, target_date
   from ghl_events
@@ -339,6 +352,7 @@ begin
     and stage_id = STAGE_DEAL_CLOSED
     and occurred_at >= day_start and occurred_at < day_end
     and opportunity_id not in (select entity_id from ghl_locked_events where metric_key = 'dealsProduced')
+    and opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsProduced')
   on conflict (metric_key, entity_id) do nothing;
   perform set_kpi_entry('dealsProduced', target_date, (
     select count(*) from ghl_locked_events where metric_key = 'dealsProduced' and log_date = target_date
@@ -351,6 +365,11 @@ begin
   -- ContactUpdate payloads carry the full customFields array; we look for
   -- this specific field id holding "Sent" and compare against whether
   -- we've already logged this contact as sent before.
+  -- FIXED 2026-08-15: ContactUpdate events carry contact_id, not
+  -- opportunity_id, so this had no tie back to leadsProduced at all.
+  -- Resolve the contact to its opportunity via that contact's
+  -- OpportunityCreate event in Lead-->Contract, and require that
+  -- opportunity to already be in the leadsProduced lock set.
   with sent_events as (
     select
       contact_id,
@@ -365,6 +384,12 @@ begin
           and f->>'value' ilike '%sent%'
       )
       and contact_id not in (select entity_id from ghl_locked_events where metric_key = 'contractsSent')
+      and contact_id in (
+        select contact_id from ghl_events
+        where event_type = 'OpportunityCreate'
+          and pipeline_id = PIPE_LEAD_TO_CONTRACT
+          and opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsProduced')
+      )
   )
   insert into ghl_locked_events (metric_key, entity_id, log_date)
   select distinct on (contact_id) 'contractsSent', contact_id, target_date
@@ -475,6 +500,10 @@ begin
 
   -- leadsContacted: call >15s AND Lead Notes non-empty, OR inbound SMS reply.
   -- Locked the day the LATER of the two qualifying signals first appears.
+  -- FIXED 2026-08-15: added the same leadsProduced membership check as
+  -- contractsSent above — a contact only locks as "contacted" if it maps
+  -- (via its OpportunityCreate event) to an opportunity already counted in
+  -- leadsProduced.
   with call_qualified as (
     select contact_id, occurred_at
     from ghl_events
@@ -510,6 +539,12 @@ begin
   from earliest_qualifying
   where qualified_at >= day_start and qualified_at < day_end
     and contact_id not in (select entity_id from ghl_locked_events where metric_key = 'leadsContacted')
+    and contact_id in (
+      select contact_id from ghl_events
+      where event_type = 'OpportunityCreate'
+        and pipeline_id = PIPE_LEAD_TO_CONTRACT
+        and opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsProduced')
+    )
   on conflict (metric_key, entity_id) do nothing;
 
   perform set_kpi_entry('leadsContacted', target_date, (
@@ -523,6 +558,11 @@ begin
   -- counts, ever). offerPrepHrs averages the real elapsed hours between
   -- that specific entry and exit, however many calendar days apart they
   -- actually were — not clamped to same-day transitions.
+  -- FIXED 2026-08-15: added the same leadsProduced membership check used
+  -- for the other conversion metrics — an opportunity's exit from Vetted
+  -- Lead only locks as offersPrepared if that opportunity is already
+  -- counted in leadsProduced. offerPrepHrs inherits this automatically,
+  -- since it only averages over entities already locked here.
   with stage_history as (
     select
       opportunity_id,
@@ -546,6 +586,7 @@ begin
   from first_exits
   where exit_at >= day_start and exit_at < day_end
     and opportunity_id not in (select entity_id from ghl_locked_events where metric_key = 'offersPrepared')
+    and opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsProduced')
   on conflict (metric_key, entity_id) do nothing;
 
   perform set_kpi_entry('offersPrepared', target_date, (
@@ -575,6 +616,103 @@ begin
     from ghl_locked_events le
     join first_exits fe on fe.opportunity_id = le.entity_id
     where le.metric_key = 'offersPrepared' and le.log_date = target_date
+  ));
+
+  -- ---- Cohort-based lead-conversion rates (trailing 7 days ending target_date) ----
+  -- ADDED 2026-08-15: the dashboard's pct* KPIs (pctContacted7, pctOffered7,
+  -- pctContract7, pctClosed7) used to divide two independently
+  -- time-windowed sums -- leads CONTACTED/OFFERED/SENT/CLOSED in the
+  -- trailing 7 days over leads PRODUCED in the trailing 7 days. Those are
+  -- different cohorts: a lead produced 10 days ago can still get contacted
+  -- today, adding to this week's numerator without ever counting in this
+  -- week's denominator. Result: the ratio could (and did) exceed 100%,
+  -- even though the numerator-is-a-subset-of-leadsProduced fix above holds
+  -- perfectly at the all-time level.
+  --
+  -- These four *CohortRate7 metrics fix that by asking one question per
+  -- day, about one fixed group: of the leads PRODUCED in the trailing 7
+  -- days (log_date between target_date-6 and target_date), what
+  -- percentage have EVER reached [contacted / offered on / contract sent /
+  -- closed] -- checked against full history, not just this window.
+  -- Because every one of those checks is already gated to leadsProduced
+  -- membership, this can never exceed 100%.
+  --
+  -- Stored as an already-computed percentage (0-100), matching
+  -- touchPerActiveLead's pattern: a point-in-time cohort snapshot, not
+  -- something to sum across days, so the dashboard reads it with calc
+  -- type 'latest' rather than 'ratio'.
+  perform set_kpi_entry('contactedCohortRate7', target_date, (
+    with cohort as (
+      select le.entity_id as opportunity_id, oc.contact_id
+      from ghl_locked_events le
+      join ghl_events oc
+        on oc.event_type = 'OpportunityCreate'
+       and oc.pipeline_id = PIPE_LEAD_TO_CONTRACT
+       and oc.opportunity_id = le.entity_id
+      where le.metric_key = 'leadsProduced'
+        and le.log_date between (target_date - 6) and target_date
+    )
+    select case when count(*) = 0 then 0 else
+      100.0 * count(*) filter (
+        where contact_id in (select entity_id from ghl_locked_events where metric_key = 'leadsContacted')
+      ) / count(*)
+    end
+    from cohort
+  ));
+
+  perform set_kpi_entry('offeredCohortRate7', target_date, (
+    with cohort as (
+      select entity_id as opportunity_id
+      from ghl_locked_events
+      where metric_key = 'leadsProduced'
+        and log_date between (target_date - 6) and target_date
+    )
+    select case when count(*) = 0 then 0 else
+      100.0 * count(*) filter (
+        where exists (
+          select 1 from ghl_events e
+          where e.event_type = 'OpportunityStageUpdate'
+            and e.pipeline_id = PIPE_LEAD_TO_CONTRACT
+            and e.stage_id = STAGE_SEND_PAPERWORK
+            and e.opportunity_id = cohort.opportunity_id
+        )
+      ) / count(*)
+    end
+    from cohort
+  ));
+
+  perform set_kpi_entry('contractSentCohortRate7', target_date, (
+    with cohort as (
+      select le.entity_id as opportunity_id, oc.contact_id
+      from ghl_locked_events le
+      join ghl_events oc
+        on oc.event_type = 'OpportunityCreate'
+       and oc.pipeline_id = PIPE_LEAD_TO_CONTRACT
+       and oc.opportunity_id = le.entity_id
+      where le.metric_key = 'leadsProduced'
+        and le.log_date between (target_date - 6) and target_date
+    )
+    select case when count(*) = 0 then 0 else
+      100.0 * count(*) filter (
+        where contact_id in (select entity_id from ghl_locked_events where metric_key = 'contractsSent')
+      ) / count(*)
+    end
+    from cohort
+  ));
+
+  perform set_kpi_entry('closedCohortRate7', target_date, (
+    with cohort as (
+      select entity_id as opportunity_id
+      from ghl_locked_events
+      where metric_key = 'leadsProduced'
+        and log_date between (target_date - 6) and target_date
+    )
+    select case when count(*) = 0 then 0 else
+      100.0 * count(*) filter (
+        where opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'dealsProduced')
+      ) / count(*)
+    end
+    from cohort
   ));
 
 end;
