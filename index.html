@@ -1337,6 +1337,30 @@ const StorageAdapter = {
     }
   },
 
+  // FIXED 2026-08-15: PostgREST caps any single select() at its configured
+  // max-rows (1000 on a default Supabase project), silently — no error, the
+  // response just stops short. kpi_entries stayed under that cap for months,
+  // then crossed it once the GHL cohort-rate backfill added ~20 metrics/day
+  // of history, and the plain .select('*') on kpi_entries below started
+  // quietly dropping the oldest rows in the result (ordered by log_date
+  // desc, so the missing rows were always the tail end of whatever window
+  // was requested) — trailing-90-day sums like "Deals produced" undercounted
+  // with no error anywhere. This walks the table in pages until a page
+  // comes back short, so loadAll() always gets every row regardless of how
+  // large kpi_entries grows.
+  async fetchAllRows(queryBuilderFn, pageSize=1000){
+    let rows = [], from = 0, error = null;
+    while(true){
+      const {data, error: err} = await queryBuilderFn().range(from, from + pageSize - 1);
+      if(err){ error = err; break; }
+      if(!data || !data.length) break;
+      rows = rows.concat(data);
+      if(data.length < pageSize) break;
+      from += pageSize;
+    }
+    return {data: rows, error};
+  },
+
   async loadAll(){
     this.assertConnected();
     {
@@ -1347,7 +1371,7 @@ const StorageAdapter = {
         this.supabase.from('projects').select('*').order('created_at',{ascending:false}),
         this.supabase.from('kpi_metrics').select('*').order('metric_key'),
         this.supabase.from('kpi_meta').select('*').order('updated_at',{ascending:false}).limit(1),
-        this.supabase.from('kpi_entries').select('*').order('log_date',{ascending:false}),
+        this.fetchAllRows(() => this.supabase.from('kpi_entries').select('*').order('log_date',{ascending:false})),
         this.supabase.from('kpi_targets').select('*').order('kpi_key'),
         this.supabase.from('call_logs').select('*').order('log_date',{ascending:false}),
         this.supabase.from('campaign_logs').select('*').order('log_date',{ascending:false}),
