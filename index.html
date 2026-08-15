@@ -2675,8 +2675,16 @@ const KPI_DEFS = [
    calc:{type:'ratio', num:'contractsSent', den:'leadsProduced'}},
   {key:'pctClosed7',     section:'leadConv',label:'% of leads closed',         win:7,  unit:'pct',   dir:'up',
    calc:{type:'ratio', num:'contractsClosed', den:'leadsProduced'}},
-  {key:'touchPerLead7',  section:'leadConv',label:'Avg touch points per lead', win:7,  unit:'num',   dir:'up',
-   calc:{type:'avg', total:'touchPoints', count:'leadsProduced'}},
+  // 2026-08-15: was touchPoints/leadsProduced (total conversation volume
+  // that week over new leads that week — a blunt ratio, not really "per
+  // lead"). Now reads touchPerActiveLead, a value the GHL rollup computes
+  // server-side: for every lead currently active (not Deal Closed, not Not
+  // a Fit), how many touches THAT SPECIFIC lead got in the trailing 7 days,
+  // averaged across all active leads. calc type 'latest' because the stored
+  // value is already an average — summing multiple days of it together
+  // (like a normal 'avg' calc would) would be meaningless.
+  {key:'touchPerLead7',  section:'leadConv',label:'Avg touch points per active lead', win:7,  unit:'num',   dir:'up',
+   calc:{type:'latest', of:'touchPerActiveLead'}},
   {key:'contractSentAvg',section:'leadConv',label:'Avg time to contract sent', win:7,  unit:'hrs',   dir:'down',
    calc:{type:'avg', total:'contractSentHrs', count:'contractsSent'}},
   {key:'dealsProduced7', section:'leadConv',label:'Deals produced',            win:7,  unit:'count', dir:'up',
@@ -2790,6 +2798,14 @@ function kpiValueOver(def, from, to){
     if(!n) return null;
     return kpiSum(c.total, from, to) / n;
   }
+  if(c.type === 'latest'){
+    // The stored value is already a computed snapshot (e.g. a trailing-N-day
+    // average done server-side) — summing several days of it would double
+    // count, so just read the most recent day's value in the window instead.
+    const rows = state.kpiEntries.filter(e => e.metricKey === c.of && e.date >= from && e.date <= to);
+    if(!rows.length) return null;
+    return rows.reduce((a,b) => a.date > b.date ? a : b).value;
+  }
   return null;
 }
 // The same window, shifted back one full period — used for the trend delta.
@@ -2812,11 +2828,16 @@ function kpiHasData(def, days, anchor){
 }
 const kpiComponentKeys = def => def.calc.type === 'sum' ? [def.calc.of]
   : def.calc.type === 'ratio' ? [def.calc.num, def.calc.den]
+  : def.calc.type === 'latest' ? [def.calc.of]
   : [def.calc.total, def.calc.count];
-// Which raw inputs feed a KPI — what the log modal opens to.
+// Which raw inputs feed a KPI — what the log modal opens to. 'latest' metrics
+// are server-computed snapshots (see touchPerActiveLead) with no manual-entry
+// path by design, same reasoning as leadEntryLag before it got folded into
+// scProcessHrs — so this returns no inputs for them, same as an empty result
+// for any other calc type would.
 function kpiInputsFor(def){
   const c = def.calc;
-  const keys = c.type === 'sum' ? [c.of] : c.type === 'ratio' ? [c.num, c.den] : [c.total, c.count];
+  const keys = c.type === 'sum' ? [c.of] : c.type === 'ratio' ? [c.num, c.den] : c.type === 'latest' ? [] : [c.total, c.count];
   return keys.map(k => KPI_INPUT_BY_KEY[k]).filter(Boolean);
 }
 
@@ -2908,6 +2929,122 @@ function shiftKpiAsOf(days){
   const d = asLocalDate(getKpiAsOf());
   d.setDate(d.getDate() + days);
   setKpiAsOf(isoLocal(d));
+}
+
+/* ---- KPI Tracker page-wide display range ---------------------------------
+   Every tile's headline value/hasData/delta used to come from that KPI's
+   own hardcoded win (7 or 30 days). Now they all come from ONE shared range
+   picked here, so switching to "30 days" or "Last month" moves every tile
+   at once instead of only the ones that happened to have a 30-day variant.
+
+   The goal comparison on each tile is deliberately NOT part of this — it's
+   always a trailing 7 days ending on the range's "to" date, no matter what's
+   selected here. That's what "7 day goal" on each box means: goals stay
+   weekly even while you're looking at a 90-day or custom view. See
+   kpiGoalWindow()/kpiGoalStatus() below. */
+const KPI_TRACKER_RANGE_PRESETS = {
+  '7':  {label: 'Last 7 days',  days: 7},
+  '30': {label: 'Last 30 days', days: 30},
+  '90': {label: 'Last 90 days', days: 90}
+};
+function getKpiTrackerRangeMode(){
+  if(state.kpiTrackerRangeMode === undefined){
+    state.kpiTrackerRangeMode = Prefs.get('kpiTrackerRangeMode', '7');
+  }
+  return state.kpiTrackerRangeMode;
+}
+function setKpiTrackerRangeMode(mode){
+  state.kpiTrackerRangeMode = mode;
+  Prefs.set('kpiTrackerRangeMode', mode);
+  app.render();
+}
+function getKpiTrackerCustomRange(){
+  if(state.kpiTrackerCustomFrom === undefined){
+    state.kpiTrackerCustomFrom = Prefs.get('kpiTrackerCustomFrom', null) || kpiWindow(30, getKpiAsOf()).from;
+  }
+  if(state.kpiTrackerCustomTo === undefined){
+    state.kpiTrackerCustomTo = Prefs.get('kpiTrackerCustomTo', null) || getKpiAsOf();
+  }
+  return {from: state.kpiTrackerCustomFrom, to: state.kpiTrackerCustomTo};
+}
+function setKpiTrackerCustomRange(from, to){
+  const r = getKpiTrackerCustomRange();
+  let nextFrom = from || r.from, nextTo = to || r.to;
+  // An inverted range would silently show nothing; nudge the other end
+  // along instead of leaving it looking broken.
+  if(nextFrom > nextTo){ if(from) nextTo = nextFrom; else nextFrom = nextTo; }
+  state.kpiTrackerCustomFrom = nextFrom;
+  state.kpiTrackerCustomTo = nextTo;
+  Prefs.set('kpiTrackerCustomFrom', nextFrom);
+  Prefs.set('kpiTrackerCustomTo', nextTo);
+  app.render();
+}
+// The most recently completed calendar month — e.g. viewed any day in
+// August, this is all of July, regardless of the "ends on" day picker.
+function kpiLastCalendarMonth(){
+  const d = new Date();
+  d.setDate(1);   // first of this month
+  d.setDate(0);   // rolls back to the last day of the PREVIOUS month
+  const to = isoLocal(d);
+  d.setDate(1);   // first of that previous month
+  return {from: isoLocal(d), to};
+}
+function resolveKpiTrackerRange(){
+  const mode = getKpiTrackerRangeMode();
+  if(mode === 'lastMonth'){
+    const r = kpiLastCalendarMonth();
+    return {from: r.from, to: r.to, label: 'Last month'};
+  }
+  if(mode === 'custom'){
+    const r = getKpiTrackerCustomRange();
+    return {from: r.from, to: r.to, label: 'Custom range'};
+  }
+  const preset = KPI_TRACKER_RANGE_PRESETS[mode] || KPI_TRACKER_RANGE_PRESETS['7'];
+  const w = kpiWindow(preset.days, getKpiAsOf());
+  return {from: w.from, to: w.to, label: preset.label};
+}
+// Same-length window immediately before [from,to] — for the delta badge,
+// generalizing kpiValuePrev() to an arbitrary range instead of a fixed win.
+function kpiValuePrevOver(def, from, to){
+  const spanDays = Math.round((asLocalDate(to) - asLocalDate(from)) / 86400000) + 1;
+  const end = asLocalDate(from);
+  end.setDate(end.getDate() - 1);
+  const start = new Date(end);
+  start.setDate(start.getDate() - (spanDays - 1));
+  return kpiValueOver(def, isoLocal(start), isoLocal(end));
+}
+function kpiHasDataOver(def, from, to){
+  return kpiComponentKeys(def).some(k =>
+    state.kpiEntries.some(e => e.metricKey === k && e.date >= from && e.date <= to));
+}
+// Always trailing 7 days ending on rangeTo — the fixed "7 day goal" window,
+// independent of whatever span the page is currently displaying.
+function kpiGoalWindow(rangeTo){
+  return kpiWindow(7, rangeTo);
+}
+function kpiGoalStatus(def, rangeTo){
+  const gw = kpiGoalWindow(rangeTo);
+  const hasData = kpiHasDataOver(def, gw.from, gw.to);
+  const value = hasData ? kpiValueOver(def, gw.from, gw.to) : null;
+  const target = getKpiTarget(def.key);
+  return {hasData, value, target, onTrack: kpiOnTrack(def, value, target), window: gw};
+}
+// Some KPI_DEFS have both a 7-day and 30-day flavor of the same metric
+// (smsSent7/smsSent30, buyerResp7/buyerResp30) — built for the Trends chart
+// and raw Day Log, where picking a fixed window per series still makes
+// sense. The Tracker page's range selector replaces that need, so here we
+// show one tile per distinct label, preferring the win:7 flavor since
+// that's the key any existing goal is more likely stored under.
+function dedupedKpiDefsInSection(sectionKey){
+  const seen = new Map();
+  for(const d of kpiDefsInSection(sectionKey)){
+    const existing = seen.get(d.label);
+    if(!existing || (existing.win !== 7 && d.win === 7)) seen.set(d.label, d);
+  }
+  return [...seen.values()];
+}
+function dedupedActiveKpiDefs(){
+  return activeKpiSections().flatMap(s => dedupedKpiDefsInSection(s.key));
 }
 
 // Custom range for the extra column. Survives re-renders and reloads, but is
@@ -3045,12 +3182,16 @@ function kpiSmsPacing(anchor){
   };
 }
 
-function renderKpiTile(def, anchor){
-  const value = kpiValue(def, null, anchor);
-  const prev = kpiValuePrev(def, def.win, anchor);
-  const hasData = kpiHasData(def, null, anchor);
-  const target = getKpiTarget(def.key);
-  const onTrack = kpiOnTrack(def, value, target);
+function renderKpiTile(def, range){
+  // Headline value/delta follow the page-wide selected range.
+  const value = kpiValueOver(def, range.from, range.to);
+  const prev = kpiValuePrevOver(def, range.from, range.to);
+  const hasData = kpiHasDataOver(def, range.from, range.to);
+
+  // The goal is always trailing 7 days ending on range.to, regardless of
+  // what range is selected for the headline value above — see kpiGoalStatus().
+  const g = kpiGoalStatus(def, range.to);
+  const { target, onTrack, value: goalValue } = g;
 
   // Percent change against the previous equivalent window. For a 'down' KPI a
   // fall is an improvement, so the colour is keyed to better/worse, not sign.
@@ -3059,39 +3200,40 @@ function renderKpiTile(def, anchor){
     const pct = ((value - prev) / Math.abs(prev)) * 100;
     if(Math.abs(pct) >= 0.5){
       const better = def.dir === 'down' ? pct < 0 : pct > 0;
-      delta = `<span class="kpi-tile-delta ${better?'up':'down'}" title="vs previous ${kpiWindowLabel(def.win)}">
+      delta = `<span class="kpi-tile-delta ${better?'up':'down'}" title="vs previous ${range.label.toLowerCase()}">
         ${pct>0?'+':''}${pct.toFixed(0)}%</span>`;
     }else{
-      delta = `<span class="kpi-tile-delta flat" title="vs previous ${kpiWindowLabel(def.win)}">flat</span>`;
+      delta = `<span class="kpi-tile-delta flat" title="vs previous ${range.label.toLowerCase()}">flat</span>`;
     }
   }
 
-  // Goal row: a progress bar toward the goal, or an invitation to set one.
+  // Goal row: a progress bar toward the 7 day goal, or an invitation to set one.
   let goalRow;
-  if(target !== null && value !== null){
+  if(target !== null && goalValue !== null){
     // For a 'down' KPI, "full" means at or under the goal.
     const ratio = def.dir === 'down'
-      ? (value <= target ? 1 : Math.max(0, target / value))
-      : Math.min(1, value / (target || 1));
+      ? (goalValue <= target ? 1 : Math.max(0, target / goalValue))
+      : Math.min(1, goalValue / (target || 1));
     goalRow = `<div class="kpi-bar"><div class="kpi-bar-fill" style="width:${Math.round(ratio*100)}%;background:${onTrack?'var(--success-ink)':'var(--danger)'}"></div></div>
       <div class="kpi-tile-goal">
-        <span>Goal ${def.dir==='down'?'≤':'≥'} <b>${kpiFormat(target, def.unit)}</b></span>
+        <span>7 day goal ${def.dir==='down'?'≤':'≥'} <b>${kpiFormat(target, def.unit)}</b>
+          <span style="color:var(--ink-3)">(${kpiFormat(goalValue, def.unit)} now)</span></span>
         <button class="kpi-goal-set" onclick="event.stopPropagation();openKpiGoalForm('${def.key}')">Edit</button>
       </div>`;
   }else{
     goalRow = `<div class="kpi-tile-goal">
-        <span>No expectation set</span>
+        <span>No 7 day goal set</span>
         <button class="kpi-goal-set" onclick="event.stopPropagation();openKpiGoalForm('${def.key}')">Set goal</button>
       </div>`;
   }
 
   const cls = !hasData ? 'no-data' : onTrack === true ? 'is-good' : onTrack === false ? 'is-bad' : '';
-  const pacing = def.pace === 'smsMonthlyGoal' ? renderSmsPacingNote(anchor) : '';
+  const pacing = def.pace === 'smsMonthlyGoal' ? renderSmsPacingNote(range.to) : '';
 
-  return `<div class="kpi-tile ${cls}" onclick="openKpiLogForm(null,'${anchor}','${def.key}')" title="Log the numbers behind this KPI">
+  return `<div class="kpi-tile ${cls}" onclick="openKpiLogForm(null,'${range.to}','${def.key}')" title="Log the numbers behind this KPI">
     <div class="kpi-tile-head">
       <div class="kpi-tile-name">${escape(def.label)}</div>
-      <div class="kpi-tile-win">${kpiWindowLabel(def.win)}</div>
+      <div class="kpi-tile-win">${escape(range.label)}</div>
     </div>
     <div class="kpi-tile-val">${hasData ? kpiFormat(value, def.unit) : '—'}${delta}</div>
     ${hasData ? '' : `<div class="kpi-note" style="color:var(--danger)">No entries in this window</div>`}
@@ -3116,66 +3258,92 @@ function renderSmsPacingNote(anchor){
 function renderKpiTrackingView(){
   const asOf = getKpiAsOf();
   const isToday = asOf === today();
-  const inputs = activeKpiInputs(), defs = activeKpiDefs();
+  const mode = getKpiTrackerRangeMode();
+  const range = resolveKpiTrackerRange();
+  const inputs = activeKpiInputs(), defs = dedupedActiveKpiDefs();
   const loggedOnDay = inputs.filter(m => getKpiEntry(m.key, asOf)).length;
 
-  // Scorecard. "Met" needs both a goal and data; "no data" counts KPIs with no
-  // component entries anywhere in their window as of this day.
-  const judged  = defs.filter(d => getKpiTarget(d.key) !== null && kpiHasData(d, null, asOf));
-  const metCount = judged.filter(d => kpiOnTrack(d, kpiValue(d, null, asOf), getKpiTarget(d.key))).length;
-  const noData  = defs.filter(d => !kpiHasData(d, null, asOf));
+  // Scorecard is always about the fixed 7 day goal, independent of the
+  // range selected for the tiles' headline values below.
+  const judged  = defs.filter(d => { const g = kpiGoalStatus(d, range.to); return g.target !== null && g.hasData; });
+  const metCount = judged.filter(d => kpiGoalStatus(d, range.to).onTrack).length;
+  const noData  = defs.filter(d => !kpiGoalStatus(d, range.to).hasData);
 
   const section = s => {
-    const defs = kpiDefsInSection(s.key);
-    const sJudged = defs.filter(d => getKpiTarget(d.key) !== null && kpiHasData(d, null, asOf));
-    const sOk = sJudged.filter(d => kpiOnTrack(d, kpiValue(d, null, asOf), getKpiTarget(d.key))).length;
-    const sNoData = defs.filter(d => !kpiHasData(d, null, asOf)).length;
+    const secDefs = dedupedKpiDefsInSection(s.key);
+    const sJudged = secDefs.filter(d => { const g = kpiGoalStatus(d, range.to); return g.target !== null && g.hasData; });
+    const sOk = sJudged.filter(d => kpiGoalStatus(d, range.to).onTrack).length;
+    const sNoData = secDefs.filter(d => !kpiGoalStatus(d, range.to).hasData).length;
     return `<div class="card" style="margin-bottom:16px">
       <div class="card-header">
         <div>
           <div class="card-title"><i class="ti ${s.icon}" style="font-size:16px;margin-right:6px;color:var(--accent)"></i>${s.label}</div>
-          <div class="card-sub">${defs.length} KPI${defs.length!==1?'s':''}${sNoData?` · ${sNoData} without data`:''}</div>
+          <div class="card-sub">${secDefs.length} KPI${secDefs.length!==1?'s':''}${sNoData?` · ${sNoData} without a 7 day goal met`:''}</div>
         </div>
         ${sJudged.length
           ? `<span class="kpi-pill ${sOk===sJudged.length?'good':'bad'}">
-               <i class="ti ${sOk===sJudged.length?'ti-check':'ti-alert-triangle'}"></i> ${sOk}/${sJudged.length} met
+               <i class="ti ${sOk===sJudged.length?'ti-check':'ti-alert-triangle'}"></i> ${sOk}/${sJudged.length} 7 day goals met
              </span>`
           : `<span class="kpi-pill none">No goals set</span>`}
       </div>
-      <div class="kpi-tiles">${defs.map(d => renderKpiTile(d, asOf)).join('')}</div>
+      <div class="kpi-tiles">${secDefs.map(d => renderKpiTile(d, range)).join('')}</div>
     </div>`;
   };
+
+  const rangePill = (val, label) => `<button class="btn btn-sm ${mode===val?'btn-primary':''}"
+    onclick="setKpiTrackerRangeMode('${val}')">${label}</button>`;
 
   return `
   <div class="card" style="margin-bottom:16px">
     <div class="card-header" style="flex-wrap:wrap;gap:10px">
       <div>
         <div class="card-title">Firm performance</div>
-        <div class="card-sub">As of ${fmtLong(asOf)}${isToday?' (today)':''} · ${loggedOnDay}/${inputs.length} inputs logged that day</div>
+        <div class="card-sub">Showing ${range.label.toLowerCase()} (${fmtLong(range.from)} – ${fmtLong(range.to)}) · ${loggedOnDay}/${inputs.length} inputs logged ${isToday?'today':'on '+fmtLong(asOf)}</div>
       </div>
     </div>
 
     <div class="kpi-range">
-      <span class="kpi-range-label"><i class="ti ti-calendar-stats"></i> Reporting day</span>
+      <span class="kpi-range-label"><i class="ti ti-calendar-stats"></i> Range</span>
+      ${rangePill('7','7 days')}
+      ${rangePill('30','30 days')}
+      ${rangePill('90','90 days')}
+      ${rangePill('lastMonth','Last month')}
+      ${rangePill('custom','Custom')}
+    </div>
+
+    ${mode === 'custom' ? `
+    <div class="kpi-range">
+      <span class="kpi-range-label"><i class="ti ti-calendar-due"></i> Custom range</span>
+      <input type="date" class="form-input kpi-range-input" value="${range.from}" max="${range.to}"
+             onchange="setKpiTrackerCustomRange(this.value, null)" aria-label="Range start">
+      <span class="kpi-range-dash">to</span>
+      <input type="date" class="form-input kpi-range-input" value="${range.to}" max="${today()}" min="${range.from}"
+             onchange="setKpiTrackerCustomRange(null, this.value)" aria-label="Range end">
+    </div>` : mode === 'lastMonth' ? `
+    <div class="kpi-range">
+      <span class="kpi-range-note">Fixed to the most recently completed calendar month.</span>
+    </div>` : `
+    <div class="kpi-range">
+      <span class="kpi-range-label"><i class="ti ti-calendar-event"></i> Ends on</span>
       <button class="icon-btn" onclick="shiftKpiAsOf(-1)" title="Previous day"><i class="ti ti-chevron-left"></i></button>
       <input type="date" class="form-input kpi-range-input" value="${asOf}" max="${today()}"
              onchange="setKpiAsOf(this.value)" aria-label="Reporting day">
       <button class="icon-btn" onclick="shiftKpiAsOf(1)" title="Next day" ${isToday?'disabled style="opacity:.35;pointer-events:none"':''}><i class="ti ti-chevron-right"></i></button>
       ${isToday
-        ? `<span class="kpi-range-note">Every window ends today</span>`
+        ? `<span class="kpi-range-note">Range ends today</span>`
         : `<button class="btn btn-sm" onclick="setKpiAsOf('${today()}')"><i class="ti ti-calendar-event"></i> Today</button>
-           <span class="kpi-range-note">Every 1 / 7 / 30-day window ends on this day</span>`}
-    </div>
+           <span class="kpi-range-note">Range ends on this day</span>`}
+    </div>`}
 
     <div class="kpi-score">
       <div>
         <div class="kpi-score-big" style="color:${judged.length && metCount===judged.length ? 'var(--success-ink)' : ''}">${judged.length ? `${metCount}/${judged.length}` : '—'}</div>
-        <div style="font-size:11px;color:var(--ink-3);margin-top:3px">KPIs met</div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:3px">7 day goals met</div>
       </div>
       <div style="height:36px;width:1px;background:var(--border)"></div>
       <div>
         <div class="kpi-score-big" style="color:${noData.length ? 'var(--danger)' : ''}">${noData.length}</div>
-        <div style="font-size:11px;color:var(--ink-3);margin-top:3px">KPIs with no data entries</div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:3px">KPIs with no data in their 7 day goal window</div>
       </div>
     </div>
     ${noData.length ? `<div class="kpi-note" style="padding:2px 2px 4px">
