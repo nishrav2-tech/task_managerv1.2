@@ -208,8 +208,14 @@ end $$;
 -- need the opposite: many small additions landing throughout the day
 -- without clobbering each other. This function does that add atomically
 -- inside Postgres, so two webhook calls arriving at the same instant both
--- still count. It's additive-only — never use it against a metric_key that
--- a person also edits by hand in the UI, or the two writers will fight.
+-- still count. It's additive-only — safe only against a metric_key nobody
+-- also edits by hand in the UI at the same time, or the two writers fight.
+--
+-- NOTE 2026-08-11: lead-entry-lag writes into scProcessHrs / scLeadsProcessed
+-- (the existing "Hours processing those leads" pair) rather than dedicated
+-- keys, on the team's confirmation that those are no longer hand-entered.
+-- If manual entry into those two ever resumes, move the automation onto its
+-- own keys first.
 create or replace function increment_kpi_entry(p_metric_key text, p_log_date date, p_value numeric)
 returns void
 language sql
@@ -323,9 +329,9 @@ end $$;
 -- Reference: the metric_key values the app writes to kpi_entries
 -- ---------------------------------------------------------
 -- Lead Generation:  smsSent, leadsProduced, hotLeadsProduced,
---                   scLeadsProcessed, scProcessHrs, offersPrepared, offerPrepHrs,
---                   leadEntryLagHrs, leadEntryLagCount   (automated only — see
---                   increment_kpi_entry() above; never hand-edit these two)
+--                   scLeadsProcessed, scProcessHrs (also written automatically
+--                   by lead-entry-lag — see increment_kpi_entry() above),
+--                   offersPrepared, offerPrepHrs
 -- Lead Conversion:  leadsContacted, firstContactHrs, leadsOfferedOn,
 --                   contractsSent, contractSentHrs, contractsClosed,
 --                   touchPoints, dealsProduced
