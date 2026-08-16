@@ -196,6 +196,18 @@ create table if not exists ghl_contact_state (
   contract_status_sent boolean not null default false,
   lead_notes_nonempty  boolean not null default false,
   last_seen_updated_at timestamptz,
+  -- ADDED 2026-08-16, for the free (no Zapier Code/Webhooks) Smarter
+  -- Contact processing-time pipeline. contact_date_added is the contact's
+  -- own GHL creation timestamp (when the SC->GHL zap actually created the
+  -- record); sms_reply_at_raw is the raw comma-joined "Message History
+  -- Date" list, passed straight through by that same zap into a GHL
+  -- custom field (SMS Reply At, id u6uszYSPjmajNbSS2NbF) with zero
+  -- computation on Zapier's side. refresh_sc_process_kpis() below does
+  -- all the parsing/math in SQL. See that function and
+  -- supabase/functions/ghl-hourly-poll/index.ts (pollContacts) for how
+  -- these get populated.
+  contact_date_added timestamptz,
+  sms_reply_at_raw text,
   updated_at     timestamptz not null default now()
 );
 alter table ghl_contact_state enable row level security;
@@ -322,21 +334,26 @@ begin
     select count(*) from ghl_locked_events where metric_key = 'hotLeadsProduced' and log_date = target_date
   ));
 
-  -- leadsOfferedOn: every entry into Send Paperwork that day (NOT locked —
-  -- counts each time, including re-entries. This was the one place the
-  -- exact counting rule was never fully pinned down; flip this to the
-  -- locked pattern above if "count once per lead" turns out to be right instead.)
-  -- FIXED 2026-08-15: added the pipeline_id filter (previously missing)
-  -- and restricted to opportunity_ids already locked in leadsProduced, so
-  -- this can never count a stage-update for a lead that was never counted
-  -- as produced (numerator ⊆ denominator, enforced).
+  -- leadsOfferedOn: CHANGED 2026-08-15 -- now first-ever entry into Send
+  -- Paperwork, locked permanently, same pattern as hotLeadsProduced /
+  -- dealsProduced / offersPrepared. This was the one place the exact
+  -- counting rule was left ambiguous when the rollup was first built;
+  -- explicitly resolved now to "count once per opportunity." Re-entries no
+  -- longer inflate the count. Still gated to opportunities already counted
+  -- in leadsProduced (numerator ⊆ denominator, enforced 2026-08-15 earlier
+  -- the same day).
+  insert into ghl_locked_events (metric_key, entity_id, log_date)
+  select 'leadsOfferedOn', opportunity_id, target_date
+  from ghl_events
+  where event_type = 'OpportunityStageUpdate'
+    and pipeline_id = PIPE_LEAD_TO_CONTRACT
+    and stage_id = STAGE_SEND_PAPERWORK
+    and occurred_at >= day_start and occurred_at < day_end
+    and opportunity_id not in (select entity_id from ghl_locked_events where metric_key = 'leadsOfferedOn')
+    and opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsProduced')
+  on conflict (metric_key, entity_id) do nothing;
   perform set_kpi_entry('leadsOfferedOn', target_date, (
-    select count(*) from ghl_events
-    where event_type = 'OpportunityStageUpdate'
-      and pipeline_id = PIPE_LEAD_TO_CONTRACT
-      and stage_id = STAGE_SEND_PAPERWORK
-      and occurred_at >= day_start and occurred_at < day_end
-      and opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsProduced')
+    select count(*) from ghl_locked_events where metric_key = 'leadsOfferedOn' and log_date = target_date
   ));
 
   -- contractsClosed / dealsProduced: first-ever entry into Deal Closed!
@@ -402,10 +419,18 @@ begin
   ));
 
   -- contractSentHrs: for contracts locked today, hours from the
-  -- opportunity's creation to the Sent event. Needs the matching
-  -- OpportunityCreate/first-seen event for the same contact.
+  -- opportunity's FIRST ENTRY into the "Send Paperwork" stage to the Sent
+  -- event. CHANGED 2026-08-16 -- previously measured from the contact's
+  -- earliest-ever ghl_events row (a proxy for GHL record creation), which
+  -- overstated the real prep-to-send lag by including everything before
+  -- the lead ever reached Send Paperwork (time in earlier stages, initial
+  -- vetting, etc). The user's framing: "time from when the lead enters
+  -- the pipeline stage send paperwork to contract sent marked." Contracts
+  -- with no matching Send Paperwork entry (shouldn't normally happen, but
+  -- data can be messy) are simply excluded via the inner join -- avg()
+  -- already skips nulls, so this is the safe default.
   perform set_kpi_entry('contractSentHrs', target_date, (
-    select coalesce(avg(extract(epoch from (se.occurred_at - oc.first_seen)) / 3600.0), 0)
+    select coalesce(avg(extract(epoch from (se.occurred_at - pw.entered_paperwork_at)) / 3600.0), 0)
     from ghl_locked_events le
     join lateral (
       select occurred_at from ghl_events
@@ -417,9 +442,12 @@ begin
       order by occurred_at asc limit 1
     ) se on true
     join lateral (
-      select min(occurred_at) as first_seen from ghl_events
+      select min(occurred_at) as entered_paperwork_at from ghl_events
       where contact_id = le.entity_id
-    ) oc on true
+        and event_type = 'OpportunityStageUpdate'
+        and pipeline_id = PIPE_LEAD_TO_CONTRACT
+        and stage_id = STAGE_SEND_PAPERWORK
+    ) pw on true
     where le.metric_key = 'contractsSent' and le.log_date = target_date
   ));
 
@@ -619,6 +647,15 @@ begin
   ));
 
   -- ---- Cohort-based lead-conversion rates (trailing 7 days ending target_date) ----
+  -- SUPERSEDED 2026-08-16 for dashboard display -- pctContacted7/
+  -- pctOffered7/pctContract7/pctClosed7 and dealsProduced7 now call the
+  -- cohort_lead_conversion(from_date, to_date) function live instead of
+  -- reading these fixed-7-day daily snapshots, so the headline tiles
+  -- correctly recompute for whatever range the KPI Tracker page has
+  -- selected (7/30/90/last month/custom), not just 7 days. Left running
+  -- here unchanged -- still a useful point-in-time historical record, and
+  -- nothing currently reads it, so removing it would only lose data for
+  -- no benefit.
   -- ADDED 2026-08-15: the dashboard's pct* KPIs (pctContacted7, pctOffered7,
   -- pctContract7, pctClosed7) used to divide two independently
   -- time-windowed sums -- leads CONTACTED/OFFERED/SENT/CLOSED in the
@@ -660,6 +697,10 @@ begin
     from cohort
   ));
 
+  -- offeredCohortRate7: CHANGED 2026-08-15 to match leadsOfferedOn's new
+  -- locked semantics -- checks lock-table membership instead of a raw
+  -- exists() against ghl_events, consistent with the other three cohort
+  -- rates.
   perform set_kpi_entry('offeredCohortRate7', target_date, (
     with cohort as (
       select entity_id as opportunity_id
@@ -669,13 +710,7 @@ begin
     )
     select case when count(*) = 0 then 0 else
       100.0 * count(*) filter (
-        where exists (
-          select 1 from ghl_events e
-          where e.event_type = 'OpportunityStageUpdate'
-            and e.pipeline_id = PIPE_LEAD_TO_CONTRACT
-            and e.stage_id = STAGE_SEND_PAPERWORK
-            and e.opportunity_id = cohort.opportunity_id
-        )
+        where opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsOfferedOn')
       ) / count(*)
     end
     from cohort
@@ -715,5 +750,174 @@ begin
     from cohort
   ));
 
+end;
+$$;
+
+-- ---------------------------------------------------------
+-- cohort_lead_conversion(from_date, to_date) — ADDED 2026-08-16
+--
+-- The four *CohortRate7 metrics above are daily snapshots hardcoded to a
+-- trailing 7-day cohort window, written once per day by refresh_ghl_kpis.
+-- That's fine as long as the dashboard only ever looks at a 7-day range,
+-- but the KPI Tracker page lets the user pick 7/30/90/last month/custom --
+-- and reading a 7-day-cohort snapshot through a 90-day lens just shows
+-- the most recent day's 7-day number again, silently wrong for anything
+-- other than the 7-day view. Same problem hits "Deals produced": it used
+-- to just sum the dealsProduced daily counts over whatever range was
+-- selected, which counts every deal that CLOSED in that range regardless
+-- of whether the underlying lead was produced inside or outside it --
+-- not what "deals produced out of leads from the time window selected"
+-- means.
+--
+-- This function replaces both: called live, on demand, with whatever
+-- from/to the dashboard's range picker currently has selected (RPC'd
+-- straight from index.html via supabase.rpc, not precomputed). It asks
+-- one question for one arbitrary window: of the leads PRODUCED between
+-- from_date and to_date inclusive, how many (and what %) have EVER gone
+-- on to reach each later stage, checked against full history the same
+-- way the *CohortRate7 metrics already do. Every count here is a strict
+-- subset of `produced`, so the percentages can never exceed 100 and
+-- `closed` is exactly the cohort-gated deal count the dashboard needs.
+--
+-- SECURITY DEFINER so it can read ghl_locked_events/ghl_events (both
+-- service-role-only via RLS) the same way refresh_ghl_kpis does, with
+-- EXECUTE granted directly to anon/authenticated below -- the underlying
+-- tables stay locked down, only this narrow, read-only, aggregate-only
+-- function is reachable from the browser.
+create or replace function cohort_lead_conversion(from_date date, to_date date)
+returns table (
+  produced        bigint,
+  contacted       bigint,
+  offered         bigint,
+  contract_sent   bigint,
+  closed          bigint,
+  pct_contacted   numeric,
+  pct_offered     numeric,
+  pct_contract_sent numeric,
+  pct_closed      numeric
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  PIPE_LEAD_TO_CONTRACT constant text := '9wvdoIQrdKYrmeAnfod6';
+begin
+  return query
+  with cohort as (
+    select le.entity_id as opportunity_id, oc.contact_id
+    from ghl_locked_events le
+    join ghl_events oc
+      on oc.event_type = 'OpportunityCreate'
+     and oc.pipeline_id = PIPE_LEAD_TO_CONTRACT
+     and oc.opportunity_id = le.entity_id
+    where le.metric_key = 'leadsProduced'
+      and le.log_date between from_date and to_date
+  ),
+  totals as (
+    select
+      count(*) as produced,
+      count(*) filter (
+        where contact_id in (select entity_id from ghl_locked_events where metric_key = 'leadsContacted')
+      ) as contacted,
+      count(*) filter (
+        where opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsOfferedOn')
+      ) as offered,
+      count(*) filter (
+        where contact_id in (select entity_id from ghl_locked_events where metric_key = 'contractsSent')
+      ) as contract_sent,
+      count(*) filter (
+        where opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'dealsProduced')
+      ) as closed
+    from cohort
+  )
+  select
+    t.produced, t.contacted, t.offered, t.contract_sent, t.closed,
+    case when t.produced = 0 then 0 else round(100.0 * t.contacted / t.produced, 1) end,
+    case when t.produced = 0 then 0 else round(100.0 * t.offered / t.produced, 1) end,
+    case when t.produced = 0 then 0 else round(100.0 * t.contract_sent / t.produced, 1) end,
+    case when t.produced = 0 then 0 else round(100.0 * t.closed / t.produced, 1) end
+  from totals t;
+end;
+$$;
+
+revoke all on function cohort_lead_conversion(date, date) from public;
+grant execute on function cohort_lead_conversion(date, date) to anon, authenticated;
+
+-- ---------------------------------------------------------
+-- refresh_sc_process_kpis — Smarter Contact processing-time, ADDED
+-- 2026-08-16
+--
+-- Replaces the lead-entry-lag Edge Function, which required a paid
+-- Zapier plan (Code by Zapier + Webhooks by Zapier, on top of the base
+-- 2-step Export Contact -> Add/Update Contact zap -- Zapier's Free plan
+-- caps every zap at exactly 2 steps, trigger + action, full stop,
+-- regardless of which apps are used). This version does zero computation
+-- in Zapier: the same 2-step zap now also maps the trigger's raw,
+-- comma-joined "Message History Date" list straight into a GHL custom
+-- field (SMS Reply At, contact-level, id u6uszYSPjmajNbSS2NbF) with no
+-- Code step needed. ghl-hourly-poll's pollContacts() captures that raw
+-- text plus the contact's own GHL dateAdded into ghl_contact_state on
+-- every poll (see that column's comment above). All the actual math
+-- happens here:
+--   - "second message" = the lead's reply, per the original convention
+--     (message #1 assumed to be our own outbound opener).
+--   - lag = the contact's GHL creation time minus that reply time.
+--   - same 0-168h plausibility guard the old Edge Function used, for the
+--     same reason: reject anything wildly implausible (bad mapping, a
+--     backfilled contact with stale message history, etc.) rather than
+--     let it silently poison the average.
+--
+-- Feeds the SAME kpi_entries keys as before -- scProcessHrs,
+-- scLeadsProcessed -- but via overwrite (set_kpi_entry), not the
+-- additive increment_kpi_entry the old Edge Function used. Only one
+-- writer should ever touch these keys at a time; now that this function
+-- is live, the lead-entry-lag Edge Function's Zapier steps (Code +
+-- Webhooks) should be removed from the zap -- they're no longer needed
+-- and were the only reason that zap couldn't run on Zapier's Free plan.
+--
+-- Called once per poll for today + yesterday, same pattern as
+-- refresh_ghl_kpis (see ghl-hourly-poll's runRollup()). Safe to re-run
+-- for any date any number of times -- always recomputes fully from
+-- ghl_contact_state's current snapshot rather than accumulating.
+create or replace function refresh_sc_process_kpis(target_date date)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  day_start timestamptz := target_date::timestamptz;
+  day_end   timestamptz := (target_date + 1)::timestamptz;
+begin
+  perform set_kpi_entry('scLeadsProcessed', target_date, (
+    select count(*)
+    from (
+      select
+        cs.contact_date_added,
+        (string_to_array(cs.sms_reply_at_raw, ','))[2]::timestamptz as reply_at
+      from ghl_contact_state cs
+      where cs.contact_date_added >= day_start and cs.contact_date_added < day_end
+        and cs.sms_reply_at_raw is not null
+        and array_length(string_to_array(cs.sms_reply_at_raw, ','), 1) >= 2
+    ) x
+    where extract(epoch from (x.contact_date_added - x.reply_at)) / 3600.0 between 0 and 168
+  ));
+
+  perform set_kpi_entry('scProcessHrs', target_date, (
+    select coalesce(avg(lag_hrs), 0)
+    from (
+      select extract(epoch from (x.contact_date_added - x.reply_at)) / 3600.0 as lag_hrs
+      from (
+        select
+          cs.contact_date_added,
+          (string_to_array(cs.sms_reply_at_raw, ','))[2]::timestamptz as reply_at
+        from ghl_contact_state cs
+        where cs.contact_date_added >= day_start and cs.contact_date_added < day_end
+          and cs.sms_reply_at_raw is not null
+          and array_length(string_to_array(cs.sms_reply_at_raw, ','), 1) >= 2
+      ) x
+    ) y
+    where lag_hrs between 0 and 168
+  ));
 end;
 $$;

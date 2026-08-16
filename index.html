@@ -344,14 +344,6 @@ input,select,textarea{font:inherit;color:inherit}
 }
 .seg-btn.active .seg-count{background:var(--ink);color:var(--surface)}
 
-.kpi-grid{display:flex;flex-direction:column;--kpi-cols:3}
-.kpi-row{
-  display:grid;
-  grid-template-columns:1fr repeat(calc(var(--kpi-cols) - 1), 90px);
-  align-items:center;gap:8px;
-  padding:10px 4px;border-bottom:1px solid var(--border);
-}
-/* Custom From/To range strip above the KPI table */
 .kpi-range{
   display:flex;align-items:center;gap:8px;flex-wrap:wrap;
   padding:10px 4px 12px;margin-bottom:2px;
@@ -366,6 +358,39 @@ input,select,textarea{font:inherit;color:inherit}
 .kpi-range-input{width:auto;min-width:132px;padding:5px 8px;font-size:12.5px}
 .kpi-range-dash{color:var(--ink-3);font-size:13px}
 .kpi-range-note{font-size:11.5px;color:var(--ink-3)}
+/* One-calendar range picker */
+.kpi-range-picker{position:relative;display:inline-block}
+.kpi-cal-trigger{display:inline-flex;align-items:center;gap:7px;font-variant-numeric:tabular-nums}
+.kpi-cal-trigger.open{border-color:var(--accent);color:var(--accent)}
+.kpi-cal-pop{
+  position:absolute;top:calc(100% + 6px);left:0;z-index:60;
+  width:266px;padding:12px;
+  background:var(--surface);border:1px solid var(--border-strong);
+  border-radius:var(--r-md);box-shadow:var(--shadow-md,0 8px 24px rgba(0,0,0,.13));
+}
+.kpi-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.kpi-cal-month{font-size:13px;font-weight:600}
+.kpi-cal-dow,.kpi-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.kpi-cal-dow div{text-align:center;font-size:10px;font-weight:600;color:var(--ink-3);padding-bottom:4px}
+.kpi-cal-day{
+  display:flex;align-items:center;justify-content:center;
+  height:30px;border-radius:6px;cursor:pointer;
+  font-size:12.5px;font-variant-numeric:tabular-nums;
+  transition:background .1s var(--ease);
+}
+.kpi-cal-day:hover:not(.empty):not(.disabled){background:var(--surface-2)}
+.kpi-cal-day.empty{cursor:default}
+.kpi-cal-day.disabled{color:var(--ink-3);opacity:.35;cursor:not-allowed}
+.kpi-cal-day.today{font-weight:700;text-decoration:underline;text-underline-offset:3px}
+.kpi-cal-day.in-range{background:var(--accent-soft);border-radius:0}
+.kpi-cal-day.start{background:var(--accent);color:var(--accent-ink);font-weight:600;border-radius:6px 0 0 6px}
+.kpi-cal-day.end{background:var(--accent);color:var(--accent-ink);font-weight:600;border-radius:0 6px 6px 0}
+.kpi-cal-day.start.end{border-radius:6px}
+.kpi-cal-foot{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin-top:10px;padding-top:9px;border-top:1px solid var(--border);
+}
+.kpi-cal-hint{font-size:11px;color:var(--ink-3)}
 /* Recent-entries list inside the KPI log modal */
 .kpi-history{
   max-height:190px;overflow-y:auto;
@@ -382,22 +407,34 @@ input,select,textarea{font:inherit;color:inherit}
 .kpi-history-date{color:var(--ink-2);cursor:pointer}
 .kpi-history-date:hover{color:var(--ink);text-decoration:underline}
 .kpi-history-val{font-weight:600;font-variant-numeric:tabular-nums}
-.kpi-row:last-child{border-bottom:none}
-.kpi-row.kpi-head{
-  color:var(--ink-3);font-size:10.5px;font-weight:600;
-  text-transform:uppercase;letter-spacing:.06em;
-  border-bottom:1px solid var(--border-strong);
-  padding-bottom:8px;
+/* Dashboard KPI Snapshot — four read-only headline numbers */
+.snap-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+  gap:10px;
 }
-.kpi-row.kpi-head div{text-align:center}
-.kpi-row.kpi-head div:first-child{text-align:left}
-.kpi-label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--ink)}
-.kpi-label i{font-size:15px;color:var(--ink-3)}
-.kpi-val{font-family:var(--serif);font-size:21px;font-weight:500;text-align:center;font-variant-numeric:tabular-nums}
-.kpi-cell{cursor:pointer;border-radius:var(--r-sm);padding:4px 2px;transition:background .12s var(--ease)}
-.kpi-cell:hover{background:var(--surface-2)}
-.kpi-edit-ic{display:inline-flex;opacity:.3;margin-left:4px;vertical-align:middle;transition:opacity .12s var(--ease)}
-.kpi-cell:hover .kpi-edit-ic{opacity:.85}
+.snap-tile{
+  padding:13px 14px;border:1px solid var(--border);
+  border-radius:var(--r-md);background:var(--surface-2);
+}
+.snap-label{
+  display:flex;align-items:center;gap:6px;
+  font-size:11px;font-weight:600;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.06em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.snap-label i{font-size:14px;flex-shrink:0}
+.snap-value{
+  font-family:var(--serif);font-size:29px;font-weight:500;
+  letter-spacing:-.02em;line-height:1.15;margin-top:7px;
+  font-variant-numeric:tabular-nums;
+}
+.snap-delta{
+  display:flex;align-items:center;gap:3px;
+  font-size:11.5px;color:var(--ink-3);margin-top:3px;
+}
+.snap-delta i{font-size:13px}
+.snap-delta.up{color:var(--success-ink)}
+.snap-delta.down{color:var(--danger)}
 .kpi-updated{font-size:9.5px;color:var(--ink-3);text-align:center;margin-top:1px}
 
 /* ---- Firm performance tiles ---- */
@@ -447,28 +484,6 @@ input,select,textarea{font:inherit;color:inherit}
 .kpi-pill.good{background:var(--accent-soft);color:var(--success-ink)}
 .kpi-pill.bad{background:var(--danger-soft,rgba(180,60,50,.12));color:var(--danger)}
 .kpi-pill.none{background:var(--surface-2);color:var(--ink-3)}
-/* ---- One-day entry form ---- */
-.kpi-day-grid{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
-  gap:0 28px;
-}
-.kpi-day-row{
-  display:flex;align-items:center;gap:10px;
-  padding:6px 6px;border-bottom:1px solid var(--border);cursor:pointer;
-}
-.kpi-day-row:hover{background:var(--surface-2)}
-.kpi-day-row > i{font-size:15px;color:var(--ink-3);flex-shrink:0;width:16px;text-align:center}
-.kpi-day-name{
-  flex:1;min-width:0;font-size:12.5px;color:var(--ink);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
-.kpi-day-input{
-  width:76px;flex-shrink:0;text-align:right;padding:4px 7px;
-  font-size:12.5px;font-variant-numeric:tabular-nums;
-}
-.kpi-day-row.filled .kpi-day-name{font-weight:600}
-.kpi-day-row.filled .kpi-day-input{font-weight:600;border-color:var(--accent)}
-.kpi-day-unit{font-size:10.5px;color:var(--ink-3);width:20px;flex-shrink:0}
 .kpi-log-group-title{margin-top:2px}
 .kpi-log-group{margin-bottom:14px}
 .kpi-log-group-title{
@@ -1152,8 +1167,8 @@ const StorageAdapter = {
     'ulc_users','ulc_props','ulc_tasks','ulc_projects','ulc_kpis',
     'ulc_kpiMeta','ulc_kpiEntries','ulc_callLogs','ulc_campaignLogs',
     'ulc_tpTab','ulc_ktTab','ulc_activeView','ulc_calUser','ulc_agendaUser',
-    'ulc_weekCalOffset','ulc_activityCalOffset','ulc_kpiRange','ulc_kpiAsOf',
-    'ulc_kpiLogDay','ulc_kpiChart','ulc_kpiTargets'
+    'ulc_weekCalOffset','ulc_activityCalOffset','ulc_kpiAsOf',
+    'ulc_kpiChart','ulc_kpiTargets'
   ],
   tables: {
     users:'users', props:'properties',
@@ -2378,9 +2393,7 @@ const app = {
     state.agendaUserId = undefined;
     state.weekCalendarOffset = undefined;
     state.activityCalendarOffset = undefined;
-    state.kpiRange = undefined;
     state.kpiAsOf = undefined;
-    state.kpiLogDay = undefined;
     state.kpiChart = undefined;
     this.render();
     checkDueNotifications();
@@ -2696,22 +2709,28 @@ const KPI_DEFS = [
   // leadsProduced summed over the SAME 7 days). That compared two different
   // cohorts -- a lead produced 10 days ago can still get contacted this
   // week, inflating the numerator without ever counting in this week's
-  // denominator -- so the ratio could (and did) exceed 100%. Now reads a
-  // *CohortRate7 value the GHL rollup computes server-side: of the leads
-  // PRODUCED in the trailing 7 days specifically, what % of THAT group has
-  // EVER reached this stage (checked against full history, not just the
-  // window). Gated to leadsProduced membership the same way the raw counts
-  // are, so this can never exceed 100%. calc type 'latest' because the
-  // stored value is already a computed percentage, same pattern as
-  // touchPerActiveLead -- summing it across days would be meaningless.
+  // denominator -- so the ratio could (and did) exceed 100%.
+  //
+  // CHANGED AGAIN 2026-08-16: was calc type 'latest' reading a *CohortRate7
+  // value precomputed daily by the GHL rollup for a hardcoded trailing-7-day
+  // cohort. That's correct only when the KPI Tracker's selected range IS 7
+  // days -- switching to 30/90/last month/custom just re-showed the most
+  // recent day's 7-day number, silently wrong for anything else. Now calc
+  // type 'cohortPct' calls cohort_lead_conversion(from, to) live for
+  // whatever range is actually selected: of the leads PRODUCED in that
+  // exact range, what % of THAT group has EVER reached this stage (checked
+  // against full history). Still gated to leadsProduced membership on the
+  // server side, so this can never exceed 100%. The "7" suffix on these
+  // keys is legacy naming from before this change -- left as-is since
+  // goals/localStorage layout already reference these exact key strings.
   {key:'pctContacted7',  section:'leadConv',label:'% of leads contacted',      win:7,  unit:'pct',   dir:'up',
-   calc:{type:'latest', of:'contactedCohortRate7'}},
+   calc:{type:'cohortPct', field:'pct_contacted'}},
   {key:'pctOffered7',    section:'leadConv',label:'% of leads offered on',     win:7,  unit:'pct',   dir:'up',
-   calc:{type:'latest', of:'offeredCohortRate7'}},
+   calc:{type:'cohortPct', field:'pct_offered'}},
   {key:'pctContract7',   section:'leadConv',label:'% of leads contract sent',  win:7,  unit:'pct',   dir:'up',
-   calc:{type:'latest', of:'contractSentCohortRate7'}},
+   calc:{type:'cohortPct', field:'pct_contract_sent'}},
   {key:'pctClosed7',     section:'leadConv',label:'% of leads closed',         win:7,  unit:'pct',   dir:'up',
-   calc:{type:'latest', of:'closedCohortRate7'}},
+   calc:{type:'cohortPct', field:'pct_closed'}},
   // 2026-08-15: was touchPoints/leadsProduced (total conversation volume
   // that week over new leads that week — a blunt ratio, not really "per
   // lead"). Now reads touchPerActiveLead, a value the GHL rollup computes
@@ -2724,8 +2743,19 @@ const KPI_DEFS = [
    calc:{type:'latest', of:'touchPerActiveLead'}},
   {key:'contractSentAvg',section:'leadConv',label:'Avg time to contract sent', win:7,  unit:'hrs',   dir:'down',
    calc:{type:'avg', total:'contractSentHrs', count:'contractsSent'}},
+  // CHANGED 2026-08-16: was calc type 'sum' of dealsProduced over the
+  // selected range -- that counts every deal that CLOSED in the range,
+  // regardless of whether the underlying lead was produced inside or
+  // outside it (a lead produced 4 months ago closing this week still
+  // counted). "Deals produced should only show deals produced out of
+  // leads from the time window selected" -- now calc type 'cohortCount'
+  // reads the `closed` field from the same live cohort_lead_conversion(from,
+  // to) call as the pct tiles above: of the leads PRODUCED in the selected
+  // range, how many have gone all the way to Deal Closed (checked against
+  // full history, so a lead produced near the end of the range can still
+  // count once it closes later).
   {key:'dealsProduced7', section:'leadConv',label:'Deals produced',            win:7,  unit:'count', dir:'up',
-   calc:{type:'sum', of:'dealsProduced'}},
+   calc:{type:'cohortCount', field:'closed'}},
 
   // ---- Due Diligence + Funding ----
   {key:'ddStage2Avg',    section:'dueDil',  label:'Avg time to complete Stage II DD', win:7, unit:'hrs', dir:'down',
@@ -2818,6 +2848,40 @@ function setKpiTarget(key, value){
   StorageAdapter.saveKpiTarget(key, blank ? null : Number(value));
 }
 
+/* ---- Live cohort conversion (produced -> contacted/offered/sent/closed) --
+   ADDED 2026-08-16. Unlike everything else on this page, cohortPct/
+   cohortCount calc types can't be derived from state.kpiEntries — the
+   underlying opportunity-level lock membership never reaches the browser
+   (ghl_locked_events/ghl_events are service-role-only). Instead this calls
+   the cohort_lead_conversion(from_date, to_date) Postgres function live via
+   RPC for whatever exact range is asked for, so it correctly recomputes for
+   7/30/90/last month/custom instead of only ever being right for a fixed
+   7-day window. Module-level cache (not `state`, since it's purely derived
+   and shouldn't be persisted) keyed by "from_to"; a cache slot is either
+   absent (never requested), the string 'pending' (in flight), or the
+   resolved row object (or null on error). kpiValueOver reads synchronously
+   and returns null while pending — the fetch's .then() calls app.render()
+   once it lands, same fire-and-render-again pattern the rest of the app's
+   render path assumes for anything async.                                */
+const _cohortCache = {};
+function getCohortConversion(from, to){
+  if(!from || !to) return null;
+  const key = from + '_' + to;
+  const cached = _cohortCache[key];
+  if(cached && cached !== 'pending') return cached;
+  if(!cached){
+    _cohortCache[key] = 'pending';
+    StorageAdapter.supabase.rpc('cohort_lead_conversion', {from_date: from, to_date: to})
+      .then(({data, error}) => {
+        if(error){ console.warn('cohort_lead_conversion rpc failed', error.message); _cohortCache[key] = null; }
+        else _cohortCache[key] = (data && data[0]) || null;
+        app.render();
+      })
+      .catch(err => { console.warn('cohort_lead_conversion rpc failed', err); _cohortCache[key] = null; app.render(); });
+  }
+  return null; // still loading (or errored) — kpiValueOver treats this as "no data yet"
+}
+
 /* ---- Deriving a KPI over a window ---------------------------------------
    All three shapes sum their component inputs across the whole window first,
    then divide once. Returns null — not zero — when there's nothing to divide
@@ -2843,6 +2907,14 @@ function kpiValueOver(def, from, to){
     if(!rows.length) return null;
     return rows.reduce((a,b) => a.date > b.date ? a : b).value;
   }
+  if(c.type === 'cohortPct' || c.type === 'cohortCount'){
+    const row = getCohortConversion(from, to);
+    if(!row) return null;
+    if(c.type === 'cohortCount') return Number(row[c.field]) || 0;
+    // produced === 0 means a genuine "no leads in this window" zero, not
+    // missing data — the RPC already returns 0 for that case server-side.
+    return Number(row[c.field]);
+  }
   return null;
 }
 // The same window, shifted back one full period — used for the trend delta.
@@ -2858,23 +2930,32 @@ function kpiValue(def, days, anchor){
   return kpiValueOver(def, w.from, w.to);
 }
 // Does this KPI have any component data at all in the window?
+// cohortPct/cohortCount have no state.kpiEntries-backed component keys (the
+// data comes from the live RPC instead) — hasData for those just means the
+// RPC has resolved and found at least one lead produced in the window.
 function kpiHasData(def, days, anchor){
   const w = kpiWindow(days || def.win, anchor);
+  if(def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount'){
+    const row = getCohortConversion(w.from, w.to);
+    return !!row && Number(row.produced) > 0;
+  }
   return kpiComponentKeys(def).some(k =>
     state.kpiEntries.some(e => e.metricKey === k && e.date >= w.from && e.date <= w.to));
 }
 const kpiComponentKeys = def => def.calc.type === 'sum' ? [def.calc.of]
   : def.calc.type === 'ratio' ? [def.calc.num, def.calc.den]
   : def.calc.type === 'latest' ? [def.calc.of]
+  : (def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount') ? []
   : [def.calc.total, def.calc.count];
-// Which raw inputs feed a KPI — what the log modal opens to. 'latest' metrics
-// are server-computed snapshots (see touchPerActiveLead) with no manual-entry
-// path by design, same reasoning as leadEntryLag before it got folded into
-// scProcessHrs — so this returns no inputs for them, same as an empty result
-// for any other calc type would.
+// Which raw inputs feed a KPI — what the log modal opens to. 'latest' and
+// cohortPct/cohortCount metrics are server-computed snapshots (see
+// touchPerActiveLead) with no manual-entry path by design, same reasoning as
+// leadEntryLag before it got folded into scProcessHrs — so this returns no
+// inputs for them, same as an empty result for any other calc type would.
 function kpiInputsFor(def){
   const c = def.calc;
-  const keys = c.type === 'sum' ? [c.of] : c.type === 'ratio' ? [c.num, c.den] : c.type === 'latest' ? [] : [c.total, c.count];
+  const keys = c.type === 'sum' ? [c.of] : c.type === 'ratio' ? [c.num, c.den]
+    : (c.type === 'latest' || c.type === 'cohortPct' || c.type === 'cohortCount') ? [] : [c.total, c.count];
   return keys.map(k => KPI_INPUT_BY_KEY[k]).filter(Boolean);
 }
 
@@ -3026,8 +3107,124 @@ function kpiLastCalendarMonth(){
   d.setDate(1);   // first of that previous month
   return {from: isoLocal(d), to};
 }
+/* ---- One-calendar range picker -------------------------------------------
+   Two date fields meant four interactions and a silent failure mode when you
+   set them out of order. This is one popover: click the start day, click the
+   end day, done. The half-selected state is visible between the two clicks so
+   it's obvious the calendar is waiting for a second date.                  */
+function getKpiCal(){
+  if(state.kpiCal === undefined) state.kpiCal = {open:false, monthOffset:0, pendingFrom:null};
+  return state.kpiCal;
+}
+const monthDiff = (a,b) => (b.getFullYear()-a.getFullYear())*12 + (b.getMonth()-a.getMonth());
+function toggleKpiRangeCalendar(){
+  const c = getKpiCal();
+  c.open = !c.open;
+  // Open on the month the range starts in, not always the current month.
+  if(c.open){
+    c.pendingFrom = null;
+    const from = getKpiTrackerCustomRange().from;
+    c.monthOffset = from ? monthDiff(new Date(), asLocalDate(from)) : 0;
+  }
+  app.render();
+}
+function closeKpiRangeCalendar(){
+  const c = getKpiCal();
+  if(!c.open) return;
+  c.open = false; c.pendingFrom = null;
+  app.render();
+}
+function shiftKpiCalMonth(delta){
+  const c = getKpiCal();
+  // Never page past the current month — there's no data in the future.
+  if(delta > 0 && c.monthOffset >= 0) return;
+  c.monthOffset += delta;
+  app.render();
+}
+function pickKpiRangeDay(dateStr){
+  const c = getKpiCal();
+  if(!c.pendingFrom){
+    // First click: provisional start. The second click completes it either
+    // way, so clicking an earlier day than the first still works.
+    c.pendingFrom = dateStr;
+    app.render();
+    return;
+  }
+  const a = c.pendingFrom, b = dateStr;
+  const from = a <= b ? a : b, to = a <= b ? b : a;
+  c.pendingFrom = null;
+  c.open = false;
+  setKpiTrackerCustomRange(from, to);   // re-renders
+}
+
+function renderKpiRangeCalendar(range){
+  const c = getKpiCal();
+  const base = new Date();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + c.monthOffset);
+  const year = base.getFullYear(), month = base.getMonth();
+  const startWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const todayStr = today();
+  const monthLabel = base.toLocaleDateString('en-US',{month:'long', year:'numeric'});
+  const atCurrentMonth = c.monthOffset >= 0;
+
+  let cells = '';
+  for(let i=0;i<startWeekday;i++) cells += `<div class="kpi-cal-day empty"></div>`;
+  for(let d=1; d<=daysInMonth; d++){
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const future = ds > todayStr;
+    const cls = [];
+    if(future) cls.push('disabled');
+    if(ds === todayStr) cls.push('today');
+    if(c.pendingFrom){
+      if(ds === c.pendingFrom) cls.push('start','end');
+    }else{
+      if(ds >= range.from && ds <= range.to) cls.push('in-range');
+      if(ds === range.from) cls.push('start');
+      if(ds === range.to) cls.push('end');
+    }
+    cells += `<div class="kpi-cal-day ${cls.join(' ')}"
+      ${future?'':`onclick="event.stopPropagation();pickKpiRangeDay('${ds}')"`}>${d}</div>`;
+  }
+
+  return `<div class="kpi-cal-pop" onclick="event.stopPropagation()">
+    <div class="kpi-cal-head">
+      <button class="icon-btn" onclick="shiftKpiCalMonth(-1)" title="Previous month">${ICON_CHEVRON_LEFT}</button>
+      <span class="kpi-cal-month">${monthLabel}</span>
+      <button class="icon-btn" onclick="shiftKpiCalMonth(1)" title="Next month"
+        ${atCurrentMonth?'disabled style="opacity:.3;pointer-events:none"':''}>${ICON_CHEVRON_RIGHT}</button>
+    </div>
+    <div class="kpi-cal-dow"><div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div></div>
+    <div class="kpi-cal-grid">${cells}</div>
+    <div class="kpi-cal-foot">
+      ${c.pendingFrom
+        ? `<span class="kpi-cal-hint"><b>${fmtLong(c.pendingFrom)}</b> — now pick the end day</span>`
+        : `<span class="kpi-cal-hint">Click a start day, then an end day</span>`}
+      <button class="btn btn-sm" onclick="closeKpiRangeCalendar()">Close</button>
+    </div>
+  </div>`;
+}
+
+// The most recently completed calendar week, Sunday-Saturday, to match the
+// week grid on the Calendar tab. Sits alongside "Last month" as the other
+// "a period that has actually finished" option: mid-week this shows all of
+// last week rather than a partial current one.
+function kpiLastCalendarWeek(){
+  const d = new Date();
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate() - d.getDay());   // Sunday that starts this week
+  d.setDate(d.getDate() - 1);            // back one day = last Saturday
+  const to = isoLocal(d);
+  d.setDate(d.getDate() - 6);            // and the Sunday that began it
+  return {from: isoLocal(d), to};
+}
 function resolveKpiTrackerRange(){
   const mode = getKpiTrackerRangeMode();
+  if(mode === 'lastWeek'){
+    const r = kpiLastCalendarWeek();
+    return {from: r.from, to: r.to, label: 'Last week'};
+  }
   if(mode === 'lastMonth'){
     const r = kpiLastCalendarMonth();
     return {from: r.from, to: r.to, label: 'Last month'};
@@ -3051,6 +3248,10 @@ function kpiValuePrevOver(def, from, to){
   return kpiValueOver(def, isoLocal(start), isoLocal(end));
 }
 function kpiHasDataOver(def, from, to){
+  if(def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount'){
+    const row = getCohortConversion(from, to);
+    return !!row && Number(row.produced) > 0;
+  }
   return kpiComponentKeys(def).some(k =>
     state.kpiEntries.some(e => e.metricKey === k && e.date >= from && e.date <= to));
 }
@@ -3084,115 +3285,62 @@ function dedupedActiveKpiDefs(){
   return activeKpiSections().flatMap(s => dedupedKpiDefsInSection(s.key));
 }
 
-// Custom range for the extra column. Survives re-renders and reloads, but is
-// deliberately separate from state.filters, which is cleared on tab change.
-function getKpiRange(){
-  if(state.kpiRange === undefined){
-    state.kpiRange = Prefs.get('kpiRange', null) || {from:'', to:''};
-  }
-  return state.kpiRange;
-}
-function setKpiRange(part, value){
-  const r = {...getKpiRange(), [part]: value};
-  // An inverted range would silently sum to zero; nudge the other end along
-  // instead of leaving it looking like there's no data.
-  if(r.from && r.to && r.from > r.to){
-    if(part === 'from') r.to = r.from; else r.from = r.to;
-  }
-  state.kpiRange = r;
-  Prefs.set('kpiRange', r);
-  app.render();
-}
-function clearKpiRange(){
-  state.kpiRange = {from:'', to:''};
-  Prefs.set('kpiRange', state.kpiRange);
-  app.render();
-}
-
-// The three (or four) time windows every KPI table is measured over. Pulled out
-// so the dashboard card and the sectioned tracking view can't drift apart.
-function kpiColumns(){
-  const range = getKpiRange();
-  const hasRange = !!(range.from && range.to);
-  return {
-    w7: kpiWindow(7),
-    w30: kpiWindow(30),
-    range, hasRange,
-    cols: hasRange ? 4 : 3,
-    rangeDays: hasRange
-      ? Math.round((asLocalDate(range.to) - asLocalDate(range.from)) / 86400000) + 1
-      : 0
-  };
-}
-// The shared custom-range picker.
-function kpiRangeBar(c){
-  return `<div class="kpi-range">
-    <span class="kpi-range-label"><i class="ti ti-calendar-stats"></i> Custom range</span>
-    <input type="date" class="form-input kpi-range-input" value="${c.range.from||''}" max="${today()}"
-           onchange="setKpiRange('from', this.value)" aria-label="Custom range start">
-    <span class="kpi-range-dash">→</span>
-    <input type="date" class="form-input kpi-range-input" value="${c.range.to||''}" max="${today()}"
-           onchange="setKpiRange('to', this.value)" aria-label="Custom range end">
-    ${c.hasRange
-      ? `<button class="btn btn-sm" onclick="clearKpiRange()"><i class="ti ti-x"></i> Clear</button>
-         <span class="kpi-range-note">${c.rangeDays} day${c.rangeDays!==1?'s':''} · ${kpiDaysLogged(c.range.from, c.range.to)} logged</span>`
-      : `<span class="kpi-range-note">Pick both dates to add a column</span>`}
-  </div>`;
-}
-// The plain input table — raw daily numbers, 7-day and 30-day totals. Used by
-// the dashboard card and the "raw inputs" section of the tracking view.
-function kpiTable(metrics, c){
-  const cell = (metricKey, from, to) => `<div class="kpi-cell" onclick="openKpiLogForm('${metricKey}')">
-    <div class="kpi-val">${kpiSum(metricKey, from, to)}<span class="kpi-edit-ic">${ICON_EDIT}</span></div>
-  </div>`;
-  return `<div class="kpi-grid" style="--kpi-cols:${c.cols}">
-    <div class="kpi-row kpi-head">
-      <div>Metric</div><div>7-day</div><div>30-day</div>${c.hasRange?`<div>Range</div>`:''}
-    </div>
-    ${metrics.map(m => `<div class="kpi-row">
-        <div class="kpi-label"><i class="ti ${m.icon}"></i> ${m.label}</div>
-        ${cell(m.key, c.w7.from, c.w7.to)}
-        ${cell(m.key, c.w30.from, c.w30.to)}
-        ${c.hasRange ? cell(m.key, c.range.from, c.range.to) : ''}
-      </div>`).join('')}
-  </div>`;
-}
-
-/* The Dashboard's KPI card deliberately stays the short headline list it has
-   always been — five volume metrics, always as of today. The full 23-KPI
-   breakdown lives in the KPIs & Tracking tab; putting it here too made the
-   Dashboard unreadable. Labels are pinned locally so renaming an input for
-   the tab (e.g. "Contracts sent to leads") doesn't reword this card.       */
-const DASHBOARD_KPIS = [
-  {key:'smsSent',          label:'SMS Sent',            icon:'ti-message-2'},
-  {key:'leadsProduced',    label:'Leads Produced',      icon:'ti-user-plus'},
-  {key:'hotLeadsProduced', label:'Hot Leads Produced',  icon:'ti-flame'},
-  {key:'contractsSent',    label:'Contracts Sent',      icon:'ti-file-text'},
-  {key:'contractsClosed',  label:'Contracts Closed',    icon:'ti-file-check'}
+/* =========================================================
+   DASHBOARD KPI SNAPSHOT
+   A read-only headline: four volume numbers over the trailing
+   7 days, each against the 7 days before it so the direction
+   is visible at a glance. Data entry and the full breakdown
+   both live in the KPIs & Tracking tab — this card exists to
+   be read in two seconds, not filled in.
+   ========================================================= */
+const DASHBOARD_SNAPSHOT = [
+  {key:'smsSent',          label:'SMS Volume',         icon:'ti-message-2'},
+  {key:'hotLeadsProduced', label:'Hot Leads Produced', icon:'ti-flame'},
+  {key:'leadsContacted',   label:'Leads Contacted',    icon:'ti-phone-call'},
+  {key:'dealsProduced',    label:'Deals Produced',     icon:'ti-diamond'}
 ];
 
-function renderKpiSection(){
-  const lastUpdated = getKpiLastUpdated();
-  const c = kpiColumns();
+// The 7 days before the current 7-day window, for the trend comparison.
+function kpiPrevWindow(days){
+  const w = kpiWindow(days);
+  const end = asLocalDate(w.from);
+  end.setDate(end.getDate() - 1);
+  const start = new Date(end);
+  start.setDate(start.getDate() - (days - 1));
+  return {from: isoLocal(start), to: isoLocal(end)};
+}
 
-  const loggedToday = DASHBOARD_KPIS.filter(m => getKpiEntry(m.key, today())).length;
-  const sub = lastUpdated
-    ? `Updated ${fmtLong(lastUpdated.split('T')[0])} · ${loggedToday}/${DASHBOARD_KPIS.length} logged today`
-    : 'Nothing logged yet — tap a metric to enter a day\'s number';
+function renderKpiSection(){
+  const w7 = kpiWindow(7), p7 = kpiPrevWindow(7);
+  const logged = kpiDaysLogged(w7.from, w7.to);
+
+  const tile = m => {
+    const value = kpiSum(m.key, w7.from, w7.to);
+    const prev  = kpiSum(m.key, p7.from, p7.to);
+    // A jump from zero has no meaningful percentage, so show direction only.
+    const pct = prev ? Math.round(((value - prev) / prev) * 100) : null;
+    const dir = value === prev ? 'flat' : (value > prev ? 'up' : 'down');
+    const delta = prev
+      ? `${dir==='up'?'+':''}${pct}% vs prior 7 days`
+      : (value ? 'No prior-week data' : 'Nothing logged');
+    return `<div class="snap-tile">
+      <div class="snap-label"><i class="ti ${m.icon}"></i> ${m.label}</div>
+      <div class="snap-value">${value.toLocaleString()}</div>
+      <div class="snap-delta ${dir}">
+        ${prev ? `<i class="ti ti-arrow-${dir==='up'?'up':dir==='down'?'down':'right'}"></i> ` : ''}${delta}
+      </div>
+    </div>`;
+  };
 
   return `<div class="card" style="margin-bottom:24px">
     <div class="card-header">
       <div>
-        <div class="card-title">KPIs</div>
-        <div class="card-sub">${sub}</div>
+        <div class="card-title">KPI Snapshot</div>
+        <div class="card-sub">Last 7 days · ${fmtLong(w7.from)} – ${fmtLong(w7.to)} · ${logged}/7 days logged</div>
       </div>
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-sm" onclick="app.go('activity');setKtTab('kpis')">Full breakdown <i class="ti ti-arrow-right"></i></button>
-        <button class="btn btn-sm btn-primary" onclick="openKpiLogForm()"><i class="ti ti-plus"></i> Log a day</button>
-      </div>
+      <button class="btn btn-sm" onclick="app.go('activity');setKtTab('kpis')">Full breakdown <i class="ti ti-arrow-right"></i></button>
     </div>
-    ${kpiRangeBar(c)}
-    ${kpiTable(DASHBOARD_KPIS, c)}
+    <div class="snap-grid">${DASHBOARD_SNAPSHOT.map(tile).join('')}</div>
   </div>`;
 }
 
@@ -3297,6 +3445,7 @@ function renderKpiTrackingView(){
   const isToday = asOf === today();
   const mode = getKpiTrackerRangeMode();
   const range = resolveKpiTrackerRange();
+  const rangeSpanDays = Math.round((asLocalDate(range.to) - asLocalDate(range.from)) / 86400000) + 1;
   const inputs = activeKpiInputs(), defs = dedupedActiveKpiDefs();
   const loggedOnDay = inputs.filter(m => getKpiEntry(m.key, asOf)).length;
 
@@ -3344,6 +3493,7 @@ function renderKpiTrackingView(){
       ${rangePill('7','7 days')}
       ${rangePill('30','30 days')}
       ${rangePill('90','90 days')}
+      ${rangePill('lastWeek','Last week')}
       ${rangePill('lastMonth','Last month')}
       ${rangePill('custom','Custom')}
     </div>
@@ -3351,11 +3501,19 @@ function renderKpiTrackingView(){
     ${mode === 'custom' ? `
     <div class="kpi-range">
       <span class="kpi-range-label"><i class="ti ti-calendar-due"></i> Custom range</span>
-      <input type="date" class="form-input kpi-range-input" value="${range.from}" max="${range.to}"
-             onchange="setKpiTrackerCustomRange(this.value, null)" aria-label="Range start">
-      <span class="kpi-range-dash">to</span>
-      <input type="date" class="form-input kpi-range-input" value="${range.to}" max="${today()}" min="${range.from}"
-             onchange="setKpiTrackerCustomRange(null, this.value)" aria-label="Range end">
+      <div class="kpi-range-picker">
+        <button class="btn btn-sm kpi-cal-trigger ${getKpiCal().open?'open':''}"
+                onclick="event.stopPropagation();toggleKpiRangeCalendar()">
+          <i class="ti ti-calendar"></i>
+          <span>${fmtLong(range.from)} – ${fmtLong(range.to)}</span>
+          <i class="ti ti-chevron-down" style="font-size:14px;opacity:.6"></i>
+        </button>
+        ${getKpiCal().open ? renderKpiRangeCalendar(range) : ''}
+      </div>
+      <span class="kpi-range-note">${rangeSpanDays} day${rangeSpanDays!==1?'s':''} · ${kpiDaysLogged(range.from, range.to)} logged</span>
+    </div>` : mode === 'lastWeek' ? `
+    <div class="kpi-range">
+      <span class="kpi-range-note">Fixed to the most recently completed calendar week (Sunday–Saturday).</span>
     </div>` : mode === 'lastMonth' ? `
     <div class="kpi-range">
       <span class="kpi-range-note">Fixed to the most recently completed calendar month.</span>
@@ -3390,40 +3548,9 @@ function renderKpiTrackingView(){
 
   ${activeKpiSections().map(section).join('')}
 
-  ${renderKpiChart()}
-  ${renderKpiDayLog()}`;
+  ${renderKpiChart()}`;
 }
 
-/* =========================================================
-   RAW DAILY INPUTS — one day at a time
-   The log is stored one value per input per day, so this edits
-   at exactly that grain: pick a day, fill in the numbers, save
-   once. The calendar above picks the day and shows at a glance
-   which days already have entries, so backfilling a missed day
-   is a click rather than a hunt.
-   ========================================================= */
-
-// The day being logged / inspected. Defaults to today, never runs ahead of it,
-// and is remembered per-device.
-function getKpiLogDay(){
-  if(state.kpiLogDay === undefined){
-    const stored = Prefs.get('kpiLogDay', null);
-    state.kpiLogDay = (stored && stored <= today()) ? stored : today();
-  }
-  if(state.kpiLogDay > today()) state.kpiLogDay = today();
-  return state.kpiLogDay;
-}
-function setKpiLogDay(dateStr){
-  if(!dateStr) return;
-  state.kpiLogDay = dateStr > today() ? today() : dateStr;
-  Prefs.set('kpiLogDay', state.kpiLogDay);
-  app.render();
-}
-function shiftKpiLogDay(days){
-  const d = asLocalDate(getKpiLogDay());
-  d.setDate(d.getDate() + days);
-  setKpiLogDay(isoLocal(d));
-}
 
 
 /* =========================================================
@@ -3627,95 +3754,6 @@ function renderKpiChart(){
          <p>No entries for ${escape(metaA.label)} in the last ${days} days. Fill in the form below and it'll appear here.</p>
        </div>`}
   </div>`;
-}
-
-/* The day's entry form. Every live input for one date, in one place, so a full
-   day is one pass and one save rather than a dialog per number. A blank field
-   means "not logged" and is left alone; clearing a field that already had a
-   value deletes that entry, which is how you undo a mistyped day.          */
-function renderKpiDayLog(){
-  const day = getKpiLogDay();
-  const isToday = day === today();
-  const inputs = activeKpiInputs();
-  const filled = inputs.filter(m => getKpiEntry(m.key, day)).length;
-  const dow = asLocalDate(day).toLocaleDateString('en-US',{weekday:'long'});
-
-  // One line per input: label, field, unit. Nothing else.
-  const rowFor = m => {
-    const e = getKpiEntry(m.key, day);
-    return `<label class="kpi-day-row ${e?'filled':''}" for="kd-${m.key}">
-      <i class="ti ${m.icon}"></i>
-      <span class="kpi-day-name">${escape(m.label)}</span>
-      <input class="form-input kpi-day-input" id="kd-${m.key}" data-kpi-day-input="${m.key}"
-             type="number" min="0" step="${kpiStepFor(m.unit)}"
-             value="${e ? e.value : ''}" placeholder="—"
-             aria-label="${escape(m.label)}">
-      <span class="kpi-day-unit">${m.unit === 'hrs' ? 'hrs' : ''}</span>
-    </label>`;
-  };
-
-  return `<div class="card" style="margin-bottom:16px">
-    <div class="card-header" style="flex-wrap:wrap;gap:10px">
-      <div>
-        <div class="card-title">Raw daily inputs</div>
-        <div class="card-sub">${dow}, ${fmtLong(day)}${isToday?' (today)':''} · ${filled}/${inputs.length} filled in</div>
-      </div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <button class="icon-btn" onclick="shiftKpiLogDay(-1)" title="Previous day"><i class="ti ti-chevron-left"></i></button>
-        <input type="date" class="form-input kpi-range-input" value="${day}" max="${today()}"
-               onchange="setKpiLogDay(this.value)" aria-label="Day to log">
-        <button class="icon-btn" onclick="shiftKpiLogDay(1)" title="Next day" ${isToday?'disabled style="opacity:.35;pointer-events:none"':''}><i class="ti ti-chevron-right"></i></button>
-        ${isToday ? '' : `<button class="btn btn-sm" onclick="setKpiLogDay('${today()}')"><i class="ti ti-calendar-event"></i> Today</button>`}
-      </div>
-    </div>
-
-    ${activeKpiSections().map(s => {
-      const secInputs = kpiInputsInSection(s.key);
-      if(!secInputs.length) return '';
-      return `<div class="kpi-log-group">
-        <div class="kpi-log-group-title">${escape(s.label)}</div>
-        <div class="kpi-day-grid">${secInputs.map(rowFor).join('')}</div>
-      </div>`;
-    }).join('')}
-
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
-      <button class="btn btn-primary" onclick="saveKpiDayLog()"><i class="ti ti-device-floppy"></i> Save ${escape(fmtLong(day))}</button>
-      <span class="kpi-range-note">Blank = not logged. Enter 0 for a genuine zero; clear a field to delete that entry.</span>
-    </div>
-  </div>`;
-}
-
-async function saveKpiDayLog(){
-  const day = getKpiLogDay();
-  const fields = [...document.querySelectorAll('[data-kpi-day-input]')];
-  let written = 0, removed = 0;
-
-  for(const f of fields){
-    const key = f.dataset.kpiDayInput;
-    const raw = f.value.trim();
-    const existing = getKpiEntry(key, day);
-    if(raw === ''){
-      // Cleared a field that had a value — treat that as deleting the entry.
-      if(existing){
-        state.kpiEntries = state.kpiEntries.filter(e => e.id !== existing.id);
-        await deleteOne('kpiEntries', existing.id);
-        removed++;
-      }
-      continue;
-    }
-    const value = Number(raw) || 0;
-    if(existing && Number(existing.value) === value) continue;
-    await writeKpiEntry(key, day, value);
-    written++;
-  }
-
-  if(!written && !removed){ toast('No changes to save'); return; }
-  await stampKpiUpdate();
-  const parts = [];
-  if(written) parts.push(`${written} value${written!==1?'s':''} saved`);
-  if(removed) parts.push(`${removed} cleared`);
-  toast(parts.join(' · '));
-  app.render();
 }
 
 // Setting or clearing one KPI's expectation.
@@ -5263,6 +5301,12 @@ projects    (id uuid, title, category, status, priority,
    EVENT BINDING
    ========================================================= */
 function bindViewEvents(){
+  // Clicking anywhere off the range calendar dismisses it. Bound per render
+  // alongside the other view handlers, and only while it's actually open.
+  if(state.kpiCal && state.kpiCal.open){
+    document.addEventListener('click', closeKpiRangeCalendar, {once:true});
+  }
+
   // Filters
   document.querySelectorAll('[data-filter]').forEach(el=>{
     const key = el.dataset.filter;

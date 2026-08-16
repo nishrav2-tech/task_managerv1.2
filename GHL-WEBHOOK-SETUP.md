@@ -162,29 +162,27 @@ gap specifically, the one that matters most:
 1. **Trigger:** "Opportunity Stage Changed" (or "Pipeline Stage Changed"
    — exact trigger name varies by GHL account version), scoped to the
    **Lead --> Contract** pipeline, all stages.
-2. **Action:** "Webhook" (Custom Webhook / Inbound Webhook action).
+2. **Action:** "Webhook".
    - Method: POST
-   - URL: the one above
-   - Body type: JSON
-   - Body — map GHL's own merge fields into these exact keys (the
-     function also accepts GHL's native field names like
-     `pipelineStageId`/`opportunityId` directly, but explicit is safer):
-     ```json
-     {
-       "event_type": "OpportunityStageUpdate",
-       "opportunity_id": "{{opportunity.id}}",
-       "pipeline_id": "{{opportunity.pipeline_id}}",
-       "pipelineStageId": "{{opportunity.pipeline_stage_id}}",
-       "contactId": "{{contact.id}}",
-       "occurred_at": "{{opportunity.date_updated}}"
-     }
-     ```
-   The exact merge-tag names (`{{opportunity.id}}` etc.) need to be
-   picked from GHL's own variable picker inside the workflow builder —
-   the names above are the common ones but GHL sometimes labels them
-   slightly differently per account. Whatever the real tag turns out to
-   be, just make sure it lands in the JSON keys shown above.
-3. Publish the Workflow.
+   - URL: the one above (secret already in the query string)
+   - **Custom Data:** this action does NOT support a custom JSON body —
+     confirmed against GHL's own "Webhook Action Data Format Guide". For
+     an opportunity-stage trigger, GHL automatically sends opportunity
+     fields at the root of the payload as part of its "standard data":
+     `id` (the opportunity id), `pipeline_id`, and `pipleline_stage`
+     (GHL's own typo — this is the stage **name**, not an id). The Edge
+     Function maps that name to the right stage id itself (see
+     `STAGE_NAME_TO_ID` in `supabase/functions/ghl-webhook/index.ts`),
+     so nothing needs to be done for those three.
+     The only thing to add manually is one Custom Data row, with the
+     **key typed as plain text** (don't use the tag/merge icon on the
+     key field, only on values — and this one doesn't need a merge tag
+     at all):
+     | Key | Value |
+     |---|---|
+     | `event_type` | `OpportunityStageUpdate` (literal text) |
+   - Leave Headers empty.
+3. Save the action, then **publish** the Workflow (drafts don't fire).
 
 Optional, same pattern, for full parity with what the poll already
 half-covers: a second Workflow on "Opportunity Created" trigger sending
