@@ -363,7 +363,7 @@ input,select,textarea{font:inherit;color:inherit}
 .kpi-cal-trigger{display:inline-flex;align-items:center;gap:7px;font-variant-numeric:tabular-nums}
 .kpi-cal-trigger.open{border-color:var(--accent);color:var(--accent)}
 .kpi-cal-pop{
-  position:absolute;top:calc(100% + 6px);left:0;z-index:60;
+  position:fixed;top:0;left:0;z-index:120;
   width:266px;padding:12px;
   background:var(--surface);border:1px solid var(--border-strong);
   border-radius:var(--r-md);box-shadow:var(--shadow-md,0 8px 24px rgba(0,0,0,.13));
@@ -2868,18 +2868,35 @@ function getCohortConversion(from, to){
   if(!from || !to) return null;
   const key = from + '_' + to;
   const cached = _cohortCache[key];
-  if(cached && cached !== 'pending') return cached;
-  if(!cached){
-    _cohortCache[key] = 'pending';
-    StorageAdapter.supabase.rpc('cohort_lead_conversion', {from_date: from, to_date: to})
-      .then(({data, error}) => {
-        if(error){ console.warn('cohort_lead_conversion rpc failed', error.message); _cohortCache[key] = null; }
-        else _cohortCache[key] = (data && data[0]) || null;
-        app.render();
-      })
-      .catch(err => { console.warn('cohort_lead_conversion rpc failed', err); _cohortCache[key] = null; app.render(); });
-  }
-  return null; // still loading (or errored) — kpiValueOver treats this as "no data yet"
+
+  /* The cache has to tell three states apart, and `null` can only be one of
+     them. Treating "fetched, no rows" as "never fetched" made this refetch on
+     every render, and because each response calls app.render(), that was an
+     endless render -> rpc -> render loop: the page visibly churned and any
+     open popover was torn down mid-interaction. So:
+       undefined -> never asked
+       'pending' -> in flight
+       null      -> asked, genuinely no data (do NOT ask again)
+       object    -> asked, got a row                                       */
+  if(cached === 'pending') return null;
+  if(cached !== undefined) return cached;
+
+  _cohortCache[key] = 'pending';
+  const settle = row => {
+    _cohortCache[key] = row;
+    // Only repaint if this actually resolved to something. A null result
+    // changes nothing on screen, and re-rendering for it is what created
+    // the loop in the first place.
+    if(row) app.render();
+  };
+  StorageAdapter.supabase.rpc('cohort_lead_conversion', {from_date: from, to_date: to})
+    .then(({data, error}) => {
+      if(error){ console.warn('cohort_lead_conversion rpc failed', error.message); settle(null); }
+      else settle((data && data[0]) || null);
+    })
+    .catch(err => { console.warn('cohort_lead_conversion rpc failed', err); settle(null); });
+
+  return null; // still loading — kpiValueOver treats this as "no data yet"
 }
 
 /* ---- Deriving a KPI over a window ---------------------------------------
@@ -3117,29 +3134,110 @@ function getKpiCal(){
   return state.kpiCal;
 }
 const monthDiff = (a,b) => (b.getFullYear()-a.getFullYear())*12 + (b.getMonth()-a.getMonth());
+/* Opening the calendar, paging months and the first of the two day clicks
+   all used to call app.render(). That rebuilds the whole tab — 20-odd KPI
+   tiles plus the chart — and restarts the .view-enter/fadeUp animations, so
+   every click made the page flash and the popover get torn down and rebuilt
+   underneath the cursor. These now repaint only the picker itself; a full
+   render happens once, when the range is actually complete and the tiles
+   genuinely need recomputing.                                             */
+function refreshKpiCalPicker(){
+  const host = document.querySelector('.kpi-range-picker');
+  if(!host) return;
+  const c = getKpiCal();
+  const range = resolveKpiTrackerRange();
+  const trigger = `<button class="btn btn-sm kpi-cal-trigger ${c.open?'open':''}"
+          onclick="toggleKpiRangeCalendar()">
+    <i class="ti ti-calendar"></i>
+    <span>${fmtLong(range.from)} – ${fmtLong(range.to)}</span>
+    <i class="ti ti-chevron-down" style="font-size:14px;opacity:.6"></i>
+  </button>`;
+  host.innerHTML = trigger + (c.open ? renderKpiRangeCalendar(range) : '');
+  if(c.open) positionKpiCalPopover();
+}
+
+/* .main is overflow-x:hidden, which makes it a clipping container — an
+   absolutely positioned popover inside it gets cut off rather than floating
+   over the page. Fixed positioning takes the popover out of that context
+   entirely; these coordinates put it back under its trigger, flipping above
+   it and clamping to the viewport when there isn't room below.            */
+function positionKpiCalPopover(){
+  const pop = document.querySelector('.kpi-cal-pop');
+  const trig = document.querySelector('.kpi-cal-trigger');
+  if(!pop || !trig) return;
+  const r = trig.getBoundingClientRect();
+  const pw = pop.offsetWidth || 266, ph = pop.offsetHeight || 300;
+  const M = 8;
+  let left = r.left;
+  if(left + pw > window.innerWidth - M) left = window.innerWidth - pw - M;
+  if(left < M) left = M;
+  let top = r.bottom + 6;
+  if(top + ph > window.innerHeight - M) top = Math.max(M, r.top - ph - 6);
+  pop.style.left = left + 'px';
+  pop.style.top  = top + 'px';
+}
+
+// Listeners that only exist while the popover is open, so a closed calendar
+// costs nothing and nothing leaks between renders.
+let _kpiCalDown = null, _kpiCalReflow = null;
+function bindKpiCalDismiss(){
+  unbindKpiCalDismiss();
+  /* Dismissal listens on mousedown, not click, on purpose. The in-popover
+     handlers (paging a month, picking a day) rebuild the picker's markup,
+     which detaches the very node that was clicked — so by the time a click
+     listener ran, closest('.kpi-range-picker') found nothing and the popover
+     dismissed itself mid-interaction. mousedown fires while the target is
+     still in the tree. composedPath() is checked too, since it's captured at
+     dispatch and survives the node being removed afterwards.              */
+  _kpiCalDown = e => {
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    const inside = path.some(n => n && n.classList && n.classList.contains('kpi-range-picker'))
+      || (e.target && e.target.closest && !!e.target.closest('.kpi-range-picker'));
+    if(!inside) closeKpiRangeCalendar();
+  };
+  _kpiCalReflow = () => positionKpiCalPopover();
+  // Deferred so the interaction that opened the calendar doesn't close it.
+  setTimeout(() => { if(getKpiCal().open) document.addEventListener('mousedown', _kpiCalDown, true); }, 0);
+  window.addEventListener('scroll', _kpiCalReflow, true);
+  window.addEventListener('resize', _kpiCalReflow);
+}
+function unbindKpiCalDismiss(){
+  if(_kpiCalDown) document.removeEventListener('mousedown', _kpiCalDown, true);
+  if(_kpiCalReflow){
+    window.removeEventListener('scroll', _kpiCalReflow, true);
+    window.removeEventListener('resize', _kpiCalReflow);
+  }
+  _kpiCalDown = _kpiCalReflow = null;
+}
+
 function toggleKpiRangeCalendar(){
   const c = getKpiCal();
   c.open = !c.open;
-  // Open on the month the range starts in, not always the current month.
   if(c.open){
     c.pendingFrom = null;
+    // Open on the month the range starts in, not always the current month.
     const from = getKpiTrackerCustomRange().from;
     c.monthOffset = from ? monthDiff(new Date(), asLocalDate(from)) : 0;
+    refreshKpiCalPicker();
+    bindKpiCalDismiss();
+  }else{
+    unbindKpiCalDismiss();
+    refreshKpiCalPicker();
   }
-  app.render();
 }
 function closeKpiRangeCalendar(){
   const c = getKpiCal();
   if(!c.open) return;
   c.open = false; c.pendingFrom = null;
-  app.render();
+  unbindKpiCalDismiss();
+  refreshKpiCalPicker();
 }
 function shiftKpiCalMonth(delta){
   const c = getKpiCal();
   // Never page past the current month — there's no data in the future.
   if(delta > 0 && c.monthOffset >= 0) return;
   c.monthOffset += delta;
-  app.render();
+  refreshKpiCalPicker();
 }
 function pickKpiRangeDay(dateStr){
   const c = getKpiCal();
@@ -3147,14 +3245,15 @@ function pickKpiRangeDay(dateStr){
     // First click: provisional start. The second click completes it either
     // way, so clicking an earlier day than the first still works.
     c.pendingFrom = dateStr;
-    app.render();
+    refreshKpiCalPicker();
     return;
   }
   const a = c.pendingFrom, b = dateStr;
   const from = a <= b ? a : b, to = a <= b ? b : a;
   c.pendingFrom = null;
   c.open = false;
-  setKpiTrackerCustomRange(from, to);   // re-renders
+  unbindKpiCalDismiss();
+  setKpiTrackerCustomRange(from, to);   // full render: the tiles change
 }
 
 function renderKpiRangeCalendar(range){
@@ -3185,10 +3284,10 @@ function renderKpiRangeCalendar(range){
       if(ds === range.to) cls.push('end');
     }
     cells += `<div class="kpi-cal-day ${cls.join(' ')}"
-      ${future?'':`onclick="event.stopPropagation();pickKpiRangeDay('${ds}')"`}>${d}</div>`;
+      ${future?'':`onclick="pickKpiRangeDay('${ds}')"`}>${d}</div>`;
   }
 
-  return `<div class="kpi-cal-pop" onclick="event.stopPropagation()">
+  return `<div class="kpi-cal-pop">
     <div class="kpi-cal-head">
       <button class="icon-btn" onclick="shiftKpiCalMonth(-1)" title="Previous month">${ICON_CHEVRON_LEFT}</button>
       <span class="kpi-cal-month">${monthLabel}</span>
@@ -3503,7 +3602,7 @@ function renderKpiTrackingView(){
       <span class="kpi-range-label"><i class="ti ti-calendar-due"></i> Custom range</span>
       <div class="kpi-range-picker">
         <button class="btn btn-sm kpi-cal-trigger ${getKpiCal().open?'open':''}"
-                onclick="event.stopPropagation();toggleKpiRangeCalendar()">
+                onclick="toggleKpiRangeCalendar()">
           <i class="ti ti-calendar"></i>
           <span>${fmtLong(range.from)} – ${fmtLong(range.to)}</span>
           <i class="ti ti-chevron-down" style="font-size:14px;opacity:.6"></i>
@@ -5301,12 +5400,6 @@ projects    (id uuid, title, category, status, priority,
    EVENT BINDING
    ========================================================= */
 function bindViewEvents(){
-  // Clicking anywhere off the range calendar dismisses it. Bound per render
-  // alongside the other view handlers, and only while it's actually open.
-  if(state.kpiCal && state.kpiCal.open){
-    document.addEventListener('click', closeKpiRangeCalendar, {once:true});
-  }
-
   // Filters
   document.querySelectorAll('[data-filter]').forEach(el=>{
     const key = el.dataset.filter;
