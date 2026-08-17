@@ -2733,14 +2733,25 @@ const KPI_DEFS = [
    calc:{type:'cohortPct', field:'pct_closed'}},
   // 2026-08-15: was touchPoints/leadsProduced (total conversation volume
   // that week over new leads that week — a blunt ratio, not really "per
-  // lead"). Now reads touchPerActiveLead, a value the GHL rollup computes
-  // server-side: for every lead currently active (not Deal Closed, not Not
-  // a Fit), how many touches THAT SPECIFIC lead got in the trailing 7 days,
-  // averaged across all active leads. calc type 'latest' because the stored
-  // value is already an average — summing multiple days of it together
-  // (like a normal 'avg' calc would) would be meaningless.
-  {key:'touchPerLead7',  section:'leadConv',label:'Avg touch points per active lead', win:7,  unit:'num',   dir:'up',
-   calc:{type:'latest', of:'touchPerActiveLead'}},
+  // lead"). Briefly read touchPerActiveLead (a GHL-rollup-computed,
+  // trailing-7-day snapshot of touches among currently-active leads), calc
+  // type 'latest'.
+  //
+  // CHANGED 2026-08-16: that answered "how active are today's leads," not
+  // the actual ask -- "how many times is a lead reached out to on average
+  // before it gets abandoned (marked Lost Leads), for the selected time
+  // period." Also, like touchPerActiveLead's own trailing-7-day-only
+  // limitation, a fixed snapshot can't answer that for 30/90/last month/
+  // custom either. Now calc type 'lostTouchAvg' calls
+  // avg_touches_before_lost(from, to) live for whatever range is selected:
+  // of the leads whose first-ever entry into Lost Leads falls in that
+  // range, how many touches (calls+texts, in+out) did each get before that
+  // moment, averaged across them. dir stays 'up' only in the sense that
+  // more warning/attempts before giving up reads as more effort, not less
+  // — flip to 'down' if the team would rather see fewer touches wasted on
+  // leads that end up lost.
+  {key:'touchPerLead7',  section:'leadConv',label:'Avg touches before lead lost', win:7,  unit:'num',   dir:'up',
+   calc:{type:'lostTouchAvg'}},
   {key:'contractSentAvg',section:'leadConv',label:'Avg time to contract sent', win:7,  unit:'hrs',   dir:'down',
    calc:{type:'avg', total:'contractSentHrs', count:'contractsSent'}},
   // CHANGED 2026-08-16: was calc type 'sum' of dealsProduced over the
@@ -2899,6 +2910,39 @@ function getCohortConversion(from, to){
   return null; // still loading — kpiValueOver treats this as "no data yet"
 }
 
+/* ---- Live "avg touches before Lost Leads" (ADDED 2026-08-16) -----------
+   Same shape and same reasoning as getCohortConversion above, including the
+   same three-state cache (undefined/'pending'/resolved-or-null) and the
+   same "only repaint on a real row" settle() guard that fixed the
+   render->rpc->render loop for cohort conversion. Of the leads marked Lost
+   Leads inside the selected range, how many touches did they get before
+   that — a cohort keyed off when a lead was abandoned, not a fixed
+   trailing-7-day snapshot, so it has to be asked live via RPC for whatever
+   range (7/30/90/custom) is actually selected.                           */
+const _lostTouchCache = {};
+function getLostTouchAvg(from, to){
+  if(!from || !to) return null;
+  const key = from + '_' + to;
+  const cached = _lostTouchCache[key];
+
+  if(cached === 'pending') return null;
+  if(cached !== undefined) return cached;
+
+  _lostTouchCache[key] = 'pending';
+  const settle = row => {
+    _lostTouchCache[key] = row;
+    if(row) app.render();
+  };
+  StorageAdapter.supabase.rpc('avg_touches_before_lost', {from_date: from, to_date: to})
+    .then(({data, error}) => {
+      if(error){ console.warn('avg_touches_before_lost rpc failed', error.message); settle(null); }
+      else settle((data && data[0]) || null);
+    })
+    .catch(err => { console.warn('avg_touches_before_lost rpc failed', err); settle(null); });
+
+  return null; // still loading — kpiValueOver treats this as "no data yet"
+}
+
 /* ---- Deriving a KPI over a window ---------------------------------------
    All three shapes sum their component inputs across the whole window first,
    then divide once. Returns null — not zero — when there's nothing to divide
@@ -2932,6 +2976,13 @@ function kpiValueOver(def, from, to){
     // missing data — the RPC already returns 0 for that case server-side.
     return Number(row[c.field]);
   }
+  if(c.type === 'lostTouchAvg'){
+    const row = getLostTouchAvg(from, to);
+    if(!row) return null;
+    // lost_leads === 0 means a genuine "nobody was marked Lost Leads in
+    // this window" zero, not missing data — the RPC returns 0 server-side.
+    return Number(row.avg_touches);
+  }
   return null;
 }
 // The same window, shifted back one full period — used for the trend delta.
@@ -2956,23 +3007,28 @@ function kpiHasData(def, days, anchor){
     const row = getCohortConversion(w.from, w.to);
     return !!row && Number(row.produced) > 0;
   }
+  if(def.calc.type === 'lostTouchAvg'){
+    const row = getLostTouchAvg(w.from, w.to);
+    return !!row && Number(row.lost_leads) > 0;
+  }
   return kpiComponentKeys(def).some(k =>
     state.kpiEntries.some(e => e.metricKey === k && e.date >= w.from && e.date <= w.to));
 }
 const kpiComponentKeys = def => def.calc.type === 'sum' ? [def.calc.of]
   : def.calc.type === 'ratio' ? [def.calc.num, def.calc.den]
   : def.calc.type === 'latest' ? [def.calc.of]
-  : (def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount') ? []
+  : (def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount' || def.calc.type === 'lostTouchAvg') ? []
   : [def.calc.total, def.calc.count];
-// Which raw inputs feed a KPI — what the log modal opens to. 'latest' and
-// cohortPct/cohortCount metrics are server-computed snapshots (see
-// touchPerActiveLead) with no manual-entry path by design, same reasoning as
-// leadEntryLag before it got folded into scProcessHrs — so this returns no
-// inputs for them, same as an empty result for any other calc type would.
+// Which raw inputs feed a KPI — what the log modal opens to. 'latest',
+// cohortPct/cohortCount, and lostTouchAvg metrics are all server-computed
+// snapshots (see touchPerActiveLead / avg_touches_before_lost) with no
+// manual-entry path by design, same reasoning as leadEntryLag before it got
+// folded into scProcessHrs — so this returns no inputs for them, same as an
+// empty result for any other calc type would.
 function kpiInputsFor(def){
   const c = def.calc;
   const keys = c.type === 'sum' ? [c.of] : c.type === 'ratio' ? [c.num, c.den]
-    : (c.type === 'latest' || c.type === 'cohortPct' || c.type === 'cohortCount') ? [] : [c.total, c.count];
+    : (c.type === 'latest' || c.type === 'cohortPct' || c.type === 'cohortCount' || c.type === 'lostTouchAvg') ? [] : [c.total, c.count];
   return keys.map(k => KPI_INPUT_BY_KEY[k]).filter(Boolean);
 }
 
@@ -3350,6 +3406,10 @@ function kpiHasDataOver(def, from, to){
   if(def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount'){
     const row = getCohortConversion(from, to);
     return !!row && Number(row.produced) > 0;
+  }
+  if(def.calc.type === 'lostTouchAvg'){
+    const row = getLostTouchAvg(from, to);
+    return !!row && Number(row.lost_leads) > 0;
   }
   return kpiComponentKeys(def).some(k =>
     state.kpiEntries.some(e => e.metricKey === k && e.date >= from && e.date <= to));

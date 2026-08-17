@@ -497,6 +497,16 @@ begin
   -- count field) since "active as of this day" is a point-in-time snapshot,
   -- not something meant to sum across multiple days — the dashboard reads
   -- it with calc type 'latest' rather than 'avg'.
+  --
+  -- SUPERSEDED 2026-08-16 for dashboard display — the "avg touch points"
+  -- tile now calls avg_touches_before_lost(from, to) live instead (see
+  -- below), same reasoning as the *CohortRate7 supersession further down:
+  -- the actual ask was "of the leads marked Lost Leads in the selected
+  -- window, how many touches did they get before that", a cohort keyed off
+  -- Lost Leads entries, not a fixed trailing-7-day snapshot of currently-
+  -- active leads. Left running here unchanged — still a useful point-in-
+  -- time historical record, and nothing currently reads it, so removing it
+  -- would only lose data for no benefit.
   perform set_kpi_entry('touchPerActiveLead', target_date, (
     with latest_stage as (
       select distinct on (opportunity_id)
@@ -843,6 +853,83 @@ $$;
 
 revoke all on function cohort_lead_conversion(date, date) from public;
 grant execute on function cohort_lead_conversion(date, date) to anon, authenticated;
+
+-- ---------------------------------------------------------
+-- avg_touches_before_lost(from_date, to_date) — ADDED 2026-08-16
+--
+-- Replaces touchPerActiveLead (below, in refresh_ghl_kpis) as the
+-- dashboard's "avg touch points" tile. touchPerActiveLead answers "on a
+-- given day, how many touches are currently-active leads getting" -- a
+-- trailing-7-day snapshot, fixed window, can't be asked over 30/90/custom.
+-- The question actually wanted: "of the leads marked Lost Leads during the
+-- selected time period, how many times were they touched before that" --
+-- a cohort question keyed off WHEN a lead was abandoned, not a daily
+-- snapshot of currently-active leads. Same reason cohort_lead_conversion
+-- exists instead of the old *CohortRate7 columns: needs to be called live
+-- for whatever range the KPI Tracker's picker has selected.
+--
+-- For every opportunity whose FIRST-EVER entry into the Lost Leads stage
+-- falls inside [from_date, to_date] (first-ever, so a lead that bounces
+-- into and out of Lost Leads more than once is only ever attributed to
+-- the day it was first abandoned -- same pattern as hotLeadsProduced /
+-- dealsProduced / offersPrepared above), counts every inbound/outbound
+-- message or call event tied to that lead's contact that happened BEFORE
+-- the moment it entered Lost Leads. Averages that count across every
+-- qualifying lead. touchPoints' own in/out + call/SMS event types are
+-- reused unchanged (InboundMessage/OutboundMessage), so "touch" means the
+-- same thing here as it does everywhere else on the dashboard.
+--
+-- SECURITY DEFINER + explicit grants, same reasoning as
+-- cohort_lead_conversion: ghl_events/ghl_locked_events stay service-role-
+-- only, this narrow read-only aggregate is what's reachable from the
+-- browser.
+create or replace function avg_touches_before_lost(from_date date, to_date date)
+returns table (
+  lost_leads  bigint,
+  avg_touches numeric
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  PIPE_LEAD_TO_CONTRACT constant text := '9wvdoIQrdKYrmeAnfod6';
+  STAGE_LOST_LEADS      constant text := 'd2f78e1d-1715-4599-b904-131ee5b3d8c2';
+  win_start timestamptz := from_date::timestamptz;
+  win_end   timestamptz := (to_date + 1)::timestamptz;
+begin
+  return query
+  with lost_transitions as (
+    select distinct on (opportunity_id)
+      opportunity_id, contact_id, occurred_at as lost_at
+    from ghl_events
+    where event_type = 'OpportunityStageUpdate'
+      and pipeline_id = PIPE_LEAD_TO_CONTRACT
+      and stage_id = STAGE_LOST_LEADS
+    order by opportunity_id, occurred_at asc
+  ),
+  in_window as (
+    select * from lost_transitions
+    where lost_at >= win_start and lost_at < win_end
+  ),
+  touch_counts as (
+    select
+      lt.opportunity_id,
+      count(e.*) as touches
+    from in_window lt
+    left join ghl_events e
+      on e.contact_id = lt.contact_id
+     and e.event_type in ('InboundMessage', 'OutboundMessage')
+     and e.occurred_at < lt.lost_at
+    group by lt.opportunity_id
+  )
+  select count(*), coalesce(avg(touches), 0)
+  from touch_counts;
+end;
+$$;
+
+revoke all on function avg_touches_before_lost(date, date) from public;
+grant execute on function avg_touches_before_lost(date, date) to anon, authenticated;
 
 -- ---------------------------------------------------------
 -- refresh_sc_process_kpis — Smarter Contact processing-time, ADDED
