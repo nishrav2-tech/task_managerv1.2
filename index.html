@@ -2732,15 +2732,42 @@ const KPI_DEFS = [
   {key:'pctContacted7',  section:'leadConv',label:'% of leads contacted',      win:7,  unit:'pct',   dir:'up',
    calc:{type:'cohortPct', field:'pct_contacted'},
    source:'GoHighLevel, live: of leads created in the selected range, the share that ever reached "contacted" — a call over 15 seconds with lead notes filled in, or an inbound SMS reply, checked against full history.'},
+  // ADDED 2026-08-17: sits next to pctContacted7 above but answers a
+  // different question. pctContacted7 is cohort-gated to leads PRODUCED in
+  // the range -- a lead produced last month that gets contacted this week
+  // doesn't count. This is the plain, ungated number: every contact locked
+  // as "contacted" during the selected range, regardless of when the
+  // underlying lead was originally produced. calc type 'sum' works here
+  // because the leadsContacted metric key is already written daily, dated
+  // to the day the contact qualified -- summing it over the range is
+  // exactly "all leads contacted in this period."
+  {key:'totalContacted7',section:'leadConv',label:'Total leads contacted',    win:7,  unit:'count', dir:'up',
+   calc:{type:'sum', of:'leadsContacted'},
+   source:'GoHighLevel: every contact locked as "contacted" during this range, counted on the day it happened — regardless of when the underlying lead was originally produced.'},
+  // CHANGED 2026-08-17: these three used to divide by leads PRODUCED in the
+  // range (cohort_lead_conversion, same as pctContacted7 above) -- of
+  // leads born this week, how many got offered on/sent a contract/closed.
+  // That's the wrong denominator for these three specifically: a lead's
+  // offer/contract/close naturally lags its first contact, often past
+  // whatever window it was produced in, so tying these to the PRODUCED
+  // cohort buried real conversion behind unrelated cohort noise. Now calc
+  // type 'cohortPct' with basis:'contacted' calls the live
+  // cohort_from_contacted(from, to) RPC instead: of the leads CONTACTED in
+  // the selected range (the totalContacted7 number above, regardless of
+  // when they were produced), what % of THAT group ever went on to be
+  // offered on / sent a contract / closed -- checked against full history.
+  // pctContacted7 itself is untouched -- it's still "how many of this
+  // week's fresh leads got followed up on," a different and still-useful
+  // question from "of the people we actually talked to, how many convert."
   {key:'pctOffered7',    section:'leadConv',label:'% of leads offered on',     win:7,  unit:'pct',   dir:'up',
-   calc:{type:'cohortPct', field:'pct_offered'},
-   source:'GoHighLevel, live: of leads created in the selected range, the share whose opportunity ever entered the "Send Paperwork" stage, checked against full history.'},
+   calc:{type:'cohortPct', field:'pct_offered', basis:'contacted'},
+   source:'GoHighLevel, live: of leads contacted in the selected range (regardless of when produced), the share whose opportunity ever entered the "Send Paperwork" stage, checked against full history.'},
   {key:'pctContract7',   section:'leadConv',label:'% of leads contract sent',  win:7,  unit:'pct',   dir:'up',
-   calc:{type:'cohortPct', field:'pct_contract_sent'},
-   source:'GoHighLevel, live: of leads created in the selected range, the share whose Contract Status custom field was ever set to "Sent," checked against full history.'},
+   calc:{type:'cohortPct', field:'pct_contract_sent', basis:'contacted'},
+   source:'GoHighLevel, live: of leads contacted in the selected range (regardless of when produced), the share whose Contract Status custom field was ever set to "Sent," checked against full history.'},
   {key:'pctClosed7',     section:'leadConv',label:'% of leads closed',         win:7,  unit:'pct',   dir:'up',
-   calc:{type:'cohortPct', field:'pct_closed'},
-   source:'GoHighLevel, live: of leads created in the selected range, the share whose opportunity ever entered the "Deal Closed!" stage, checked against full history.'},
+   calc:{type:'cohortPct', field:'pct_closed', basis:'contacted'},
+   source:'GoHighLevel, live: of leads contacted in the selected range (regardless of when produced), the share whose opportunity ever entered the "Deal Closed!" stage, checked against full history.'},
   // 2026-08-15: was touchPoints/leadsProduced (total conversation volume
   // that week over new leads that week — a blunt ratio, not really "per
   // lead"). Briefly read touchPerActiveLead (a GHL-rollup-computed,
@@ -2950,6 +2977,37 @@ function getCohortConversion(from, to){
   return null; // still loading — kpiValueOver treats this as "no data yet"
 }
 
+/* ---- Live "cohort from contacted" (ADDED 2026-08-17) --------------------
+   Same shape and reasoning as getCohortConversion above, but a different
+   cohort: instead of leads PRODUCED in the selected range, this anchors to
+   leads CONTACTED in the selected range (regardless of when they were
+   originally produced), then checks what % of THAT group ever went on to
+   be offered on / sent a contract / closed. Own module-level cache, same
+   undefined/'pending'/resolved-or-null states as _cohortCache.            */
+const _contactedCohortCache = {};
+function getCohortFromContacted(from, to){
+  if(!from || !to) return null;
+  const key = from + '_' + to;
+  const cached = _contactedCohortCache[key];
+
+  if(cached === 'pending') return null;
+  if(cached !== undefined) return cached;
+
+  _contactedCohortCache[key] = 'pending';
+  const settle = row => {
+    _contactedCohortCache[key] = row;
+    if(row) app.render();
+  };
+  StorageAdapter.supabase.rpc('cohort_from_contacted', {from_date: from, to_date: to})
+    .then(({data, error}) => {
+      if(error){ console.warn('cohort_from_contacted rpc failed', error.message); settle(null); }
+      else settle((data && data[0]) || null);
+    })
+    .catch(err => { console.warn('cohort_from_contacted rpc failed', err); settle(null); });
+
+  return null; // still loading — kpiValueOver treats this as "no data yet"
+}
+
 /* ---- Live "avg touches before Lost Leads" (ADDED 2026-08-16) -----------
    Same shape and same reasoning as getCohortConversion above, including the
    same three-state cache (undefined/'pending'/resolved-or-null) and the
@@ -3039,11 +3097,11 @@ function kpiValueOver(def, from, to){
     return rows.reduce((a,b) => a.date > b.date ? a : b).value;
   }
   if(c.type === 'cohortPct' || c.type === 'cohortCount'){
-    const row = getCohortConversion(from, to);
+    const row = c.basis === 'contacted' ? getCohortFromContacted(from, to) : getCohortConversion(from, to);
     if(!row) return null;
     if(c.type === 'cohortCount') return Number(row[c.field]) || 0;
-    // produced === 0 means a genuine "no leads in this window" zero, not
-    // missing data — the RPC already returns 0 for that case server-side.
+    // The denominator being 0 means a genuine "nobody in this window" zero,
+    // not missing data — the RPC already returns 0 for that case server-side.
     return Number(row[c.field]);
   }
   if(c.type === 'lostTouchAvg'){
@@ -3081,8 +3139,8 @@ function kpiValue(def, days, anchor){
 function kpiHasData(def, days, anchor){
   const w = kpiWindow(days || def.win, anchor);
   if(def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount'){
-    const row = getCohortConversion(w.from, w.to);
-    return !!row && Number(row.produced) > 0;
+    const row = def.calc.basis === 'contacted' ? getCohortFromContacted(w.from, w.to) : getCohortConversion(w.from, w.to);
+    return !!row && Number(row[def.calc.basis === 'contacted' ? 'contacted' : 'produced']) > 0;
   }
   if(def.calc.type === 'lostTouchAvg'){
     const row = getLostTouchAvg(w.from, w.to);
@@ -3486,8 +3544,8 @@ function kpiValuePrevOver(def, from, to){
 }
 function kpiHasDataOver(def, from, to){
   if(def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount'){
-    const row = getCohortConversion(from, to);
-    return !!row && Number(row.produced) > 0;
+    const row = def.calc.basis === 'contacted' ? getCohortFromContacted(from, to) : getCohortConversion(from, to);
+    return !!row && Number(row[def.calc.basis === 'contacted' ? 'contacted' : 'produced']) > 0;
   }
   if(def.calc.type === 'lostTouchAvg'){
     const row = getLostTouchAvg(from, to);
@@ -3673,19 +3731,23 @@ function kpiBreakdownRows(def, from, to){
     const COHORT_LABELS = {contacted:'Leads contacted', offered:'Leads offered on', contract_sent:'Contracts sent', closed:'Deals closed'};
     const countField = c.type === 'cohortCount' ? c.field : c.field.replace(/^pct_/, '');
     const countLabel = COHORT_LABELS[countField] || countField;
+    const contactedBasis = c.basis === 'contacted';
+    const denomKey = contactedBasis ? 'contacted' : 'produced';
+    const denomLabel = contactedBasis ? 'Leads contacted in this range' : 'Leads produced in this range';
+    const cohortVerb = contactedBasis ? 'contacted in this range' : 'produced in this range';
     const base = {
       formula: c.type === 'cohortCount'
-        ? `${escape(def.label)} = leads produced in this range that have EVER gone on to reach "${escape(countLabel)}" (checked against their full history, not just this range).`
-        : `${escape(def.label)} = (leads produced in this range that reached "${escape(countLabel)}" ÷ leads produced in this range) × 100 -- checked against full history.`,
+        ? `${escape(def.label)} = leads ${cohortVerb} that have EVER gone on to reach "${escape(countLabel)}" (checked against their full history, not just this range).`
+        : `${escape(def.label)} = (leads ${cohortVerb} that reached "${escape(countLabel)}" ÷ leads ${cohortVerb}) × 100 -- checked against full history.`,
       editable: false, live: true
     };
-    const row = getCohortConversion(from, to);
+    const row = contactedBasis ? getCohortFromContacted(from, to) : getCohortConversion(from, to);
     if(!row) return {...base, rows: []};
-    const produced = Number(row.produced) || 0, count = Number(row[countField]) || 0;
-    const pct = produced ? (count / produced) * 100 : 0;
+    const denom = Number(row[denomKey]) || 0, count = Number(row[countField]) || 0;
+    const pct = denom ? (count / denom) * 100 : 0;
     return {...base,
       rows: [
-        {label: 'Leads produced in this range', value: kpiFormat(produced, 'count')},
+        {label: denomLabel, value: kpiFormat(denom, 'count')},
         {label: countLabel, value: kpiFormat(count, 'count')}
       ],
       result: c.type === 'cohortCount' ? kpiFormat(count, 'count') : kpiFormat(pct, 'pct')

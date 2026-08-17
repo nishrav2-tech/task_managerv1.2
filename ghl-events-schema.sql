@@ -855,6 +855,94 @@ revoke all on function cohort_lead_conversion(date, date) from public;
 grant execute on function cohort_lead_conversion(date, date) to anon, authenticated;
 
 -- ---------------------------------------------------------
+-- cohort_from_contacted(from_date, to_date) — ADDED 2026-08-17
+--
+-- cohort_lead_conversion above anchors its cohort to leads PRODUCED in the
+-- selected range -- of leads born in this window, what % ever got
+-- contacted/offered/sent a contract/closed. That answers "how well are we
+-- following up on fresh leads," but it undercounts the funnel: a lead
+-- produced last month that finally gets contacted, offered on, and closed
+-- THIS week never shows up in any of those percentages, because it isn't
+-- a member of this week's produced cohort.
+--
+-- This function anchors the cohort differently: of the leads CONTACTED in
+-- the selected range (regardless of when they were originally produced),
+-- what % of THAT group ever went on to be offered on / sent a contract /
+-- closed -- checked against full history, same "ever reached this stage"
+-- logic as cohort_lead_conversion, just with a different starting cohort.
+-- leadsContacted's lock table is keyed by contact_id, so this resolves
+-- each contacted contact to its opportunity (via that contact's
+-- OpportunityCreate event in Lead --> Contract) to check the
+-- opportunity-keyed lock tables (leadsOfferedOn, dealsProduced), and checks
+-- contractsSent directly since that lock table is also contact-keyed.
+--
+-- SECURITY DEFINER + explicit grants, same reasoning as
+-- cohort_lead_conversion: ghl_events/ghl_locked_events stay service-role-
+-- only, this narrow read-only aggregate is what's reachable from the
+-- browser.
+create or replace function cohort_from_contacted(from_date date, to_date date)
+returns table (
+  contacted         bigint,
+  offered           bigint,
+  contract_sent     bigint,
+  closed            bigint,
+  pct_offered       numeric,
+  pct_contract_sent numeric,
+  pct_closed        numeric
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  PIPE_LEAD_TO_CONTRACT constant text := '9wvdoIQrdKYrmeAnfod6';
+begin
+  return query
+  with cohort as (
+    select entity_id as contact_id
+    from ghl_locked_events
+    where metric_key = 'leadsContacted'
+      and log_date between from_date and to_date
+  ),
+  totals as (
+    select
+      count(*) as contacted,
+      count(*) filter (
+        where exists (
+          select 1 from ghl_events oc
+          where oc.event_type = 'OpportunityCreate'
+            and oc.pipeline_id = PIPE_LEAD_TO_CONTRACT
+            and oc.contact_id = cohort.contact_id
+            and oc.opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsOfferedOn')
+        )
+      ) as offered,
+      count(*) filter (
+        where contact_id in (select entity_id from ghl_locked_events where metric_key = 'contractsSent')
+      ) as contract_sent,
+      count(*) filter (
+        where exists (
+          select 1 from ghl_events oc
+          where oc.event_type = 'OpportunityCreate'
+            and oc.pipeline_id = PIPE_LEAD_TO_CONTRACT
+            and oc.contact_id = cohort.contact_id
+            and oc.opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'dealsProduced')
+        )
+      ) as closed
+    from cohort
+  )
+  select
+    t.contacted, t.offered, t.contract_sent, t.closed,
+    case when t.contacted = 0 then 0 else round(100.0 * t.offered / t.contacted, 1) end,
+    case when t.contacted = 0 then 0 else round(100.0 * t.contract_sent / t.contacted, 1) end,
+    case when t.contacted = 0 then 0 else round(100.0 * t.closed / t.contacted, 1) end
+  from totals t;
+end;
+$$;
+
+revoke all on function cohort_from_contacted(date, date) from public;
+grant execute on function cohort_from_contacted(date, date) to anon, authenticated;
+
+-- ---------------------------------------------------------
 -- avg_touches_before_lost(from_date, to_date) — ADDED 2026-08-16
 --
 -- Replaces touchPerActiveLead (below, in refresh_ghl_kpis) as the
