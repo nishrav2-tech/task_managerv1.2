@@ -2688,21 +2688,28 @@ const KPI_INPUT_BY_KEY = Object.fromEntries(KPI_METRICS.map(m=>[m.key,m]));
 const KPI_DEFS = [
   // ---- Lead Generation: sending campaigns + processing leads ----
   {key:'smsSent7',       section:'leadGen', label:'SMS sent',                  win:7,  unit:'count', dir:'up',
-   calc:{type:'sum', of:'smsSent'}, pace:'smsMonthlyGoal'},
+   calc:{type:'sum', of:'smsSent'}, pace:'smsMonthlyGoal',
+   source:'Manually logged each day — GHL doesn\'t distinguish bulk campaign sends from individual touches, so there\'s no automated source for this one.'},
   {key:'smsSent30',      section:'leadGen', label:'SMS sent',                  win:30, unit:'count', dir:'up',
-   calc:{type:'sum', of:'smsSent'}},
+   calc:{type:'sum', of:'smsSent'},
+   source:'Manually logged each day — GHL doesn\'t distinguish bulk campaign sends from individual touches, so there\'s no automated source for this one.'},
   {key:'leadsProduced7', section:'leadGen', label:'Leads produced',            win:7,  unit:'count', dir:'up',
-   calc:{type:'sum', of:'leadsProduced'}},
+   calc:{type:'sum', of:'leadsProduced'},
+   source:'GoHighLevel: every opportunity created in the Lead → Contract pipeline (the OpportunityCreate event), counted once per opportunity.'},
   {key:'hotLeads7',      section:'leadGen', label:'Hot leads produced',        win:7,  unit:'count', dir:'up',
-   calc:{type:'sum', of:'hotLeadsProduced'}},
+   calc:{type:'sum', of:'hotLeadsProduced'},
+   source:'GoHighLevel: an opportunity\'s first-ever move into the "Priority Offer Ready" stage in the Lead → Contract pipeline.'},
   {key:'scProcessAvg',   section:'leadGen', label:'Avg time to process a lead',win:7,  unit:'hrs',   dir:'down',
-   calc:{type:'avg', total:'scProcessHrs', count:'scLeadsProcessed'}},
+   calc:{type:'avg', total:'scProcessHrs', count:'scLeadsProcessed'},
+   source:'Smarter Contact, synced via the lead-entry-lag automation into ghl_contact_state: hours between a contact\'s creation and its first SMS reply.'},
   {key:'offerPrepAvg',   section:'leadGen', label:'Avg time to prepare offer', win:7,  unit:'hrs',   dir:'down',
-   calc:{type:'avg', total:'offerPrepHrs', count:'offersPrepared'}},
+   calc:{type:'avg', total:'offerPrepHrs', count:'offersPrepared'},
+   source:'GoHighLevel: hours between an opportunity\'s entry into "Vetted Lead" and its first-ever exit to any other stage in the Lead → Contract pipeline.'},
 
   // ---- Lead Conversion / management ----
   {key:'firstContact7',  section:'leadConv',label:'Avg time to first contact', win:7,  unit:'hrs',   dir:'down',
-   calc:{type:'avg', total:'firstContactHrs', count:'leadsContacted'}},
+   calc:{type:'avg', total:'firstContactHrs', count:'leadsContacted'},
+   source:'GoHighLevel: hours from an opportunity\'s creation to its first outbound call or text. "Contacted" (the count) requires either a call over 15 seconds with lead notes filled in, or an inbound SMS reply.'},
   // CHANGED 2026-08-15: was calc type 'ratio' (leadsContacted/leadsOfferedOn/
   // contractsSent/contractsClosed summed over the trailing 7 days, divided by
   // leadsProduced summed over the SAME 7 days). That compared two different
@@ -2723,13 +2730,17 @@ const KPI_DEFS = [
   // keys is legacy naming from before this change -- left as-is since
   // goals/localStorage layout already reference these exact key strings.
   {key:'pctContacted7',  section:'leadConv',label:'% of leads contacted',      win:7,  unit:'pct',   dir:'up',
-   calc:{type:'cohortPct', field:'pct_contacted'}},
+   calc:{type:'cohortPct', field:'pct_contacted'},
+   source:'GoHighLevel, live: of leads created in the selected range, the share that ever reached "contacted" — a call over 15 seconds with lead notes filled in, or an inbound SMS reply, checked against full history.'},
   {key:'pctOffered7',    section:'leadConv',label:'% of leads offered on',     win:7,  unit:'pct',   dir:'up',
-   calc:{type:'cohortPct', field:'pct_offered'}},
+   calc:{type:'cohortPct', field:'pct_offered'},
+   source:'GoHighLevel, live: of leads created in the selected range, the share whose opportunity ever entered the "Send Paperwork" stage, checked against full history.'},
   {key:'pctContract7',   section:'leadConv',label:'% of leads contract sent',  win:7,  unit:'pct',   dir:'up',
-   calc:{type:'cohortPct', field:'pct_contract_sent'}},
+   calc:{type:'cohortPct', field:'pct_contract_sent'},
+   source:'GoHighLevel, live: of leads created in the selected range, the share whose Contract Status custom field was ever set to "Sent," checked against full history.'},
   {key:'pctClosed7',     section:'leadConv',label:'% of leads closed',         win:7,  unit:'pct',   dir:'up',
-   calc:{type:'cohortPct', field:'pct_closed'}},
+   calc:{type:'cohortPct', field:'pct_closed'},
+   source:'GoHighLevel, live: of leads created in the selected range, the share whose opportunity ever entered the "Deal Closed!" stage, checked against full history.'},
   // 2026-08-15: was touchPoints/leadsProduced (total conversation volume
   // that week over new leads that week — a blunt ratio, not really "per
   // lead"). Briefly read touchPerActiveLead (a GHL-rollup-computed,
@@ -2750,7 +2761,8 @@ const KPI_DEFS = [
   // — flip to 'down' if the team would rather see fewer touches wasted on
   // leads that end up lost.
   {key:'touchPerLead7',  section:'leadConv',label:'Avg touches before lead lost', win:7,  unit:'num',   dir:'up',
-   calc:{type:'lostTouchAvg'}},
+   calc:{type:'lostTouchAvg'},
+   source:'GoHighLevel, live: opportunities whose first-ever entry into the "Lost Leads" stage falls in the selected range; touches counted are every inbound/outbound call or text before that moment.'},
   // ADDED 2026-08-17: the mirror image of touchPerLead7 above -- instead of
   // touches spent on leads that got abandoned, how many touches a lead got
   // before its deal actually closed. Same live-RPC shape as touchPerLead7
@@ -2762,9 +2774,11 @@ const KPI_DEFS = [
   // more effort, not less. Flip it if the team would rather track it the
   // other way.
   {key:'touchPerDeal7',  section:'leadConv',label:'Avg touches before deal made', win:7,  unit:'num',   dir:'down',
-   calc:{type:'dealTouchAvg'}},
+   calc:{type:'dealTouchAvg'},
+   source:'GoHighLevel, live: opportunities whose first-ever entry into the "Deal Closed!" stage falls in the selected range; touches counted are every inbound/outbound call or text before that moment.'},
   {key:'contractSentAvg',section:'leadConv',label:'Avg time to contract sent', win:7,  unit:'hrs',   dir:'down',
-   calc:{type:'avg', total:'contractSentHrs', count:'contractsSent'}},
+   calc:{type:'avg', total:'contractSentHrs', count:'contractsSent'},
+   source:'GoHighLevel: hours from an opportunity\'s first entry into "Send Paperwork" to its Contract Status custom field being set to "Sent."'},
   // CHANGED 2026-08-16: was calc type 'sum' of dealsProduced over the
   // selected range -- that counts every deal that CLOSED in the range,
   // regardless of whether the underlying lead was produced inside or
@@ -2777,29 +2791,44 @@ const KPI_DEFS = [
   // full history, so a lead produced near the end of the range can still
   // count once it closes later).
   {key:'dealsProduced7', section:'leadConv',label:'Deals produced',            win:7,  unit:'count', dir:'up',
-   calc:{type:'cohortCount', field:'closed'}},
+   calc:{type:'cohortCount', field:'closed'},
+   source:'GoHighLevel, live: of leads created in the selected range, how many have ever gone on to reach the "Deal Closed!" stage, checked against full history.'},
 
   // ---- Due Diligence + Funding ----
+  // Switched off in KPI_ACTIVE_SECTIONS below -- no GHL pipeline stage or
+  // custom field currently feeds this part of the process, so every metric
+  // in this section is manual-only.
   {key:'ddStage2Avg',    section:'dueDil',  label:'Avg time to complete Stage II DD', win:7, unit:'hrs', dir:'down',
-   calc:{type:'avg', total:'ddStage2Hrs', count:'ddStage2Done'}},
+   calc:{type:'avg', total:'ddStage2Hrs', count:'ddStage2Done'},
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
   {key:'emdAvg',         section:'dueDil',  label:'Avg time to submit EMD',    win:7,  unit:'hrs',   dir:'down',
-   calc:{type:'avg', total:'emdHrs', count:'emdSubmitted'}},
+   calc:{type:'avg', total:'emdHrs', count:'emdSubmitted'},
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
   {key:'pctCancelled30', section:'dueDil',  label:'% of contracts cancelled',  win:30, unit:'pct',   dir:'down',
-   calc:{type:'ratio', num:'contractsCancelled', den:'contractsExecuted'}},
+   calc:{type:'ratio', num:'contractsCancelled', den:'contractsExecuted'},
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
 
   // ---- Disposition: buyer servicing + marketing/pricing effectiveness ----
+  // Also switched off in KPI_ACTIVE_SECTIONS -- same as Due Diligence above,
+  // nothing here is wired to GHL or any other automated source yet.
   {key:'buyerResp30',    section:'disposition', label:'Avg time to respond to buyer leads', win:30, unit:'hrs', dir:'down',
-   calc:{type:'avg', total:'buyerRespHrs', count:'buyerLeadsResponded'}},
+   calc:{type:'avg', total:'buyerRespHrs', count:'buyerLeadsResponded'},
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
   {key:'buyerResp7',     section:'disposition', label:'Avg time to respond to buyer leads', win:7, unit:'hrs', dir:'down',
-   calc:{type:'avg', total:'buyerRespHrs', count:'buyerLeadsResponded'}},
+   calc:{type:'avg', total:'buyerRespHrs', count:'buyerLeadsResponded'},
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
   {key:'outboundAvg',    section:'disposition', label:'Avg time to produce + call all outbound buyer leads', win:7, unit:'hrs', dir:'down',
-   calc:{type:'avg', total:'outboundBuyerHrs', count:'outboundBuyerRuns'}},
+   calc:{type:'avg', total:'outboundBuyerHrs', count:'outboundBuyerRuns'},
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
   {key:'hotBuyerAvg',    section:'disposition', label:'Avg time to produce 8 hot buyer leads / property', win:30, unit:'hrs', dir:'down',
-   calc:{type:'avg', total:'hotBuyerHrs', count:'propsHit8HotBuyers'}},
+   calc:{type:'avg', total:'hotBuyerHrs', count:'propsHit8HotBuyers'},
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
   {key:'savesPerProp',   section:'disposition', label:'Avg Zillow saves per property', win:30, unit:'num', dir:'up',
-   calc:{type:'avg', total:'zillowSaves', count:'propsListed'}},
+   calc:{type:'avg', total:'zillowSaves', count:'propsListed'},
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
   {key:'fbPerProp',      section:'disposition', label:'Avg Facebook Marketplace hits per property', win:30, unit:'num', dir:'up',
-   calc:{type:'avg', total:'fbHits', count:'propsListed'}}
+   calc:{type:'avg', total:'fbHits', count:'propsListed'},
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'}
 ];
 /* ---- KPI sections -------------------------------------------------------
    The four stages a deal moves through. Sections are fixed; which metrics
@@ -3707,7 +3736,8 @@ function openKpiBreakdown(defKey, from, to, rangeLabel){
           <span class="kpi-history-val">${escape(r.value)}</span>
         </div>`).join('')}
       </div>` : `<div class="kpi-note">No entries in this range yet.</div>`}
-    ${b.live ? `<div class="form-hint" style="margin-top:10px">Computed live from GHL activity — nothing to log manually here.</div>` : ''}
+    <div class="page-eyebrow" style="margin-top:14px">Data source</div>
+    <div class="form-hint">${escape(def.source || 'Source not documented yet.')}</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
       ${b.editable ? `<button class="btn btn-primary" onclick="closeModal();openKpiComboForm(KPI_DEFS.find(d=>d.key==='${defKey}'), '${to}')">Log a day's numbers</button>` : ''}
