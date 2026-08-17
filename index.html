@@ -378,8 +378,8 @@ input,select,textarea{font:inherit;color:inherit}
   font-size:12.5px;font-variant-numeric:tabular-nums;
   transition:background .1s var(--ease);
 }
-.kpi-cal-day:hover:not(.empty):not(.disabled){background:var(--surface-2)}
-.kpi-cal-day.empty{cursor:default}
+.kpi-cal-day:hover:not(.blank):not(.disabled){background:var(--surface-2)}
+.kpi-cal-day.blank{cursor:default}
 .kpi-cal-day.disabled{color:var(--ink-3);opacity:.35;cursor:not-allowed}
 .kpi-cal-day.today{font-weight:700;text-decoration:underline;text-underline-offset:3px}
 .kpi-cal-day.in-range{background:var(--accent-soft);border-radius:0}
@@ -3407,7 +3407,7 @@ function renderKpiRangeCalendar(range){
   const atCurrentMonth = c.monthOffset >= 0;
 
   let cells = '';
-  for(let i=0;i<startWeekday;i++) cells += `<div class="kpi-cal-day empty"></div>`;
+  for(let i=0;i<startWeekday;i++) cells += `<div class="kpi-cal-day blank"></div>`;
   for(let d=1; d<=daysInMonth; d++){
     const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const future = ds > todayStr;
