@@ -932,6 +932,72 @@ revoke all on function avg_touches_before_lost(date, date) from public;
 grant execute on function avg_touches_before_lost(date, date) to anon, authenticated;
 
 -- ---------------------------------------------------------
+-- avg_touches_before_deal(from_date, to_date) — ADDED 2026-08-17
+--
+-- The mirror image of avg_touches_before_lost above: instead of touches
+-- spent on leads that got abandoned, how many touches did a lead get
+-- before its deal actually closed. Same cohort shape and same reasoning --
+-- of the leads whose FIRST-EVER entry into "Deal Closed!" falls inside
+-- [from_date, to_date], counts every inbound/outbound message or call
+-- event tied to that lead's contact that happened BEFORE the moment it
+-- entered Deal Closed!, then averages that count across every qualifying
+-- deal. Same touchPoints event types reused (InboundMessage/
+-- OutboundMessage), so "touch" means the same thing here as everywhere
+-- else on the dashboard.
+--
+-- SECURITY DEFINER + explicit grants, same reasoning as
+-- avg_touches_before_lost: ghl_events/ghl_locked_events stay service-role-
+-- only, this narrow read-only aggregate is what's reachable from the
+-- browser.
+create or replace function avg_touches_before_deal(from_date date, to_date date)
+returns table (
+  deals_closed bigint,
+  avg_touches  numeric
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  PIPE_LEAD_TO_CONTRACT constant text := '9wvdoIQrdKYrmeAnfod6';
+  STAGE_DEAL_CLOSED     constant text := '462724b5-24ce-4a16-b198-ba5c290eab85';
+  win_start timestamptz := from_date::timestamptz;
+  win_end   timestamptz := (to_date + 1)::timestamptz;
+begin
+  return query
+  with deal_transitions as (
+    select distinct on (opportunity_id)
+      opportunity_id, contact_id, occurred_at as closed_at
+    from ghl_events
+    where event_type = 'OpportunityStageUpdate'
+      and pipeline_id = PIPE_LEAD_TO_CONTRACT
+      and stage_id = STAGE_DEAL_CLOSED
+    order by opportunity_id, occurred_at asc
+  ),
+  in_window as (
+    select * from deal_transitions
+    where closed_at >= win_start and closed_at < win_end
+  ),
+  touch_counts as (
+    select
+      dt.opportunity_id,
+      count(e.*) as touches
+    from in_window dt
+    left join ghl_events e
+      on e.contact_id = dt.contact_id
+     and e.event_type in ('InboundMessage', 'OutboundMessage')
+     and e.occurred_at < dt.closed_at
+    group by dt.opportunity_id
+  )
+  select count(*), coalesce(avg(touches), 0)
+  from touch_counts;
+end;
+$$;
+
+revoke all on function avg_touches_before_deal(date, date) from public;
+grant execute on function avg_touches_before_deal(date, date) to anon, authenticated;
+
+-- ---------------------------------------------------------
 -- refresh_sc_process_kpis — Smarter Contact processing-time, ADDED
 -- 2026-08-16
 --

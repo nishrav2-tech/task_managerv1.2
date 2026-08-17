@@ -2751,6 +2751,18 @@ const KPI_DEFS = [
   // leads that end up lost.
   {key:'touchPerLead7',  section:'leadConv',label:'Avg touches before lead lost', win:7,  unit:'num',   dir:'up',
    calc:{type:'lostTouchAvg'}},
+  // ADDED 2026-08-17: the mirror image of touchPerLead7 above -- instead of
+  // touches spent on leads that got abandoned, how many touches a lead got
+  // before its deal actually closed. Same live-RPC shape as touchPerLead7
+  // (calc type 'dealTouchAvg' calls avg_touches_before_deal(from, to)),
+  // keyed off each opportunity's first-ever entry into Deal Closed! landing
+  // inside the selected range, not a fixed trailing window. dir is 'down'
+  // here rather than 'up' -- fewer touches to close a deal reads as more
+  // efficient, whereas more touches before giving up on a lead reads as
+  // more effort, not less. Flip it if the team would rather track it the
+  // other way.
+  {key:'touchPerDeal7',  section:'leadConv',label:'Avg touches before deal made', win:7,  unit:'num',   dir:'down',
+   calc:{type:'dealTouchAvg'}},
   {key:'contractSentAvg',section:'leadConv',label:'Avg time to contract sent', win:7,  unit:'hrs',   dir:'down',
    calc:{type:'avg', total:'contractSentHrs', count:'contractsSent'}},
   // CHANGED 2026-08-16: was calc type 'sum' of dealsProduced over the
@@ -2942,6 +2954,36 @@ function getLostTouchAvg(from, to){
   return null; // still loading — kpiValueOver treats this as "no data yet"
 }
 
+/* ---- Live "avg touches before Deal Made" (ADDED 2026-08-17) ------------
+   Same shape as getLostTouchAvg above, mirrored to the other end of the
+   pipeline: of the leads whose first-ever entry into Deal Closed! falls in
+   the selected range, how many touches (calls+texts, in+out) did each get
+   before that moment, averaged across them. Own module-level cache, same
+   absent/'pending'/resolved-or-null states as the others.                 */
+const _dealTouchCache = {};
+function getDealTouchAvg(from, to){
+  if(!from || !to) return null;
+  const key = from + '_' + to;
+  const cached = _dealTouchCache[key];
+
+  if(cached === 'pending') return null;
+  if(cached !== undefined) return cached;
+
+  _dealTouchCache[key] = 'pending';
+  const settle = row => {
+    _dealTouchCache[key] = row;
+    if(row) app.render();
+  };
+  StorageAdapter.supabase.rpc('avg_touches_before_deal', {from_date: from, to_date: to})
+    .then(({data, error}) => {
+      if(error){ console.warn('avg_touches_before_deal rpc failed', error.message); settle(null); }
+      else settle((data && data[0]) || null);
+    })
+    .catch(err => { console.warn('avg_touches_before_deal rpc failed', err); settle(null); });
+
+  return null; // still loading — kpiValueOver treats this as "no data yet"
+}
+
 /* ---- Deriving a KPI over a window ---------------------------------------
    All three shapes sum their component inputs across the whole window first,
    then divide once. Returns null — not zero — when there's nothing to divide
@@ -2982,6 +3024,13 @@ function kpiValueOver(def, from, to){
     // this window" zero, not missing data — the RPC returns 0 server-side.
     return Number(row.avg_touches);
   }
+  if(c.type === 'dealTouchAvg'){
+    const row = getDealTouchAvg(from, to);
+    if(!row) return null;
+    // deals_closed === 0 means a genuine "nobody closed in this window"
+    // zero, not missing data — the RPC returns 0 server-side.
+    return Number(row.avg_touches);
+  }
   return null;
 }
 // The same window, shifted back one full period — used for the trend delta.
@@ -3010,24 +3059,29 @@ function kpiHasData(def, days, anchor){
     const row = getLostTouchAvg(w.from, w.to);
     return !!row && Number(row.lost_leads) > 0;
   }
+  if(def.calc.type === 'dealTouchAvg'){
+    const row = getDealTouchAvg(w.from, w.to);
+    return !!row && Number(row.deals_closed) > 0;
+  }
   return kpiComponentKeys(def).some(k =>
     state.kpiEntries.some(e => e.metricKey === k && e.date >= w.from && e.date <= w.to));
 }
 const kpiComponentKeys = def => def.calc.type === 'sum' ? [def.calc.of]
   : def.calc.type === 'ratio' ? [def.calc.num, def.calc.den]
   : def.calc.type === 'latest' ? [def.calc.of]
-  : (def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount' || def.calc.type === 'lostTouchAvg') ? []
+  : (def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount' || def.calc.type === 'lostTouchAvg' || def.calc.type === 'dealTouchAvg') ? []
   : [def.calc.total, def.calc.count];
 // Which raw inputs feed a KPI — what the log modal opens to. 'latest',
-// cohortPct/cohortCount, and lostTouchAvg metrics are all server-computed
-// snapshots (see touchPerActiveLead / avg_touches_before_lost) with no
-// manual-entry path by design, same reasoning as leadEntryLag before it got
-// folded into scProcessHrs — so this returns no inputs for them, same as an
-// empty result for any other calc type would.
+// cohortPct/cohortCount, lostTouchAvg, and dealTouchAvg metrics are all
+// server-computed snapshots (see touchPerActiveLead / avg_touches_before_lost
+// / avg_touches_before_deal) with no manual-entry path by design, same
+// reasoning as leadEntryLag before it got folded into scProcessHrs — so this
+// returns no inputs for them, same as an empty result for any other calc
+// type would.
 function kpiInputsFor(def){
   const c = def.calc;
   const keys = c.type === 'sum' ? [c.of] : c.type === 'ratio' ? [c.num, c.den]
-    : (c.type === 'latest' || c.type === 'cohortPct' || c.type === 'cohortCount' || c.type === 'lostTouchAvg') ? [] : [c.total, c.count];
+    : (c.type === 'latest' || c.type === 'cohortPct' || c.type === 'cohortCount' || c.type === 'lostTouchAvg' || c.type === 'dealTouchAvg') ? [] : [c.total, c.count];
   return keys.map(k => KPI_INPUT_BY_KEY[k]).filter(Boolean);
 }
 
@@ -3410,6 +3464,10 @@ function kpiHasDataOver(def, from, to){
     const row = getLostTouchAvg(from, to);
     return !!row && Number(row.lost_leads) > 0;
   }
+  if(def.calc.type === 'dealTouchAvg'){
+    const row = getDealTouchAvg(from, to);
+    return !!row && Number(row.deals_closed) > 0;
+  }
   return kpiComponentKeys(def).some(k =>
     state.kpiEntries.some(e => e.metricKey === k && e.date >= from && e.date <= to));
 }
@@ -3525,6 +3583,138 @@ function kpiSmsPacing(anchor){
   };
 }
 
+/* ---- KPI breakdown ("show your work") -----------------------------------
+   ADDED 2026-08-17. The tile itself only ever showed the one computed
+   number; figuring out whether that number was right meant opening the
+   per-day log form and mentally re-deriving the formula. This computes the
+   same components kpiValueOver() already combines -- for whatever range is
+   currently selected, not just one day -- and hands them back as plain rows
+   so the breakdown modal below can show its work: the formula in words, the
+   raw numbers that went into it, and the same result the tile displays.    */
+function kpiBreakdownRows(def, from, to){
+  const c = def.calc;
+  const labelFor = key => (KPI_INPUT_BY_KEY[key] || {}).label || key;
+  const unitFor = key => (KPI_INPUT_BY_KEY[key] || {}).unit || 'num';
+
+  if(c.type === 'sum'){
+    const total = kpiSum(c.of, from, to);
+    return {
+      formula: `${escape(def.label)} = sum of "${escape(labelFor(c.of))}" logged on each day in this range.`,
+      rows: [{label: labelFor(c.of), value: kpiFormat(total, unitFor(c.of))}],
+      editable: true
+    };
+  }
+  if(c.type === 'ratio'){
+    const numV = kpiSum(c.num, from, to), denV = kpiSum(c.den, from, to);
+    const result = denV ? (numV / denV) * 100 : null;
+    return {
+      formula: `${escape(def.label)} = (${escape(labelFor(c.num))} ÷ ${escape(labelFor(c.den))}) × 100, each summed across this range.`,
+      rows: [
+        {label: labelFor(c.num), value: kpiFormat(numV, unitFor(c.num))},
+        {label: labelFor(c.den), value: kpiFormat(denV, unitFor(c.den))}
+      ],
+      result: kpiFormat(result, 'pct'),
+      editable: true
+    };
+  }
+  if(c.type === 'avg'){
+    const totV = kpiSum(c.total, from, to), cntV = kpiSum(c.count, from, to);
+    const result = cntV ? totV / cntV : null;
+    return {
+      formula: `${escape(def.label)} = ${escape(labelFor(c.total))} ÷ ${escape(labelFor(c.count))}, each summed across this range first, then divided once.`,
+      rows: [
+        {label: labelFor(c.total), value: kpiFormat(totV, unitFor(c.total))},
+        {label: labelFor(c.count), value: kpiFormat(cntV, unitFor(c.count))}
+      ],
+      result: kpiFormat(result, def.unit),
+      editable: true
+    };
+  }
+  if(c.type === 'latest'){
+    const rows = state.kpiEntries.filter(e => e.metricKey === c.of && e.date >= from && e.date <= to);
+    const base = {
+      formula: `${escape(def.label)} reads the most recently logged "${escape(labelFor(c.of))}" in this range -- a single day's snapshot, not summed across days.`,
+      editable: true
+    };
+    if(!rows.length) return {...base, rows: []};
+    const latest = rows.reduce((a,b) => a.date > b.date ? a : b);
+    return {...base, rows: [{label: `${labelFor(c.of)} on ${fmtLong(latest.date)}`, value: kpiFormat(latest.value, unitFor(c.of))}]};
+  }
+  if(c.type === 'cohortPct' || c.type === 'cohortCount'){
+    const COHORT_LABELS = {contacted:'Leads contacted', offered:'Leads offered on', contract_sent:'Contracts sent', closed:'Deals closed'};
+    const countField = c.type === 'cohortCount' ? c.field : c.field.replace(/^pct_/, '');
+    const countLabel = COHORT_LABELS[countField] || countField;
+    const base = {
+      formula: c.type === 'cohortCount'
+        ? `${escape(def.label)} = leads produced in this range that have EVER gone on to reach "${escape(countLabel)}" (checked against their full history, not just this range).`
+        : `${escape(def.label)} = (leads produced in this range that reached "${escape(countLabel)}" ÷ leads produced in this range) × 100 -- checked against full history.`,
+      editable: false, live: true
+    };
+    const row = getCohortConversion(from, to);
+    if(!row) return {...base, rows: []};
+    const produced = Number(row.produced) || 0, count = Number(row[countField]) || 0;
+    const pct = produced ? (count / produced) * 100 : 0;
+    return {...base,
+      rows: [
+        {label: 'Leads produced in this range', value: kpiFormat(produced, 'count')},
+        {label: countLabel, value: kpiFormat(count, 'count')}
+      ],
+      result: c.type === 'cohortCount' ? kpiFormat(count, 'count') : kpiFormat(pct, 'pct')
+    };
+  }
+  if(c.type === 'lostTouchAvg' || c.type === 'dealTouchAvg'){
+    const lost = c.type === 'lostTouchAvg';
+    const countKey = lost ? 'lost_leads' : 'deals_closed';
+    const countLabel = lost ? 'Leads marked Lost Leads in this range' : 'Deals closed in this range';
+    const moment = lost ? 'it was marked Lost Leads' : 'its deal closed';
+    const base = {
+      formula: `${escape(def.label)} = average number of inbound/outbound touches (calls + texts) each qualifying lead got before ${moment}, across every lead whose first-ever moment of that landed in this range.`,
+      editable: false, live: true
+    };
+    const row = lost ? getLostTouchAvg(from, to) : getDealTouchAvg(from, to);
+    if(!row) return {...base, rows: []};
+    const count = Number(row[countKey]) || 0, avg = Number(row.avg_touches) || 0;
+    return {...base,
+      rows: [
+        {label: countLabel, value: kpiFormat(count, 'count')},
+        {label: 'Avg touches per lead', value: kpiFormat(avg, 'num')}
+      ],
+      result: kpiFormat(avg, 'num')
+    };
+  }
+  return {formula: '', rows: [], editable: false};
+}
+
+function openKpiBreakdown(defKey, from, to, rangeLabel){
+  const def = KPI_DEFS.find(d => d.key === defKey);
+  if(!def) return;
+  const b = kpiBreakdownRows(def, from, to);
+  const hasData = kpiHasDataOver(def, from, to);
+  const value = hasData ? kpiValueOver(def, from, to) : null;
+
+  showModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <h2 class="modal-title">${escape(def.label)}</h2>
+      <button class="icon-btn" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-hint" style="margin-bottom:2px">${escape(rangeLabel)} · ${fmtLong(from)} – ${fmtLong(to)}</div>
+    <div class="kpi-tile-val" style="margin:6px 0 12px">${value !== null ? kpiFormat(value, def.unit) : '—'}</div>
+    ${b.formula ? `<div class="form-hint" style="margin-bottom:10px">${b.formula}</div>` : ''}
+    ${b.rows.length ? `
+      <div class="kpi-history">
+        ${b.rows.map(r => `<div class="kpi-history-row">
+          <span class="kpi-history-date">${escape(r.label)}</span>
+          <span class="kpi-history-val">${escape(r.value)}</span>
+        </div>`).join('')}
+      </div>` : `<div class="kpi-note">No entries in this range yet.</div>`}
+    ${b.live ? `<div class="form-hint" style="margin-top:10px">Computed live from GHL activity — nothing to log manually here.</div>` : ''}
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+      ${b.editable ? `<button class="btn btn-primary" onclick="closeModal();openKpiComboForm(KPI_DEFS.find(d=>d.key==='${defKey}'), '${to}')">Log a day's numbers</button>` : ''}
+    </div>
+  </div>`);
+}
+
 function renderKpiTile(def, range){
   // Headline value/delta follow the page-wide selected range.
   const value = kpiValueOver(def, range.from, range.to);
@@ -3573,7 +3763,7 @@ function renderKpiTile(def, range){
   const cls = !hasData ? 'no-data' : onTrack === true ? 'is-good' : onTrack === false ? 'is-bad' : '';
   const pacing = def.pace === 'smsMonthlyGoal' ? renderSmsPacingNote(range.to) : '';
 
-  return `<div class="kpi-tile ${cls}" onclick="openKpiLogForm(null,'${range.to}','${def.key}')" title="Log the numbers behind this KPI">
+  return `<div class="kpi-tile ${cls}" onclick="openKpiBreakdown('${def.key}','${range.from}','${range.to}','${escape(range.label)}')" title="See the numbers behind this KPI">
     <div class="kpi-tile-head">
       <div class="kpi-tile-name">${escape(def.label)}</div>
       <div class="kpi-tile-win">${escape(range.label)}</div>
