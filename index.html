@@ -2660,6 +2660,7 @@ const KPI_METRICS = [
   {key:'contractsClosed',    label:'Leads closed',                    icon:'ti-file-check',   unit:'count', group:'leadConv'},
   {key:'touchPoints',        label:'Touch points logged',             icon:'ti-hand-click',   unit:'count', group:'leadConv'},
   {key:'dealsProduced',      label:'Deals produced',                  icon:'ti-diamond',      unit:'count', group:'leadConv'},
+  {key:'conversationsHad',   label:'Conversations had',               icon:'ti-phone',        unit:'count', group:'leadConv'},
 
   // Due Diligence + Funding
   {key:'ddStage2Done',       label:'Stage II DD completed',           icon:'ti-file-search',  unit:'count', group:'dueDil'},
@@ -2820,6 +2821,13 @@ const KPI_DEFS = [
   {key:'dealsProduced7', section:'leadConv',label:'Deals produced',            win:7,  unit:'count', dir:'up',
    calc:{type:'cohortCount', field:'closed'},
    source:'GoHighLevel, live: of leads created in the selected range, how many have ever gone on to reach the "Deal Closed!" stage, checked against full history.'},
+  // conversationsHad: ADDED 2026-08-18. Any inbound or outbound call over 15
+  // seconds, logged the day it happened -- a plain trailing-window sum, not
+  // cohort-gated to leadsProduced like the tiles above, since this is meant
+  // to read as raw conversation volume for whatever range is selected.
+  {key:'conversationsHad7', section:'leadConv',label:'Conversations had',     win:7,  unit:'count', dir:'up',
+   calc:{type:'sum', of:'conversationsHad'},
+   source:'GoHighLevel: any inbound or outbound call logged that day lasting more than 15 seconds, summed over the selected range.'},
 
   // ---- Due Diligence + Funding ----
   // Switched off in KPI_ACTIVE_SECTIONS below -- no GHL pipeline stage or

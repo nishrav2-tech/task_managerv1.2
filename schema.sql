@@ -334,7 +334,7 @@ end $$;
 --                   offersPrepared, offerPrepHrs
 -- Lead Conversion:  leadsContacted, firstContactHrs, leadsOfferedOn,
 --                   contractsSent, contractSentHrs, contractsClosed,
---                   touchPoints, dealsProduced
+--                   touchPoints, dealsProduced, conversationsHad
 -- Due Diligence:    ddStage2Done, ddStage2Hrs, emdSubmitted, emdHrs,
 --                   contractsExecuted, contractsCancelled          (section off)
 -- Disposition:      buyerLeadsResponded, buyerRespHrs, outboundBuyerRuns,

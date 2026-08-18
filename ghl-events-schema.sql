@@ -486,6 +486,22 @@ begin
       and occurred_at >= day_start and occurred_at < day_end
   ));
 
+  -- conversationsHad: ADDED 2026-08-18. "Count any inbound or outbound call
+  -- that went beyond 15 seconds that occurred within the time period
+  -- selected." Unlike touchPoints (every message/call event, any type, any
+  -- duration) or leadsContacted (locked once per contact, also requires
+  -- Lead Notes to be non-empty), this is a plain daily count of qualifying
+  -- call events — no lock table, no per-contact dedup. A contact with three
+  -- separate 20s+ calls in one day counts three times: this is a raw
+  -- conversation-volume metric, not a per-lead milestone.
+  perform set_kpi_entry('conversationsHad', target_date, (
+    select count(*) from ghl_events
+    where event_type in ('OutboundMessage', 'InboundMessage')
+      and message_type = 'TYPE_CALL'
+      and coalesce(call_duration_secs, 0) > 15
+      and occurred_at >= day_start and occurred_at < day_end
+  ));
+
   -- touchPerActiveLead: NEW 2026-08-15. Trailing-7-day snapshot, as of
   -- target_date, of average touch points (calls+texts, in+out) among
   -- leads that are ACTIVE as of that day — meaning their most-recent known
