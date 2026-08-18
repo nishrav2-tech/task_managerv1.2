@@ -2742,9 +2742,16 @@ const KPI_DEFS = [
   // because the leadsContacted metric key is already written daily, dated
   // to the day the contact qualified -- summing it over the range is
   // exactly "all leads contacted in this period."
-  {key:'totalContacted7',section:'leadConv',label:'Total leads contacted',    win:7,  unit:'count', dir:'up',
+  {key:'totalContacted7',section:'leadConv',label:'Total new leads contacted', win:7,  unit:'count', dir:'up',
    calc:{type:'sum', of:'leadsContacted'},
    source:'GoHighLevel: every contact locked as "contacted" during this range, counted on the day it happened — regardless of when the underlying lead was originally produced.'},
+  // conversationsHad: ADDED 2026-08-18, positioned here 2026-08-18 to sit
+  // directly beside "Total new leads contacted" -- both are plain ungated
+  // volume counts over the selected range, so they read as a pair. Any
+  // inbound or outbound call over 15 seconds, logged the day it happened.
+  {key:'conversationsHad7', section:'leadConv',label:'Conversations had',      win:7,  unit:'count', dir:'up',
+   calc:{type:'sum', of:'conversationsHad'},
+   source:'GoHighLevel: any inbound or outbound call logged that day lasting more than 15 seconds, summed over the selected range.'},
   // CHANGED 2026-08-17: these three used to divide by leads PRODUCED in the
   // range (cohort_lead_conversion, same as pctContacted7 above) -- of
   // leads born this week, how many got offered on/sent a contract/closed.
@@ -2821,13 +2828,6 @@ const KPI_DEFS = [
   {key:'dealsProduced7', section:'leadConv',label:'Deals produced',            win:7,  unit:'count', dir:'up',
    calc:{type:'cohortCount', field:'closed'},
    source:'GoHighLevel, live: of leads created in the selected range, how many have ever gone on to reach the "Deal Closed!" stage, checked against full history.'},
-  // conversationsHad: ADDED 2026-08-18. Any inbound or outbound call over 15
-  // seconds, logged the day it happened -- a plain trailing-window sum, not
-  // cohort-gated to leadsProduced like the tiles above, since this is meant
-  // to read as raw conversation volume for whatever range is selected.
-  {key:'conversationsHad7', section:'leadConv',label:'Conversations had',     win:7,  unit:'count', dir:'up',
-   calc:{type:'sum', of:'conversationsHad'},
-   source:'GoHighLevel: any inbound or outbound call logged that day lasting more than 15 seconds, summed over the selected range.'},
 
   // ---- Due Diligence + Funding ----
   // Switched off in KPI_ACTIVE_SECTIONS below -- no GHL pipeline stage or
