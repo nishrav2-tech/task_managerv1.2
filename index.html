@@ -1346,6 +1346,22 @@ const StorageAdapter = {
       return {ok:false, backend:'local', failure:this.failure};
     }
 
+    // FAST PATH (2026-08-18): probe ONE table, not eleven. head:true makes
+    // each probe cheap on the server, but eleven of them is still eleven HTTP
+    // round trips on the critical path before a single byte of real data is
+    // requested -- pure latency on a cold load, and the answer is almost
+    // always "everything is fine". So: try users first, and only if that
+    // fails fan out across the rest to work out WHICH tables are missing.
+    // A broken schema costs one extra round trip; a healthy one saves ten.
+    try{
+      const {error: quick} = await this.supabase.from('users').select('*',{count:'exact',head:true});
+      if(!quick){
+        this.backend = 'supabase';
+        console.log('%c✓ Connected to Supabase','color:#2E5D3A;font-weight:600');
+        return {ok:true, backend:'supabase'};
+      }
+    }catch(e){ /* fall through to the full probe below, which classifies it */ }
+
     // head:true keeps this to a count query — no rows come back, so probing
     // ten tables at boot costs almost nothing.
     const probes = await Promise.all(this.requiredTables.map(async tbl => {
@@ -1423,21 +1439,35 @@ const StorageAdapter = {
     return {data: rows, error};
   },
 
+  /* SPLIT 2026-08-18 into loadCore() + loadKpiEntries().
+     kpi_entries is 6,000+ rows and grows by ~25 every day, against roughly
+     100 rows in every other table combined. Fetching it inline meant the
+     first paint waited on seven SEQUENTIAL 1,000-row pages -- the dashboard
+     was blocked on KPI history it doesn't need to draw its first screen.
+     Core data now lands and renders on its own; KPI history streams in
+     behind it and triggers a second render. loadAll() is kept as the
+     "everything, then render" call the background refresh timer uses. */
   async loadAll(){
+    const core = await this.loadCore();
+    const entries = await this.loadKpiEntries();
+    return {...core, kpiEntries: entries};
+  },
+
+  async loadCore(){
     this.assertConnected();
     {
-      const [u, p, t, pr, k, km, ke, kt, cl, cal] = await Promise.all([
+      const [u, p, t, pr, k, km, kt, cl, cal] = await Promise.all([
         this.supabase.from('users').select('*').order('created_at'),
         this.supabase.from('properties').select('*').order('created_at',{ascending:false}),
         this.supabase.from('tasks').select('*').order('created_at',{ascending:false}),
         this.supabase.from('projects').select('*').order('created_at',{ascending:false}),
         this.supabase.from('kpi_metrics').select('*').order('metric_key'),
         this.supabase.from('kpi_meta').select('*').order('updated_at',{ascending:false}).limit(1),
-        this.fetchAllRows(() => this.supabase.from('kpi_entries').select('*').order('log_date',{ascending:false})),
         this.supabase.from('kpi_targets').select('*').order('kpi_key'),
         this.supabase.from('call_logs').select('*').order('log_date',{ascending:false}),
         this.supabase.from('campaign_logs').select('*').order('log_date',{ascending:false}),
       ]);
+      const ke = {data: null, error: null};
       if(k.error) console.warn('kpi_metrics table not found yet — run the updated schema.sql to enable KPIs.', k.error.message);
       if(ke.error) console.warn('kpi_entries table not found yet — run the updated schema.sql to enable daily KPI logging.', ke.error.message);
       if(kt.error) console.warn('kpi_targets table not found yet — run the updated schema.sql to enable shared KPI goals.', kt.error.message);
@@ -1450,7 +1480,8 @@ const StorageAdapter = {
         projects: (pr.data||[]).map(this.fromDb.projects),
         kpis: (k.data||[]).map(this.fromDb.kpis),
         kpiMeta: (km.data||[]).map(this.fromDb.kpiMeta),
-        kpiEntries: (ke.data||[]).map(this.fromDb.kpiEntries),
+        // filled in by loadKpiEntries(), which runs after the first paint
+        kpiEntries: undefined,
         // Goals come back as a flat {kpiKey: number} map — that's the shape the
         // KPI screens want, and there's never more than a few dozen rows.
         kpiTargets: (kt.data||[]).reduce((acc,r) => {
@@ -1466,6 +1497,37 @@ const StorageAdapter = {
         // live behind that lookup.
         activeUserId: localStorage.getItem(this.localKeys.active) || ''
       };
+    }
+  },
+
+  /* KPI history, fetched after the first paint. Two changes from the old
+     inline version: only the four columns the app actually reads come back
+     (id/metric_key/log_date/value -- created_at was ~15% of the payload and
+     nothing reads it), and pages are requested CONCURRENTLY off an exact
+     count rather than walked one after another. Seven serial round trips
+     become one count plus seven in flight together. */
+  async loadKpiEntries(){
+    this.assertConnected();
+    const COLS = 'id,metric_key,log_date,value';
+    const PAGE = 1000;
+    try{
+      const {count, error: cErr} = await this.supabase
+        .from('kpi_entries').select('*',{count:'exact',head:true});
+      if(cErr) throw cErr;
+
+      const pages = Math.max(1, Math.ceil((count||0) / PAGE));
+      const results = await Promise.all(
+        Array.from({length: pages}, (_, i) => this.supabase
+          .from('kpi_entries').select(COLS)
+          .order('log_date',{ascending:false})
+          .range(i*PAGE, i*PAGE + PAGE - 1))
+      );
+      const bad = results.find(r => r.error);
+      if(bad) throw bad.error;
+      return results.flatMap(r => (r.data||[]).map(this.fromDb.kpiEntries));
+    }catch(e){
+      console.warn('kpi_entries load failed — KPI screens will be empty.', e.message||e);
+      return [];
     }
   },
 
@@ -1684,6 +1746,9 @@ const CAMPAIGN_CHANNELS = ['Direct Mail','Cold Call','SMS','PPC','Facebook','Ema
 
 const state = {
   users:[], props:[], tasks:[], projects:[], kpis:[], kpiMeta:[], kpiEntries:[],
+  // false until the (large, deferred) kpi_entries fetch resolves — lets the
+  // KPI screens distinguish "still loading" from "genuinely nothing logged".
+  kpiEntriesLoaded:false,
   callLogs:[], campaignLogs:[],
   activeUserId:'', activeView:'dashboard',
   // Which property has its funding-tier editor open on the Properties list.
@@ -2163,19 +2228,41 @@ function updateBackendBadge(){
 /* =========================================================
    PERSISTENCE — thin wrappers over StorageAdapter
    ========================================================= */
-async function loadAll(){
-  const data = await StorageAdapter.loadAll();
+// Everything except KPI history. Enough to draw every screen's structure and
+// the whole dashboard except its KPI numbers.
+async function loadCore(){
+  const data = await StorageAdapter.loadCore();
+  applyCore(data);
+  if(!state.users.length) await seed();
+}
+// KPI history, after the first paint. Only touches state.kpiEntries, so it
+// can't disturb anything the user is already interacting with.
+async function loadKpiEntriesInto(){
+  const rows = await StorageAdapter.loadKpiEntries();
+  state.kpiEntries = migrateKpiEntryKeys(rows || []);
+  state.kpiEntriesLoaded = true;
+}
+function applyCore(data){
   state.users = data.users;
   state.props = data.props;
   state.tasks = data.tasks;
   state.projects = data.projects;
   state.kpis = data.kpis || [];
   state.kpiMeta = data.kpiMeta || [];
-  state.kpiEntries = migrateKpiEntryKeys(data.kpiEntries || []);
+  // undefined means "not fetched on this pass" — keep what we already have
+  // rather than blanking the KPI screens during a core-only refresh.
+  if(data.kpiEntries !== undefined){
+    state.kpiEntries = migrateKpiEntryKeys(data.kpiEntries || []);
+    state.kpiEntriesLoaded = true;
+  }
   state.kpiTargets = migrateKpiTargetKeys(data.kpiTargets || {});
   state.callLogs = data.callLogs || [];
   state.campaignLogs = data.campaignLogs || [];
   state.activeUserId = data.activeUserId;
+}
+async function loadAll(){
+  const data = await StorageAdapter.loadAll();
+  applyCore(data);
   if(!state.users.length) await seed();
 }
 
@@ -2350,10 +2437,15 @@ const app = {
     // connected, clear that copy so it can't be mistaken for live data.
     StorageAdapter.legacyLocalKeys.forEach(k => { try{ localStorage.removeItem(k); }catch(e){} });
 
-    await loadAll();
-    // Preferences live per user in Supabase, so they have to be fetched
-    // before the first render decides which tab to open.
-    await Prefs.load(state.activeUserId);
+    // PARALLELISED 2026-08-18. These were three serial awaits: every table,
+    // then prefs, then paint. Prefs is keyed by the active user id, which
+    // comes from localStorage rather than from the fetch, so it never needed
+    // to wait for it — the dependency was accidental. Core data and prefs now
+    // go out together, and KPI history is deliberately NOT awaited here.
+    await Promise.all([
+      loadCore(),
+      Prefs.load(localStorage.getItem(StorageAdapter.localKeys.active) || '')
+    ]);
     // Restore the tab you were last on before the first render, so a reload
     // lands you back where you were instead of bouncing to the dashboard.
     state.activeView = startingView();
@@ -2362,8 +2454,18 @@ const app = {
     }
     this.bindNav();
     this.buildUserSelect();
-    this.render();
+    this.render();          // <- first paint happens here, without KPI history
     updateBackendBadge();
+
+    // KPI history streams in behind the first paint and repaints when it
+    // lands. Anything that reads state.kpiEntries renders empty until then,
+    // which is why kpiEntriesLoaded exists — screens can say "loading"
+    // rather than "no data", a distinction that matters when the honest
+    // answer to "why is this zero" is "it hasn't arrived yet".
+    loadKpiEntriesInto()
+      .then(() => this.render())
+      .catch(e => console.warn('KPI history failed to load:', e.message||e));
+
     checkDueNotifications();
     const refreshAndCheck = async ()=>{
       // Pull fresh data first so a task assigned to you from someone else's

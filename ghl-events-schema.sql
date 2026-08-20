@@ -513,6 +513,24 @@ begin
   -- attempt for any given lead, and fewer leads ever qualify, so the two
   -- numbers answer different questions and are shown side by side on one card.
   --
+  -- THE RULE, as confirmed 2026-08-18:
+  --   attempt = any OUTBOUND call or text, any duration, answered or not.
+  --   reach   = any call in EITHER direction lasting over 15 seconds,
+  --             or any INBOUND text.
+  -- The 15-second floor applies to inbound calls as well as outbound. It
+  -- didn't at first, and 44 of 63 inbound calls carry a zero duration (20
+  -- no-answer, 20 voicemail, 2 ringing, 2 sub-15s) -- so a lead who rang and
+  -- hung up counted as reached. Inbound TEXTS have no duration to test and
+  -- are always genuine engagement, so they qualify on arrival.
+  --
+  -- NARROWED 2026-08-18: inbound reach is restricted to TYPE_SMS and
+  -- TYPE_CALL. It previously accepted any inbound row, which swept in GHL
+  -- bookkeeping that isn't the lead doing anything: one lead's "first reach"
+  -- was a TYPE_ACTIVITY_CONTACT record, and TYPE_SMS_REACTION (a tapback on
+  -- a message) also qualified. Reactions are a judgement call -- a real human
+  -- gesture, but not a conversation -- and are excluded for now; add
+  -- 'TYPE_SMS_REACTION' to the list above to count them.
+  --
   -- NOTE: "reach" here deliberately does NOT require the Lead Notes custom
   -- field the way the separate leadsContacted metric does. Notes are a
   -- data-entry act, not evidence the lead engaged, and gating on them would
@@ -576,7 +594,10 @@ begin
      and (
        (e.event_type = 'OutboundMessage' and e.message_type = 'TYPE_CALL'
          and coalesce(e.call_duration_secs, 0) > 15)
-       or (e.event_type = 'InboundMessage' and e.direction = 'inbound')
+       or (e.event_type = 'InboundMessage' and e.direction = 'inbound'
+             and e.message_type = 'TYPE_SMS')
+       or (e.event_type = 'InboundMessage' and e.direction = 'inbound'
+             and e.message_type = 'TYPE_CALL' and coalesce(e.call_duration_secs, 0) > 15)
      )
     group by lc.opportunity_id, lc.opp_created_at
   ),
@@ -592,10 +613,19 @@ begin
   perform set_kpi_entry('firstContactHrs',   target_date, v_first_contact_hrs);
   perform set_kpi_entry('firstContactCount', target_date, v_first_contact_count);
 
-  -- touchPoints: every message/call event logged that day, in or out.
+  -- touchPoints: every real call or text logged that day, in or out.
+  -- NARROWED 2026-08-18: this counted EVERY row GHL files under
+  -- Inbound/OutboundMessage, and 36.5% of those aren't communications at all
+  -- -- 796 TYPE_ACTIVITY_OPPORTUNITY/CONTACT bookkeeping rows (pipeline
+  -- activity logged as an "outbound message"), 62 campaign voicemail drops
+  -- and 4 SMS reactions. Touch totals ran ~57% high as a result: 2,367
+  -- all-time became 1,503. Restricted to TYPE_CALL and TYPE_SMS, matching
+  -- every other metric in this file. The same narrowing is applied to
+  -- touchPerActiveLead below and to both avg_touches_before_* functions.
   perform set_kpi_entry('touchPoints', target_date, (
     select count(*) from ghl_events
     where event_type in ('OutboundMessage', 'InboundMessage')
+      and message_type in ('TYPE_CALL', 'TYPE_SMS')
       and occurred_at >= day_start and occurred_at < day_end
   ));
 
@@ -658,6 +688,7 @@ begin
       left join ghl_events e
         on e.contact_id = al.contact_id
        and e.event_type in ('InboundMessage','OutboundMessage')
+       and e.message_type in ('TYPE_CALL','TYPE_SMS')   -- real touches only, see touchPoints
        and e.occurred_at >= day_end - interval '7 days'
        and e.occurred_at < day_end
       group by al.opportunity_id
@@ -779,7 +810,15 @@ begin
         and stage_id != STAGE_VETTED_LEAD
       order by opportunity_id, occurred_at asc
     )
-    select coalesce(avg(extract(epoch from (fe.exit_at - fe.entry_at)) / 3600.0), 0)
+    -- FIXED 2026-08-18: was avg(). offerPrepHrs is consumed by the dashboard's
+    -- 'avg' calc, which is sum(offerPrepHrs)/sum(offersPrepared) across the
+    -- range -- so storing a pre-averaged value got it divided a second time by
+    -- the day's offer count. "Avg time to prepare offer" read 13.8 hrs when
+    -- the true figure was 81.4. Same shape bug firstContactHrs and
+    -- contractSentHrs had; this was the last one carrying it. offersPrepared
+    -- is already the right denominator (same locked population, same day), so
+    -- no paired *Count key is needed here.
+    select coalesce(sum(extract(epoch from (fe.exit_at - fe.entry_at)) / 3600.0), 0)
     from ghl_locked_events le
     join first_exits fe on fe.opportunity_id = le.entity_id
     where le.metric_key = 'offersPrepared' and le.log_date = target_date
@@ -1137,6 +1176,7 @@ begin
     left join ghl_events e
       on e.contact_id = lt.contact_id
      and e.event_type in ('InboundMessage', 'OutboundMessage')
+     and e.message_type in ('TYPE_CALL', 'TYPE_SMS')   -- real touches only, see touchPoints
      and e.occurred_at < lt.lost_at
     group by lt.opportunity_id
   )
@@ -1203,6 +1243,7 @@ begin
     left join ghl_events e
       on e.contact_id = dt.contact_id
      and e.event_type in ('InboundMessage', 'OutboundMessage')
+     and e.message_type in ('TYPE_CALL', 'TYPE_SMS')   -- real touches only, see touchPoints
      and e.occurred_at < dt.closed_at
     group by dt.opportunity_id
   )
