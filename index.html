@@ -438,7 +438,30 @@ input,select,textarea{font:inherit;color:inherit}
 .kpi-updated{font-size:9.5px;color:var(--ink-3);text-align:center;margin-top:1px}
 
 /* ---- Firm performance tiles ---- */
-.kpi-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:10px}
+/* grid-auto-rows:1fr makes every row track the same height, which is what
+   lets a dual tile span exactly two of them at any window width. Without it
+   the tracks size independently and a spanning card overshoots or falls
+   short as the column count changes. grid-auto-flow:dense back-fills the
+   single-height gap a spanning card leaves beside it instead of stranding
+   whitespace. (Fixed 2026-08-18 -- the merged card jumped around on resize.) */
+.snap-row + .snap-row{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.snap-row-head{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:9px}
+.snap-row-head i{font-size:14px;color:var(--accent)}
+.snap-tile{transition:border-color .12s var(--ease),background .12s var(--ease)}
+.snap-tile:hover{border-color:var(--ink-3)}
+/* Drag-to-reorder affordances. The insertion marker is an inset box-shadow
+   rather than a border so it can't shift the grid while dragging. */
+.kpi-tile[draggable="true"]{cursor:grab}
+.kpi-tile[draggable="true"]:active{cursor:grabbing}
+.kpi-dragging{opacity:.45}
+.kpi-drop-before{box-shadow:inset 3px 0 0 var(--accent)}
+.kpi-drop-after{box-shadow:inset -3px 0 0 var(--accent)}
+.kpi-order-reset{background:none;border:none;padding:0;cursor:pointer;
+  font:inherit;font-size:11px;color:var(--ink-3);text-decoration:underline}
+.kpi-order-reset:hover{color:var(--ink)}
+.kpi-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));
+  grid-auto-rows:1fr;grid-auto-flow:row dense;gap:10px;align-items:stretch}
 .kpi-tile{
   border:1px solid var(--border);border-radius:var(--r-md);padding:12px 13px 11px;
   background:var(--surface);cursor:pointer;position:relative;
@@ -468,6 +491,31 @@ input,select,textarea{font:inherit;color:inherit}
   font-size:10.5px;color:var(--ink-3);border-top:1px solid var(--border);padding-top:7px;margin-top:auto;
 }
 .kpi-tile-goal b{color:var(--ink-2);font-variant-numeric:tabular-nums}
+/* A dual tile carries two equally-weighted stats, each with its own goal.
+   It spans two grid rows so it reads as two single-stat cards stacked,
+   rather than one squashed card with an afterthought bolted on. */
+.kpi-tile-dual{grid-row:span 2;padding:0;gap:0;overflow:hidden}
+/* One column left (narrow window / phone): a two-row span and a one-row span
+   are the same shape, so drop the span and let the two stats stack normally.
+   Keeps the card from reserving a second track that nothing can fill. */
+@media (max-width:520px){
+  /* Also release the uniform row height here: with grid-row:auto the card
+     would otherwise be pinned to a single 1fr track and clip its second
+     stat (overflow:hidden above would hide it silently). */
+  .kpi-tiles{grid-auto-rows:auto}
+  .kpi-tile-dual{grid-row:auto}
+}
+.kpi-stat{display:flex;flex-direction:column;gap:6px;padding:13px 14px;flex:1 1 auto}
+/* flex-basis stays `auto`, not 0: the tile is a column flex container, so a
+   0 basis let both halves shrink below their own content wherever the card
+   wasn't force-stretched by the row span -- at one column they collapsed to
+   padding and overflow:hidden swallowed the numbers. `auto` floors each half
+   at its content and still shares any extra height evenly. */
+.kpi-stat + .kpi-stat{border-top:1px solid var(--line)}
+.kpi-stat:hover{background:var(--surface-2)}
+.kpi-stat.is-good{box-shadow:inset 3px 0 0 var(--success-ink)}
+.kpi-stat.is-bad{box-shadow:inset 3px 0 0 var(--danger)}
+.kpi-stat .kpi-tile-val{margin:0}
 .kpi-goal-set{
   font-size:10.5px;color:var(--accent);font-weight:600;cursor:pointer;
   background:none;border:none;padding:0;text-decoration:underline;text-underline-offset:2px;
@@ -2654,6 +2702,10 @@ const KPI_METRICS = [
   // Lead Conversion / management
   {key:'leadsContacted',     label:'Leads contacted',                 icon:'ti-phone-call',   unit:'count', group:'leadConv'},
   {key:'firstContactHrs',    label:'Hours to first contact',          icon:'ti-clock',        unit:'hrs',   group:'leadConv'},
+  {key:'firstContactCount',  label:'Leads first contacted',           icon:'ti-phone-outgoing',unit:'count',group:'leadConv'},
+  {key:'firstAttemptHrs',    label:'Hours to first attempt',          icon:'ti-clock',        unit:'hrs',   group:'leadConv'},
+  {key:'firstAttemptCount',  label:'Leads first attempted',           icon:'ti-phone-plus',   unit:'count', group:'leadConv'},
+  {key:'contractSentCount',  label:'Contracts sent (timed)',          icon:'ti-file-check',   unit:'count', group:'leadConv'},
   {key:'leadsOfferedOn',     label:'Leads offered on',                icon:'ti-businessplan', unit:'count', group:'leadConv'},
   {key:'contractsSent',      label:'Contracts sent',                  icon:'ti-file-text',    unit:'count', group:'leadConv'},
   {key:'contractSentHrs',    label:'Hours to contract sent',          icon:'ti-clock',        unit:'hrs',   group:'leadConv'},
@@ -2708,9 +2760,27 @@ const KPI_DEFS = [
    source:'GoHighLevel: hours between an opportunity\'s entry into "Vetted Lead" and its first-ever exit to any other stage in the Lead → Contract pipeline.'},
 
   // ---- Lead Conversion / management ----
+  // CHANGED 2026-08-18: the count was 'leadsContacted', a different
+  // population than the hours numerator (leadsContacted requires lead notes
+  // or an inbound SMS reply; the hours cover any lead whose first outbound
+  // touch landed that day). Now paired with firstContactCount, which counts
+  // exactly the leads those hours are summed over.
+  // ADDED 2026-08-18, reworked to a paired tile the same day. Attempt and
+  // reach are two readings of one question ("how fast do we get to a new
+  // lead"), so they share a card -- but as two equal stats, each with its own
+  // goal and its own breakdown, not a headline plus a footnote. `pairWith`
+  // names the def rendered underneath; that def carries `pairedInto` so it
+  // isn't also drawn as a standalone tile. Both remain real KPI_DEFS entries,
+  // which is what keeps goals, breakdowns and the Trends chart working for
+  // each of them independently.
   {key:'firstContact7',  section:'leadConv',label:'Avg time to first contact', win:7,  unit:'hrs',   dir:'down',
-   calc:{type:'avg', total:'firstContactHrs', count:'leadsContacted'},
-   source:'GoHighLevel: hours from an opportunity\'s creation to its first outbound call or text. "Contacted" (the count) requires either a call over 15 seconds with lead notes filled in, or an inbound SMS reply.'},
+   pairWith:'firstAttempt7',
+   calc:{type:'avg', total:'firstContactHrs', count:'firstContactCount'},
+   source:'GoHighLevel: hours from a lead being created to the first time that lead actually engaged — an outbound call lasting over 15 seconds, or any inbound message back. Averaged per lead across the selected range.'},
+  {key:'firstAttempt7',  section:'leadConv',label:'Avg time to first attempt', win:7,  unit:'hrs',   dir:'down',
+   pairedInto:'firstContact7',
+   calc:{type:'avg', total:'firstAttemptHrs', count:'firstAttemptCount'},
+   source:'GoHighLevel: hours from a lead being created to the first outbound call or SMS to that contact, answered or not. Averaged per lead across the selected range.'},
   // CHANGED 2026-08-15: was calc type 'ratio' (leadsContacted/leadsOfferedOn/
   // contractsSent/contractsClosed summed over the trailing 7 days, divided by
   // leadsProduced summed over the SAME 7 days). That compared two different
@@ -2730,7 +2800,7 @@ const KPI_DEFS = [
   // server side, so this can never exceed 100%. The "7" suffix on these
   // keys is legacy naming from before this change -- left as-is since
   // goals/localStorage layout already reference these exact key strings.
-  {key:'pctContacted7',  section:'leadConv',label:'% of leads contacted',      win:7,  unit:'pct',   dir:'up',
+  {key:'pctContacted7',  section:'leadConv',label:'% of produced leads contacted', win:7,  unit:'pct',   dir:'up',
    calc:{type:'cohortPct', field:'pct_contacted'},
    source:'GoHighLevel, live: of leads created in the selected range, the share that ever reached "contacted" — a call over 15 seconds with lead notes filled in, or an inbound SMS reply, checked against full history.'},
   // ADDED 2026-08-17: sits next to pctContacted7 above but answers a
@@ -2767,13 +2837,19 @@ const KPI_DEFS = [
   // pctContacted7 itself is untouched -- it's still "how many of this
   // week's fresh leads got followed up on," a different and still-useful
   // question from "of the people we actually talked to, how many convert."
-  {key:'pctOffered7',    section:'leadConv',label:'% of leads offered on',     win:7,  unit:'pct',   dir:'up',
-   calc:{type:'cohortPct', field:'pct_offered', basis:'contacted'},
-   source:'GoHighLevel, live: of leads contacted in the selected range (regardless of when produced), the share whose opportunity ever entered the "Send Paperwork" stage, checked against full history.'},
+  // REMOVED 2026-08-18: "% of leads offered on" retired from the dashboard.
+  // The underlying leadsOfferedOn metric and its pct_offered field are still
+  // computed server-side, so re-adding a def here brings the tile straight
+  // back with its history intact.
+  // PAIRED 2026-08-18 with pctClosed7 below -- both read off the same
+  // contacted-lead cohort and are read together ("of who we spoke to, how
+  // many got paper, how many closed"), so they share one card.
   {key:'pctContract7',   section:'leadConv',label:'% of leads contract sent',  win:7,  unit:'pct',   dir:'up',
+   pairWith:'pctClosed7',
    calc:{type:'cohortPct', field:'pct_contract_sent', basis:'contacted'},
    source:'GoHighLevel, live: of leads contacted in the selected range (regardless of when produced), the share whose Contract Status custom field was ever set to "Sent," checked against full history.'},
   {key:'pctClosed7',     section:'leadConv',label:'% of leads closed',         win:7,  unit:'pct',   dir:'up',
+   pairedInto:'pctContract7',
    calc:{type:'cohortPct', field:'pct_closed', basis:'contacted'},
    source:'GoHighLevel, live: of leads contacted in the selected range (regardless of when produced), the share whose opportunity ever entered the "Deal Closed!" stage, checked against full history.'},
   // 2026-08-15: was touchPoints/leadsProduced (total conversation volume
@@ -2796,6 +2872,7 @@ const KPI_DEFS = [
   // — flip to 'down' if the team would rather see fewer touches wasted on
   // leads that end up lost.
   {key:'touchPerLead7',  section:'leadConv',label:'Avg touches before lead lost', win:7,  unit:'num',   dir:'up',
+   pairedInto:'touchPerDeal7',
    calc:{type:'lostTouchAvg'},
    source:'GoHighLevel, live: opportunities whose first-ever entry into the "Lost Leads" stage falls in the selected range; touches counted are every inbound/outbound call or text before that moment.'},
   // ADDED 2026-08-17: the mirror image of touchPerLead7 above -- instead of
@@ -2808,11 +2885,18 @@ const KPI_DEFS = [
   // efficient, whereas more touches before giving up on a lead reads as
   // more effort, not less. Flip it if the team would rather track it the
   // other way.
+  // PAIRED 2026-08-18 with touchPerLead7 -- won and lost are the two halves
+  // of the same question, and only mean anything read against each other.
   {key:'touchPerDeal7',  section:'leadConv',label:'Avg touches before deal made', win:7,  unit:'num',   dir:'down',
+   pairWith:'touchPerLead7',
    calc:{type:'dealTouchAvg'},
    source:'GoHighLevel, live: opportunities whose first-ever entry into the "Deal Closed!" stage falls in the selected range; touches counted are every inbound/outbound call or text before that moment.'},
+  // CHANGED 2026-08-18: counted by 'contractsSent', which includes contracts
+  // whose lead never passed through the paperwork stage -- those have no
+  // start timestamp, contribute 0 hours, and dragged the average down.
+  // contractSentCount is the contracts the hours actually cover.
   {key:'contractSentAvg',section:'leadConv',label:'Avg time to contract sent', win:7,  unit:'hrs',   dir:'down',
-   calc:{type:'avg', total:'contractSentHrs', count:'contractsSent'},
+   calc:{type:'avg', total:'contractSentHrs', count:'contractSentCount'},
    source:'GoHighLevel: hours from an opportunity\'s first entry into "Send Paperwork" to its Contract Status custom field being set to "Sent."'},
   // CHANGED 2026-08-16: was calc type 'sum' of dealsProduced over the
   // selected range -- that counts every deal that CLOSED in the range,
@@ -2825,9 +2909,9 @@ const KPI_DEFS = [
   // range, how many have gone all the way to Deal Closed (checked against
   // full history, so a lead produced near the end of the range can still
   // count once it closes later).
-  {key:'dealsProduced7', section:'leadConv',label:'Deals produced',            win:7,  unit:'count', dir:'up',
-   calc:{type:'cohortCount', field:'closed'},
-   source:'GoHighLevel, live: of leads created in the selected range, how many have ever gone on to reach the "Deal Closed!" stage, checked against full history.'},
+  // REMOVED 2026-08-18: "Deals produced" retired from the dashboard. The
+  // dealsProduced metric still feeds % of leads closed and the Dashboard
+  // snapshot, so nothing stopped being computed.
 
   // ---- Due Diligence + Funding ----
   // Switched off in KPI_ACTIVE_SECTIONS below -- no GHL pipeline stage or
@@ -3584,16 +3668,131 @@ function kpiGoalStatus(def, rangeTo){
 // sense. The Tracker page's range selector replaces that need, so here we
 // show one tile per distinct label, preferring the win:7 flavor since
 // that's the key any existing goal is more likely stored under.
+/* ---- Tile order (ADDED 2026-08-18) --------------------------------------
+   Which order the KPI squares sit in, per section, as {sectionKey: [defKey]}.
+   Lives in Prefs (user_prefs.prefs) rather than localStorage, so it's the
+   person's arrangement and follows them between laptop and phone — two people
+   sharing a browser get their own, and one person on two devices gets the
+   same one.
+
+   Saved orders are advisory, never authoritative: a key that no longer exists
+   is dropped and a def that isn't in the list yet falls in at the end in its
+   natural KPI_DEFS position. That way adding or retiring a KPI can never
+   strand a tile or blank a section for someone with an old order saved. */
+function getKpiOrder(){
+  const o = Prefs.get('kpiOrder', {});
+  return (o && typeof o === 'object') ? o : {};
+}
+function setKpiSectionOrder(sectionKey, keys){
+  Prefs.set('kpiOrder', {...getKpiOrder(), [sectionKey]: keys});
+}
+function clearKpiSectionOrder(sectionKey){
+  const next = {...getKpiOrder()};
+  delete next[sectionKey];
+  Prefs.set('kpiOrder', next);
+  app.render();
+}
+function applyKpiOrder(sectionKey, defs){
+  const order = getKpiOrder()[sectionKey];
+  if(!Array.isArray(order) || !order.length) return defs;
+  const pos = new Map(order.map((k, i) => [k, i]));
+  // Unplaced defs sort after placed ones, keeping their KPI_DEFS order
+  // among themselves — a stable sort is what makes that hold.
+  return defs.slice().sort((a, b) => {
+    const ia = pos.has(a.key) ? pos.get(a.key) : Infinity;
+    const ib = pos.has(b.key) ? pos.get(b.key) : Infinity;
+    return ia - ib;
+  });
+}
+function hasCustomKpiOrder(sectionKey){
+  const o = getKpiOrder()[sectionKey];
+  return Array.isArray(o) && o.length > 0;
+}
+
+/* Drag to reorder. Order is recomputed from what's on screen rather than from
+   the saved array, so it stays correct even when the saved order is partial
+   or stale. A drop writes the full visible order for that section. */
+let _kpiDragKey = null, _kpiDragEndedAt = 0;
+function kpiDragStart(e, key){
+  _kpiDragKey = key;
+  e.dataTransfer.setData('text/plain', key);
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('kpi-dragging');
+}
+function kpiDragEnd(e){
+  _kpiDragKey = null;
+  _kpiDragEndedAt = Date.now();
+  e.currentTarget.classList.remove('kpi-dragging');
+  document.querySelectorAll('.kpi-drop-before,.kpi-drop-after')
+    .forEach(el => el.classList.remove('kpi-drop-before','kpi-drop-after'));
+}
+function kpiDragOver(e){
+  if(!_kpiDragKey) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const tile = e.currentTarget;
+  if(tile.dataset.kpikey === _kpiDragKey) return;
+  const box = tile.getBoundingClientRect();
+  const after = (e.clientX - box.left) > box.width / 2;
+  tile.classList.toggle('kpi-drop-before', !after);
+  tile.classList.toggle('kpi-drop-after', after);
+}
+function kpiDragLeave(e){
+  e.currentTarget.classList.remove('kpi-drop-before','kpi-drop-after');
+}
+function kpiDrop(e, sectionKey){
+  if(!_kpiDragKey) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const tile = e.currentTarget;
+  const dropKey = tile.dataset.kpikey;
+  const after = tile.classList.contains('kpi-drop-after');
+  tile.classList.remove('kpi-drop-before','kpi-drop-after');
+  _kpiDragEndedAt = Date.now();
+
+  const grid = tile.closest('.kpi-tiles');
+  if(!grid || dropKey === _kpiDragKey){ _kpiDragKey = null; return; }
+
+  const keys = [...grid.querySelectorAll('.kpi-tile')].map(el => el.dataset.kpikey);
+  const from = keys.indexOf(_kpiDragKey);
+  if(from < 0){ _kpiDragKey = null; return; }
+  keys.splice(from, 1);
+  let to = keys.indexOf(dropKey);
+  if(to < 0){ _kpiDragKey = null; return; }
+  if(after) to += 1;
+  keys.splice(to, 0, _kpiDragKey);
+
+  _kpiDragKey = null;
+  setKpiSectionOrder(sectionKey, keys);
+  app.render();
+}
+
 function dedupedKpiDefsInSection(sectionKey){
   const seen = new Map();
   for(const d of kpiDefsInSection(sectionKey)){
+    if(d.pairedInto) continue;   // drawn inside its partner's tile
     const existing = seen.get(d.label);
     if(!existing || (existing.win !== 7 && d.win === 7)) seen.set(d.label, d);
   }
-  return [...seen.values()];
+  return applyKpiOrder(sectionKey, [...seen.values()]);
 }
 function dedupedActiveKpiDefs(){
   return activeKpiSections().flatMap(s => dedupedKpiDefsInSection(s.key));
+}
+// Paired defs (firstAttempt7 and friends) are hidden as standalone tiles but
+// still carry their own goal, so anything COUNTING goals has to see them or
+// the scorecard silently ignores half a card. Tile rendering keeps using the
+// deduped lists; only the goal tallies use this.
+function withPairedPartners(defs){
+  const out = [];
+  defs.forEach(d => {
+    out.push(d);
+    if(d.pairWith){
+      const p = KPI_DEFS.find(x => x.key === d.pairWith);
+      if(p) out.push(p);
+    }
+  });
+  return out;
 }
 
 /* =========================================================
@@ -3604,12 +3803,39 @@ function dedupedActiveKpiDefs(){
    both live in the KPIs & Tracking tab — this card exists to
    be read in two seconds, not filled in.
    ========================================================= */
-const DASHBOARD_SNAPSHOT = [
-  {key:'smsSent',          label:'SMS Volume',         icon:'ti-message-2'},
-  {key:'hotLeadsProduced', label:'Hot Leads Produced', icon:'ti-flame'},
-  {key:'leadsContacted',   label:'Leads Contacted',    icon:'ti-phone-call'},
-  {key:'dealsProduced',    label:'Deals Produced',     icon:'ti-diamond'}
+// CHANGED 2026-08-18: was four raw daily counts summed over a fixed 7 days.
+// Now two labelled rows mirroring the funnel — generation on top, conversion
+// underneath — and every entry points at a KPI_DEFS key rather than a raw
+// metric key, so the rates and time-averages here are computed by exactly the
+// same code as the Tracker page. One definition, two places, no drift.
+// `win` on each def is ignored: the snapshot's own 7/30 toggle supplies the
+// range, and every calc type in use here recomputes for an arbitrary window.
+const DASHBOARD_SNAPSHOT_ROWS = [
+  {section:'leadGen', label:'Lead Generation', icon:'ti-seeding', tiles:[
+    {defKey:'smsSent7',        label:'SMS Volume',              icon:'ti-message-2'},
+    {defKey:'hotLeads7',       label:'Hot Leads',               icon:'ti-flame'},
+    {defKey:'scProcessAvg',    label:'Avg Time to Process Lead',icon:'ti-clock'},
+    {defKey:'offerPrepAvg',    label:'Avg Time to Produce Offer',icon:'ti-file-dollar'}
+  ]},
+  {section:'leadConv', label:'Lead Conversion', icon:'ti-arrows-right', tiles:[
+    {defKey:'firstAttempt7',   label:'Avg Time to First Attempt',icon:'ti-phone-plus'},
+    {defKey:'pctContacted7',   label:'% New Leads Contacted',   icon:'ti-phone-call'},
+    {defKey:'contractSentAvg', label:'Avg Time to Contract Sent',icon:'ti-file-text'},
+    {defKey:'pctContract7',    label:'% Contract Sent',         icon:'ti-file-check'},
+    {defKey:'pctClosed7',      label:'% Deals Closed',          icon:'ti-diamond'}
+  ]}
 ];
+
+// Which window the snapshot reports. Device-local: it's a viewing preference,
+// not shared team state, so it sits in localStorage rather than user_prefs.
+function getSnapshotWindow(){
+  const v = parseInt(localStorage.getItem('ulc_snapWin'), 10);
+  return v === 30 ? 30 : 7;
+}
+function setSnapshotWindow(days){
+  localStorage.setItem('ulc_snapWin', String(days));
+  app.render();
+}
 
 // The 7 days before the current 7-day window, for the trend comparison.
 function kpiPrevWindow(days){
@@ -3622,36 +3848,58 @@ function kpiPrevWindow(days){
 }
 
 function renderKpiSection(){
-  const w7 = kpiWindow(7), p7 = kpiPrevWindow(7);
-  const logged = kpiDaysLogged(w7.from, w7.to);
+  const days = getSnapshotWindow();
+  const w = kpiWindow(days), pw = kpiPrevWindow(days);
+  const logged = kpiDaysLogged(w.from, w.to);
 
-  const tile = m => {
-    const value = kpiSum(m.key, w7.from, w7.to);
-    const prev  = kpiSum(m.key, p7.from, p7.to);
-    // A jump from zero has no meaningful percentage, so show direction only.
-    const pct = prev ? Math.round(((value - prev) / prev) * 100) : null;
-    const dir = value === prev ? 'flat' : (value > prev ? 'up' : 'down');
-    const delta = prev
-      ? `${dir==='up'?'+':''}${pct}% vs prior 7 days`
-      : (value ? 'No prior-week data' : 'Nothing logged');
-    return `<div class="snap-tile">
-      <div class="snap-label"><i class="ti ${m.icon}"></i> ${m.label}</div>
-      <div class="snap-value">${value.toLocaleString()}</div>
+  const tile = t => {
+    const def = KPI_DEFS.find(d => d.key === t.defKey);
+    if(!def) return '';
+    const value = kpiHasDataOver(def, w.from, w.to)  ? kpiValueOver(def, w.from, w.to)   : null;
+    const prev  = kpiHasDataOver(def, pw.from, pw.to) ? kpiValueOver(def, pw.from, pw.to) : null;
+
+    // Direction is keyed to better/worse, not to sign: for a 'down' KPI
+    // (every "time to..." number) a fall is the good outcome.
+    let dir = 'flat', delta;
+    if(value !== null && prev !== null && prev !== 0){
+      const pct = Math.round(((value - prev) / Math.abs(prev)) * 100);
+      const better = def.dir === 'down' ? pct < 0 : pct > 0;
+      dir = pct === 0 ? 'flat' : (better ? 'up' : 'down');
+      delta = `${pct > 0 ? '+' : ''}${pct}% vs prior ${days} days`;
+    }else{
+      delta = value !== null ? `No prior-${days}-day data` : 'Nothing logged';
+    }
+
+    return `<div class="snap-tile" onclick="openKpiBreakdown('${def.key}','${w.from}','${w.to}','Last ${days} days')"
+                 title="See the numbers behind this KPI" style="cursor:pointer">
+      <div class="snap-label"><i class="ti ${t.icon}"></i> ${escape(t.label)}</div>
+      <div class="snap-value">${value !== null ? kpiFormat(value, def.unit) : '—'}</div>
       <div class="snap-delta ${dir}">
-        ${prev ? `<i class="ti ti-arrow-${dir==='up'?'up':dir==='down'?'down':'right'}"></i> ` : ''}${delta}
+        ${(value !== null && prev !== null && prev !== 0) ? `<i class="ti ti-arrow-${dir==='flat'?'right':(value>prev?'up':'down')}"></i> ` : ''}${delta}
       </div>
     </div>`;
   };
 
+  const row = r => `<div class="snap-row">
+      <div class="snap-row-head"><i class="ti ${r.icon}"></i>${escape(r.label)}</div>
+      <div class="snap-grid">${r.tiles.map(tile).join('')}</div>
+    </div>`;
+
+  const winBtn = n => `<button class="btn btn-sm ${days===n?'btn-primary':''}"
+    onclick="event.stopPropagation();setSnapshotWindow(${n})">${n} days</button>`;
+
   return `<div class="card" style="margin-bottom:24px">
-    <div class="card-header">
+    <div class="card-header" style="flex-wrap:wrap;gap:10px">
       <div>
         <div class="card-title">KPI Snapshot</div>
-        <div class="card-sub">Last 7 days · ${fmtLong(w7.from)} – ${fmtLong(w7.to)} · ${logged}/7 days logged</div>
+        <div class="card-sub">Last ${days} days · ${fmtLong(w.from)} – ${fmtLong(w.to)} · ${logged}/${days} days logged</div>
       </div>
-      <button class="btn btn-sm" onclick="app.go('activity');setKtTab('kpis')">Full breakdown <i class="ti ti-arrow-right"></i></button>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <div class="seg" style="display:flex;gap:4px">${winBtn(7)}${winBtn(30)}</div>
+        <button class="btn btn-sm" onclick="app.go('activity');setKtTab('kpis')">Full breakdown <i class="ti ti-arrow-right"></i></button>
+      </div>
     </div>
-    <div class="snap-grid">${DASHBOARD_SNAPSHOT.map(tile).join('')}</div>
+    ${DASHBOARD_SNAPSHOT_ROWS.filter(r => isKpiSectionActive(r.section)).map(row).join('')}
   </div>`;
 }
 
@@ -3785,6 +4033,9 @@ function kpiBreakdownRows(def, from, to){
 }
 
 function openKpiBreakdown(defKey, from, to, rangeLabel){
+  // A drag that ends over the tile it started on still fires a click. Without
+  // this guard, nudging a square open the breakdown modal every time.
+  if(Date.now() - _kpiDragEndedAt < 300) return;
   const def = KPI_DEFS.find(d => d.key === defKey);
   if(!def) return;
   const b = kpiBreakdownRows(def, from, to);
@@ -3816,15 +4067,42 @@ function openKpiBreakdown(defKey, from, to, rangeLabel){
 }
 
 function renderKpiTile(def, range){
-  // Headline value/delta follow the page-wide selected range.
+  // A tile is one or two stat blocks. Two when `pairWith` names a partner def
+  // (see firstContact7): both get the same size, their own goal and their own
+  // breakdown, and the card spans two grid rows so it reads as two stacked
+  // cards rather than one crowded one.
+  const partner = def.pairWith ? KPI_DEFS.find(d => d.key === def.pairWith) : null;
+  const blocks  = partner ? [def, partner] : [def];
+  const dual    = blocks.length > 1;
+
+  const rendered = blocks.map((d, idx) => renderKpiStat(d, range, {showWindow: idx === 0}));
+  const tileCls  = dual ? 'kpi-tile kpi-tile-dual' : `kpi-tile ${rendered[0].cls}`;
+
+  // Drag-to-reorder attributes are identical for both shapes; a paired tile
+  // moves as one unit under its primary def's key.
+  const dnd = `data-kpikey="${def.key}" draggable="true"
+    ondragstart="kpiDragStart(event,'${def.key}')" ondragend="kpiDragEnd(event)"
+    ondragover="kpiDragOver(event)" ondragleave="kpiDragLeave(event)"
+    ondrop="kpiDrop(event,'${def.section}')"`;
+
+  if(dual){
+    return `<div class="${tileCls}" ${dnd}>${rendered.map(r => r.html).join('')}</div>`;
+  }
+  return `<div class="${tileCls}" ${dnd} onclick="openKpiBreakdown('${def.key}','${range.from}','${range.to}','${escape(range.label)}')" title="See the numbers behind this KPI · drag to reorder">${rendered[0].inner}</div>`;
+}
+
+// One stat: value, trend vs the previous equivalent window, and its own goal.
+// Returned both wrapped (for dual tiles) and bare (for single tiles) so the
+// two layouts share exactly one copy of this logic.
+function renderKpiStat(def, range, opts){
+  const showWindow = !opts || opts.showWindow !== false;
   const value = kpiValueOver(def, range.from, range.to);
-  const prev = kpiValuePrevOver(def, range.from, range.to);
+  const prev  = kpiValuePrevOver(def, range.from, range.to);
   const hasData = kpiHasDataOver(def, range.from, range.to);
 
   // The goal is always trailing 7 days ending on range.to, regardless of
   // what range is selected for the headline value above — see kpiGoalStatus().
-  const g = kpiGoalStatus(def, range.to);
-  const { target, onTrack, value: goalValue } = g;
+  const { target, onTrack, value: goalValue } = kpiGoalStatus(def, range.to);
 
   // Percent change against the previous equivalent window. For a 'down' KPI a
   // fall is an improvement, so the colour is keyed to better/worse, not sign.
@@ -3863,16 +4141,17 @@ function renderKpiTile(def, range){
   const cls = !hasData ? 'no-data' : onTrack === true ? 'is-good' : onTrack === false ? 'is-bad' : '';
   const pacing = def.pace === 'smsMonthlyGoal' ? renderSmsPacingNote(range.to) : '';
 
-  return `<div class="kpi-tile ${cls}" onclick="openKpiBreakdown('${def.key}','${range.from}','${range.to}','${escape(range.label)}')" title="See the numbers behind this KPI">
-    <div class="kpi-tile-head">
+  const inner = `<div class="kpi-tile-head">
       <div class="kpi-tile-name">${escape(def.label)}</div>
-      <div class="kpi-tile-win">${escape(range.label)}</div>
+      ${showWindow ? `<div class="kpi-tile-win">${escape(range.label)}</div>` : ''}
     </div>
     <div class="kpi-tile-val">${hasData ? kpiFormat(value, def.unit) : '—'}${delta}</div>
     ${hasData ? '' : `<div class="kpi-note" style="color:var(--danger)">No entries in this window</div>`}
     ${pacing}
-    ${goalRow}
-  </div>`;
+    ${goalRow}`;
+
+  const html = `<div class="kpi-stat ${cls}" onclick="openKpiBreakdown('${def.key}','${range.from}','${range.to}','${escape(range.label)}')" title="See the numbers behind this KPI">${inner}</div>`;
+  return {html, inner, cls};
 }
 
 function renderSmsPacingNote(anchor){
@@ -3899,20 +4178,22 @@ function renderKpiTrackingView(){
 
   // Scorecard is always about the fixed 7 day goal, independent of the
   // range selected for the tiles' headline values below.
-  const judged  = defs.filter(d => { const g = kpiGoalStatus(d, range.to); return g.target !== null && g.hasData; });
+  const scored  = withPairedPartners(defs);
+  const judged  = scored.filter(d => { const g = kpiGoalStatus(d, range.to); return g.target !== null && g.hasData; });
   const metCount = judged.filter(d => kpiGoalStatus(d, range.to).onTrack).length;
-  const noData  = defs.filter(d => !kpiGoalStatus(d, range.to).hasData);
+  const noData  = scored.filter(d => !kpiGoalStatus(d, range.to).hasData);
 
   const section = s => {
     const secDefs = dedupedKpiDefsInSection(s.key);
-    const sJudged = secDefs.filter(d => { const g = kpiGoalStatus(d, range.to); return g.target !== null && g.hasData; });
+    const secScored = withPairedPartners(secDefs);
+    const sJudged = secScored.filter(d => { const g = kpiGoalStatus(d, range.to); return g.target !== null && g.hasData; });
     const sOk = sJudged.filter(d => kpiGoalStatus(d, range.to).onTrack).length;
-    const sNoData = secDefs.filter(d => !kpiGoalStatus(d, range.to).hasData).length;
+    const sNoData = secScored.filter(d => !kpiGoalStatus(d, range.to).hasData).length;
     return `<div class="card" style="margin-bottom:16px">
       <div class="card-header">
         <div>
           <div class="card-title"><i class="ti ${s.icon}" style="font-size:16px;margin-right:6px;color:var(--accent)"></i>${s.label}</div>
-          <div class="card-sub">${secDefs.length} KPI${secDefs.length!==1?'s':''}${sNoData?` · ${sNoData} without a 7 day goal met`:''}</div>
+          <div class="card-sub">${secScored.length} KPI${secScored.length!==1?'s':''}${sNoData?` · ${sNoData} without a 7 day goal met`:''} · drag to reorder${hasCustomKpiOrder(s.key)?` · <button class="kpi-order-reset" onclick="event.stopPropagation();clearKpiSectionOrder('${s.key}')">reset order</button>`:''}</div>
         </div>
         ${sJudged.length
           ? `<span class="kpi-pill ${sOk===sJudged.length?'good':'bad'}">
@@ -4067,7 +4348,7 @@ function buildKpiChartSeries(meta, days){
 function renderKpiChart(){
   const cfg = getKpiChart();
   const days = cfg.range;
-  const metaA = kpiChartSeriesMeta(cfg.a) || kpiChartSeriesMeta('kpi:' + activeKpiDefs()[0].key);
+  const metaA = kpiChartSeriesMeta(cfg.a) || kpiChartSeriesMeta('in:' + activeKpiInputs()[0].key);
   const metaB = cfg.b ? kpiChartSeriesMeta(cfg.b) : null;
   const seriesA = buildKpiChartSeries(metaA, days);
   const seriesB = metaB ? buildKpiChartSeries(metaB, days) : null;
@@ -4145,13 +4426,15 @@ function renderKpiChart(){
     return bits.join(' · ');
   };
 
+  // CHANGED 2026-08-18: rolling KPI series removed from this picker -- only
+  // raw daily inputs are offered now. A rolling KPI plotted per-day is a
+  // trailing average of itself, which smooths away the day-to-day movement
+  // the chart exists to show, and the derived tiles above already report
+  // those numbers for the selected range. kpiChartSeriesMeta still resolves
+  // 'kpi:' selections so a series saved under the old picker keeps drawing
+  // until it's changed.
   const optionsFor = selected => `
-    <optgroup label="KPIs (rolling)">
-      ${activeKpiDefs().map(d=>`<option value="kpi:${d.key}" ${selected===`kpi:${d.key}`?'selected':''}>${escape(d.label)} (${kpiWindowLabel(d.win)})</option>`).join('')}
-    </optgroup>
-    <optgroup label="Raw inputs (daily)">
-      ${activeKpiInputs().map(m=>`<option value="in:${m.key}" ${selected===`in:${m.key}`?'selected':''}>${escape(m.label)}</option>`).join('')}
-    </optgroup>`;
+    ${activeKpiInputs().map(m=>`<option value="in:${m.key}" ${selected===`in:${m.key}`?'selected':''}>${escape(m.label)}</option>`).join('')}`;
 
   const mixedUnits = metaB && metaB.unit !== metaA.unit;
 
@@ -4159,7 +4442,7 @@ function renderKpiChart(){
     <div class="card-header" style="flex-wrap:wrap;gap:10px">
       <div>
         <div class="card-title">KPI trends</div>
-        <div class="card-sub">Pick up to two to compare over the range</div>
+        <div class="card-sub">Raw daily numbers — pick up to two to compare over the range</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select class="filter-select" style="min-width:120px" onchange="setKpiChart('range', this.value)">

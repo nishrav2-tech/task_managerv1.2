@@ -28,7 +28,11 @@
 --     contractsClosed /
 --     dealsProduced      — first-ever entry into "Deal Closed!" in
 --                          "Lead --> Contract" specifically, locked permanently
---     firstContactHrs    — opportunity createdAt -> first outbound call/SMS
+--     firstContactHrs /
+--     firstContactCount  — opportunity createdAt -> first outbound call/SMS to
+--                          that lead's contact. Stored as a daily SUM of hours
+--                          plus the count it covers, so the dashboard divides
+--                          once across the whole range.
 --     touchPoints        — count of message/call events that day
 --     leadsContacted     — call >15s AND Lead Notes non-empty, OR inbound SMS
 --                          reply; locked on the day the later of the two
@@ -283,14 +287,34 @@ declare
   PIPE_LEAD_TO_CONTRACT constant text := '9wvdoIQrdKYrmeAnfod6';
   STAGE_VETTED_LEAD     constant text := '094c7357-ee4a-4f88-b3b3-01e7ad6e8b17';
   STAGE_PRIORITY_OFFER  constant text := 'eaf42c26-3d83-4bc1-bf20-f4974f0bf741';
-  STAGE_SEND_PAPERWORK  constant text := '6bcfc8b4-2037-453a-9279-2e38da9c63ad';
+  -- RE-MAPPED 2026-08-18. '6bcfc8b4...' was the original "Send Paperwork" id,
+  -- hardcoded when this file was written. The pipeline has since been rebuilt
+  -- in GHL: that id has seen 2 stage events, ever, last one 2026-08-11, while
+  -- 7 stage ids carrying most of the traffic aren't in this list at all.
+  -- Anything keyed to the old id silently reported ~0 forever.
+  --
+  -- STAGE_PAPERWORK below is identified from event data, not from GHL's API
+  -- (webhook/poll payloads don't carry stage names). Three signals agree:
+  --   1. Both contacts ever marked Contract Status = "Sent" sat in this stage
+  --      immediately before that flip (36 hrs and 118 hrs prior).
+  --   2. It is the only stage ever observed immediately preceding Deal Closed!
+  --   3. It sits late in the funnel: Vetted Lead -> 03fee1af -> here -> closed.
+  -- If GHL ever says otherwise, correct THIS ONE LINE -- both leadsOfferedOn
+  -- and the contractSentHrs clock read from it.
+  STAGE_PAPERWORK       constant text := 'c9c5aa45-fdd3-47f6-9da9-e0d59f59defe';
+  STAGE_SEND_PAPERWORK  constant text := '6bcfc8b4-2037-453a-9279-2e38da9c63ad';  -- legacy, dead since the rebuild
   STAGE_DEAL_CLOSED     constant text := '462724b5-24ce-4a16-b198-ba5c290eab85';
   STAGE_NOT_A_FIT       constant text := 'af524f69-fb50-4776-a0ee-d93639eb379e';
   FIELD_CONTRACT_STATUS constant text := 'SsD1lNNGo0UKFQG0K4Ti';
   FIELD_LEAD_NOTES      constant text := 'u19ve7mWJJUctzbrAqZ7';
   day_start timestamptz := target_date::timestamptz;
   day_end   timestamptz := (target_date + 1)::timestamptz;
-  v_first_contact_avg numeric;
+  v_first_contact_hrs   numeric;
+  v_first_contact_count integer;
+  v_first_attempt_hrs   numeric;
+  v_first_attempt_count integer;
+  v_contract_sent_hrs   numeric;
+  v_contract_sent_count integer;
 begin
 
   -- leadsProduced: CHANGED 2026-08-15 (again). Now counts every opportunity
@@ -334,7 +358,14 @@ begin
     select count(*) from ghl_locked_events where metric_key = 'hotLeadsProduced' and log_date = target_date
   ));
 
-  -- leadsOfferedOn: CHANGED 2026-08-15 -- now first-ever entry into Send
+  -- leadsOfferedOn: RE-MAPPED 2026-08-18 to STAGE_PAPERWORK (see the constant
+  -- above -- the old Send Paperwork id is dead, so this metric and the "% of
+  -- leads offered on" tile that reads it were stuck near zero). Reaching
+  -- Deal Closed! also qualifies: a lead cannot close without having been
+  -- offered on, and dragging a card straight to closed shouldn't erase the
+  -- offer. The legacy id stays in the list so the two opportunities that did
+  -- pass through it historically still count.
+  -- CHANGED 2026-08-15 -- now first-ever entry into Send
   -- Paperwork, locked permanently, same pattern as hotLeadsProduced /
   -- dealsProduced / offersPrepared. This was the one place the exact
   -- counting rule was left ambiguous when the rollup was first built;
@@ -347,7 +378,7 @@ begin
   from ghl_events
   where event_type = 'OpportunityStageUpdate'
     and pipeline_id = PIPE_LEAD_TO_CONTRACT
-    and stage_id = STAGE_SEND_PAPERWORK
+    and stage_id in (STAGE_PAPERWORK, STAGE_SEND_PAPERWORK, STAGE_DEAL_CLOSED)
     and occurred_at >= day_start and occurred_at < day_end
     and opportunity_id not in (select entity_id from ghl_locked_events where metric_key = 'leadsOfferedOn')
     and opportunity_id in (select entity_id from ghl_locked_events where metric_key = 'leadsProduced')
@@ -429,55 +460,137 @@ begin
   -- with no matching Send Paperwork entry (shouldn't normally happen, but
   -- data can be messy) are simply excluded via the inner join -- avg()
   -- already skips nulls, so this is the safe default.
-  perform set_kpi_entry('contractSentHrs', target_date, (
-    select coalesce(avg(extract(epoch from (se.occurred_at - pw.entered_paperwork_at)) / 3600.0), 0)
-    from ghl_locked_events le
-    join lateral (
-      select occurred_at from ghl_events
-      where event_type = 'ContactUpdate' and contact_id = le.entity_id
-        and exists (
-          select 1 from jsonb_array_elements(coalesce(raw->'customFields','[]'::jsonb)) f
-          where f->>'id' = FIELD_CONTRACT_STATUS and f->>'value' ilike '%sent%'
-        )
-      order by occurred_at asc limit 1
-    ) se on true
-    join lateral (
-      select min(occurred_at) as entered_paperwork_at from ghl_events
-      where contact_id = le.entity_id
-        and event_type = 'OpportunityStageUpdate'
-        and pipeline_id = PIPE_LEAD_TO_CONTRACT
-        and stage_id = STAGE_SEND_PAPERWORK
-    ) pw on true
-    where le.metric_key = 'contractsSent' and le.log_date = target_date
-  ));
+  -- CHANGED 2026-08-18: stores a daily SUM of hours plus contractSentCount,
+  -- instead of a pre-averaged value. The dashboard's 'avg' calc is
+  -- sum(total)/sum(count) across the range, so a stored average was being
+  -- divided a second time -- the same shape bug firstContactHrs had. The
+  -- paired count is the contracts the sum actually covers, which is NOT the
+  -- same as contractsSent: a contract whose lead never passed through the
+  -- paperwork stage has no start timestamp and is excluded from both.
+  select
+    coalesce(sum(extract(epoch from (se.occurred_at - pw.entered_paperwork_at)) / 3600.0), 0),
+    count(*)
+  into v_contract_sent_hrs, v_contract_sent_count
+  from ghl_locked_events le
+  join lateral (
+    select occurred_at from ghl_events
+    where event_type = 'ContactUpdate' and contact_id = le.entity_id
+      and exists (
+        select 1 from jsonb_array_elements(coalesce(raw->'customFields','[]'::jsonb)) f
+        where f->>'id' = FIELD_CONTRACT_STATUS and f->>'value' ilike '%sent%'
+      )
+    order by occurred_at asc limit 1
+  ) se on true
+  join lateral (
+    select min(occurred_at) as entered_paperwork_at from ghl_events
+    where contact_id = le.entity_id
+      and event_type = 'OpportunityStageUpdate'
+      and pipeline_id = PIPE_LEAD_TO_CONTRACT
+      and stage_id in (STAGE_PAPERWORK, STAGE_SEND_PAPERWORK)
+  ) pw on true
+  where le.metric_key = 'contractsSent' and le.log_date = target_date
+    and pw.entered_paperwork_at is not null
+    and se.occurred_at >= pw.entered_paperwork_at;
 
-  -- firstContactHrs: opportunity createdAt -> first outbound call/SMS, for
-  -- opportunities whose FIRST outbound touch happened today.
-  with first_touches as (
-    select
-      opportunity_id,
-      min(occurred_at) as first_touch_at
+  perform set_kpi_entry('contractSentHrs',   target_date, v_contract_sent_hrs);
+  perform set_kpi_entry('contractSentCount', target_date, v_contract_sent_count);
+
+  -- firstAttemptHrs/Count  — time to first ATTEMPT  (we dialled or texted)
+  -- firstContactHrs/Count  — time to first REACH     (they actually engaged)
+  --
+  -- Both run off the same per-lead clock: the opportunity's OpportunityCreate
+  -- timestamp. Each lead contributes exactly one number to each metric, the
+  -- day that milestone landed, and never counts again. Stored as a daily SUM
+  -- of hours plus the count it covers, so the dashboard divides once across
+  -- whatever range is selected (see the 'avg' calc type in index.html).
+  --
+  -- The split, added 2026-08-18: "attempt" is any outbound call or SMS,
+  -- however short, answered or not -- it measures OUR responsiveness, and is
+  -- the only one of the two we fully control. "Reach" requires the lead to
+  -- have actually engaged: an outbound call that lasted more than 15 seconds
+  -- (someone picked up and talked) or any inbound message back from them. It
+  -- measures how long the round trip really takes. Reach is necessarily >=
+  -- attempt for any given lead, and fewer leads ever qualify, so the two
+  -- numbers answer different questions and are shown side by side on one card.
+  --
+  -- NOTE: "reach" here deliberately does NOT require the Lead Notes custom
+  -- field the way the separate leadsContacted metric does. Notes are a
+  -- data-entry act, not evidence the lead engaged, and gating on them would
+  -- make this measure how fast we type rather than how fast we connect.
+  --
+  -- HISTORY: before 2026-08-18 firstContactHrs read exactly 0 on all 267 of
+  -- its stored days. It filtered message events on `opportunity_id is not
+  -- null`, but message/call events carry contact_id ONLY (GHL conversations
+  -- belong to a contact, not an opportunity), so the predicate matched 0 of
+  -- 2,367 message rows every single day and avg() over the empty set
+  -- coalesced to 0. Touches now resolve to their lead through contact_id via
+  -- that opportunity's OpportunityCreate event, the same join
+  -- touchPerActiveLead already used. It also stored a pre-AVERAGED value
+  -- while the dashboard's 'avg' calc is sum(total)/sum(count) -- so the
+  -- average was being divided a second time. Hence the paired *Count keys.
+  with lead_contacts as (
+    select opportunity_id, contact_id, min(occurred_at) as opp_created_at
     from ghl_events
-    where event_type in ('OutboundMessage', 'InboundMessage')  -- GHL fires this event type for calls too; direction column disambiguates
-      and direction = 'outbound'
-      and message_type in ('TYPE_CALL', 'TYPE_SMS')
-      and opportunity_id is not null
-    group by opportunity_id
+    where event_type = 'OpportunityCreate'
+      and pipeline_id = PIPE_LEAD_TO_CONTRACT
+      and contact_id is not null
+    group by opportunity_id, contact_id
   ),
-  today_first_touches as (
-    select ft.opportunity_id, ft.first_touch_at, oc.first_seen
-    from first_touches ft
-    join lateral (
-      select min(occurred_at) as first_seen from ghl_events
-      where opportunity_id = ft.opportunity_id
-    ) oc on true
-    where ft.first_touch_at >= day_start and ft.first_touch_at < day_end
+  first_attempts as (
+    select lc.opportunity_id, lc.opp_created_at, min(e.occurred_at) as milestone_at
+    from lead_contacts lc
+    join ghl_events e
+      on e.contact_id = lc.contact_id
+     and e.event_type in ('OutboundMessage', 'InboundMessage')
+     and e.direction = 'outbound'
+     and e.message_type in ('TYPE_CALL', 'TYPE_SMS')
+     and e.occurred_at >= lc.opp_created_at
+    group by lc.opportunity_id, lc.opp_created_at
+  ),
+  todays_attempts as (
+    select extract(epoch from (milestone_at - opp_created_at)) / 3600.0 as hrs
+    from first_attempts
+    where milestone_at >= day_start and milestone_at < day_end
   )
-  select coalesce(avg(extract(epoch from (first_touch_at - first_seen)) / 3600.0), 0)
-  into v_first_contact_avg
-  from today_first_touches;
+  select coalesce(sum(hrs), 0), count(*)
+    into v_first_attempt_hrs, v_first_attempt_count
+  from todays_attempts;
 
-  perform set_kpi_entry('firstContactHrs', target_date, v_first_contact_avg);
+  perform set_kpi_entry('firstAttemptHrs',   target_date, v_first_attempt_hrs);
+  perform set_kpi_entry('firstAttemptCount', target_date, v_first_attempt_count);
+
+  with lead_contacts as (
+    select opportunity_id, contact_id, min(occurred_at) as opp_created_at
+    from ghl_events
+    where event_type = 'OpportunityCreate'
+      and pipeline_id = PIPE_LEAD_TO_CONTRACT
+      and contact_id is not null
+    group by opportunity_id, contact_id
+  ),
+  first_reaches as (
+    select lc.opportunity_id, lc.opp_created_at, min(e.occurred_at) as milestone_at
+    from lead_contacts lc
+    join ghl_events e
+      on e.contact_id = lc.contact_id
+     and e.occurred_at >= lc.opp_created_at
+     and (
+       (e.event_type = 'OutboundMessage' and e.message_type = 'TYPE_CALL'
+         and coalesce(e.call_duration_secs, 0) > 15)
+       or (e.event_type = 'InboundMessage' and e.direction = 'inbound')
+     )
+    group by lc.opportunity_id, lc.opp_created_at
+  ),
+  todays_reaches as (
+    select extract(epoch from (milestone_at - opp_created_at)) / 3600.0 as hrs
+    from first_reaches
+    where milestone_at >= day_start and milestone_at < day_end
+  )
+  select coalesce(sum(hrs), 0), count(*)
+    into v_first_contact_hrs, v_first_contact_count
+  from todays_reaches;
+
+  perform set_kpi_entry('firstContactHrs',   target_date, v_first_contact_hrs);
+  perform set_kpi_entry('firstContactCount', target_date, v_first_contact_count);
 
   -- touchPoints: every message/call event logged that day, in or out.
   perform set_kpi_entry('touchPoints', target_date, (
