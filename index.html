@@ -571,6 +571,20 @@ input,select,textarea{font:inherit;color:inherit}
 
 /* ============ PROPERTY / TASK ITEMS ============ */
 .item-list{display:flex;flex-direction:column;gap:8px}
+/* The dashboard agenda scrolls rather than growing without limit: today's
+   work sits at the top and everything scheduled after it continues below,
+   so the card stays a fixed, scannable height whether there are 3 items or
+   40. min-height keeps a nearly-empty agenda from collapsing to a sliver. */
+.agenda-scroll{max-height:min(52vh,460px);overflow-y:auto;min-height:120px;
+  padding-right:4px;scrollbar-width:thin}
+.agenda-scroll::-webkit-scrollbar{width:8px}
+.agenda-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.agenda-scroll::-webkit-scrollbar-thumb:hover{background:var(--ink-3)}
+.agenda-divider{display:flex;align-items:center;gap:10px;margin:6px 2px 2px;
+  font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.agenda-divider::after{content:'';flex:1;height:1px;background:var(--line)}
+.item-row.is-clickable{cursor:pointer}
+.item-row.is-clickable:hover{border-color:var(--ink-3);background:var(--surface-2)}
 .item-row{
   background:var(--surface);
   border:1px solid var(--border);
@@ -1776,6 +1790,18 @@ const asLocalDate = d => new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? d+'T00:00:00' 
 const fmt = d => {if(!d)return'';const x=asLocalDate(d);return x.toLocaleDateString('en-US',{month:'short',day:'numeric'})};
 const fmtLong = d => {if(!d)return'';const x=asLocalDate(d);return x.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})};
 const money = n => '$'+Number(n||0).toLocaleString();
+/* "tomorrow" / "in 3 days" / "Sep 4" — used by the Coming up section of the
+   dashboard agenda, where a bare date makes you do the arithmetic yourself.
+   Falls back to the plain date past a week out, when "in 23 days" stops
+   meaning anything useful. */
+const dueInWords = d => {
+  if(!d) return '';
+  const days = Math.round((asLocalDate(d) - asLocalDate(today())) / 86400000);
+  if(days <= 0) return 'due today';
+  if(days === 1) return 'due tomorrow';
+  if(days <= 7) return `due in ${days} days`;
+  return 'due ' + fmtLong(d);
+};
 const escape = s => (s||'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ---- Which tab you're on, remembered -------------------------------------
@@ -2675,20 +2701,126 @@ const app = {
       main.className = 'main';        // no animation for a data repaint
     }
 
-    main.innerHTML = html;
+    // Same screen, changed numbers: try to write the difference into the
+    // existing DOM rather than rebuilding it. Only a real view change (or a
+    // structural change the patcher refuses) rebuilds.
+    let patched = false;
+    this._patchCreatedNodes = false;
+    if(!viewChanged){
+      const staging = document.createElement('div');
+      staging.innerHTML = html;
+      patched = true;
+      const oldKids = Array.from(main.childNodes);
+      const newKids = Array.from(staging.childNodes);
+      const shared  = Math.min(oldKids.length, newKids.length);
+      for(let i = 0; i < shared; i++){
+        if(!this._patchDom(oldKids[i], newKids[i])){
+          main.replaceChild(newKids[i].cloneNode(true), oldKids[i]);
+          this._patchCreatedNodes = true;
+        }
+      }
+      for(let i = shared; i < oldKids.length; i++) main.removeChild(oldKids[i]);
+      for(let i = shared; i < newKids.length; i++){
+        main.appendChild(newKids[i].cloneNode(true));
+        this._patchCreatedNodes = true;
+      }
+    }
+
+    if(!patched){
+      main.innerHTML = html;
+    }
+
     this._lastView = state.activeView;
     this._lastHtml = html;
 
-    if(!viewChanged){
-      // Same screen, new numbers — keep the reader where they were.
+    if(!viewChanged && !patched){
+      // Had to rebuild after all — at least keep the reader where they were.
       if(mainScroll) main.scrollTop = mainScroll;
       if(scrollY) window.scrollTo(0, scrollY);
     }
+
+    // Patching reuses nodes bindViewEvents already bound, so re-binding is
+    // only needed when the patch actually created new elements. bindViewEvents
+    // is idempotent either way (it marks what it binds), so this is belt and
+    // braces rather than the only thing standing between us and duplicate
+    // listeners firing an action twice.
+    if(patched && !this._patchCreatedNodes) return;
 
     bindViewEvents();
     // The inline funding editor builds its rows as real DOM nodes, so it has
     // to be filled in after the view's HTML is in place.
     hydrateFundingPanel();
+  },
+
+  /* ---- In-place patching (2026-08-18) ---------------------------------
+     Killing the .view-enter animation wasn't enough: the CARDS carry their
+     own fadeUp entrance animations (.card, .kpi-tile, .snap-tile and others).
+     Any innerHTML assignment builds brand-new elements, so every one of those
+     animations restarts — the whole screen visibly animates in again, which
+     is what still read as glitching when data landed.
+
+     So a data repaint no longer replaces anything. patchDom walks the old and
+     new trees together and writes only what actually differs: changed text,
+     changed attributes. Untouched elements are literally the same DOM nodes
+     they were a moment ago, so their animations never re-fire, focus and text
+     selection survive, and a number that's already on screen simply stays.
+
+     It is deliberately conservative — any structural difference (different
+     tag, different number of children) aborts and hands back false, and the
+     caller falls back to a full replace. Structure only changes on a real
+     view change or when a list gains/loses a row, which is exactly when a
+     rebuild is legitimate. Numbers changing never alters structure.
+
+     Returns true if the patch fully succeeded. On true the caller must NOT
+     re-run bindViewEvents(): the nodes are the same ones it already bound,
+     and binding again would stack duplicate listeners. */
+  _patchDom(oldNode, newNode){
+    if(oldNode.nodeType !== newNode.nodeType) return false;
+
+    if(oldNode.nodeType === Node.TEXT_NODE || oldNode.nodeType === Node.COMMENT_NODE){
+      if(oldNode.nodeValue !== newNode.nodeValue) oldNode.nodeValue = newNode.nodeValue;
+      return true;
+    }
+    if(oldNode.nodeType !== Node.ELEMENT_NODE) return true;
+    if(oldNode.tagName !== newNode.tagName) return false;
+
+
+    // Attributes. Skip anything the user is currently interacting with, so a
+    // background repaint can't wipe half-typed input or reset a scroll box.
+    const isLive = document.activeElement === oldNode;
+    if(!isLive){
+      for(const at of Array.from(newNode.attributes)){
+        if(oldNode.getAttribute(at.name) !== at.value) oldNode.setAttribute(at.name, at.value);
+      }
+      for(const at of Array.from(oldNode.attributes)){
+        if(!newNode.hasAttribute(at.name)) oldNode.removeAttribute(at.name);
+      }
+    }
+
+    /* Children are reconciled position by position rather than requiring the
+       counts to match. An earlier version bailed out whenever they differed,
+       which sounded safe but meant the dashboard rebuilt wholesale every time
+       a trend arrow appeared — one extra <i> in a tile was enough to restart
+       every card animation on the screen. Now a mismatch replaces only the
+       node that actually differs, and its siblings are left untouched. */
+    const oldKids = Array.from(oldNode.childNodes);
+    const newKids = Array.from(newNode.childNodes);
+    const shared  = Math.min(oldKids.length, newKids.length);
+
+    for(let i = 0; i < shared; i++){
+      if(!this._patchDom(oldKids[i], newKids[i])){
+        oldNode.replaceChild(newKids[i].cloneNode(true), oldKids[i]);
+        this._patchCreatedNodes = true;
+      }
+    }
+    for(let i = shared; i < oldKids.length; i++){
+      oldNode.removeChild(oldKids[i]);
+    }
+    for(let i = shared; i < newKids.length; i++){
+      oldNode.appendChild(newKids[i].cloneNode(true));
+      this._patchCreatedNodes = true;
+    }
+    return true;
   },
 
   /* Coalesce bursts of render requests into one repaint. The four cohort
@@ -2732,6 +2864,14 @@ function renderDashboard(){
   const agendaMine = item => !agendaUserId || (item.assignees||[]).includes(agendaUserId);
   const agendaLabel = agendaUserId ? userName(agendaUserId) : 'the whole team';
   const agendaTasks = [...overdueTasks, ...dueTodayTasks].filter(agendaMine);
+  // ADDED 2026-08-18: everything still open with a due date after today, so
+  // the agenda can be scrolled past "today" into what's coming rather than
+  // dead-ending. Undated tasks are deliberately left out — they'd have no
+  // position in a date-ordered list and would just pad it out.
+  const upcomingTasks = state.tasks
+    .filter(t => t.status !== 'done' && t.dueDate && t.dueDate > todayStr)
+    .filter(agendaMine)
+    .sort((a2, b2) => (a2.dueDate || '').localeCompare(b2.dueDate || ''));
   const projsToday = state.projects.filter(p=>p.status!=='done'&&p.dueDate===todayStr).filter(agendaMine);
   const agendaCount = agendaTasks.length + projsToday.length;
 
@@ -2802,10 +2942,10 @@ function renderDashboard(){
         ${state.users.map(u=>`<option value="${u.id}" ${u.id===agendaUserId?'selected':''}>${escape(u.name)}</option>`).join('')}
       </select>
     </div>
-    <div class="item-list">
+    <div class="item-list agenda-scroll">
       ${agendaTasks.map(t=>{
         const od = isOverdue(t.dueDate);
-        return `<div class="item-row ${od?'overdue':''}">
+        return `<div class="item-row is-clickable ${od?'overdue':''}" data-action="open-task" data-id="${t.id}" title="Open this task">
           <input type="checkbox" class="task-check" data-action="toggle-task" data-id="${t.id}">
           <div class="item-main">
             <div class="item-title">${escape(t.title)}</div>
@@ -2832,6 +2972,27 @@ function renderDashboard(){
           </div>
           ${assigneeStack(p.assignees,'sm')}
         </div>`).join('')}
+
+      ${upcomingTasks.length ? `
+        <div class="agenda-divider"><span>Coming up</span></div>
+        ${upcomingTasks.map(t=>`
+          <div class="item-row is-clickable" data-action="open-task" data-id="${t.id}" title="Open this task">
+            <input type="checkbox" class="task-check" data-action="toggle-task" data-id="${t.id}">
+            <div class="item-main">
+              <div class="item-title">${escape(t.title)}</div>
+              <div class="item-meta">
+                <span class="badge b-${t.priority}">${t.priority}</span>
+                <span>${escape(dueInWords(t.dueDate))}</span>
+                ${t.linkedId?`<span>· ${escape(getLinkedName(t.linkedId,t.linkedType))}</span>`:''}
+              </div>
+            </div>
+            ${assigneeStack(t.assignees,'sm')}
+            <div class="item-actions">
+              <button class="icon-btn" data-action="edit-task" data-id="${t.id}" title="Reschedule / edit">${ICON_EDIT}</button>
+              <button class="icon-btn" data-action="delete-task" data-id="${t.id}" title="Delete">${ICON_DELETE}</button>
+            </div>
+          </div>`).join('')}
+      ` : ''}
     </div>
   </div>
 
@@ -6278,9 +6439,20 @@ projects    (id uuid, title, category, status, priority,
 /* =========================================================
    EVENT BINDING
    ========================================================= */
+/* Called after every render, and after a patch that created nodes. Elements
+   are stamped once bound so a second pass over surviving nodes can't stack a
+   duplicate listener on them — a doubled [data-action] listener would fire
+   the same delete or save twice. */
 function bindViewEvents(){
+  const fresh = (el, tag) => {
+    const k = 'bound' + tag;
+    if(el.dataset[k]) return false;
+    el.dataset[k] = '1';
+    return true;
+  };
   // Filters
   document.querySelectorAll('[data-filter]').forEach(el=>{
+    if(!fresh(el, 'Filter')) return;
     const key = el.dataset.filter;
     if(el.type === 'checkbox'){
       el.addEventListener('change', ()=>{state.filters[key] = el.checked; app.render();});
@@ -6291,6 +6463,17 @@ function bindViewEvents(){
 
   // Actions
   document.querySelectorAll('[data-action]').forEach(el=>{
+    if(!fresh(el, 'Action')) return;
+    // A row can carry data-action="open-task" while containing a checkbox and
+    // buttons that carry their own. Without this the click bubbles and fires
+    // both — ticking a task off would also pop its editor open.
+    if(el.dataset.action === 'open-task'){
+      el.addEventListener('click', ev => {
+        if(ev.target.closest('input,button,select,a,label')) return;
+        openTaskForm(el.dataset.id);
+      });
+      return;
+    }
     el.addEventListener('click', (e)=>{
       e.stopPropagation();
       const a = el.dataset.action, id = el.dataset.id;
@@ -6299,6 +6482,11 @@ function bindViewEvents(){
         case 'edit-prop': openPropForm(id); break;
         case 'delete-prop': confirmDelete('prop',id); break;
         case 'new-task': openTaskForm(); break;
+        // ADDED 2026-08-18: the whole row opens the task. Clicks that landed
+        // on the checkbox or one of the action buttons are handled by their
+        // own data-action and must not also open the editor, so those bail
+        // out below before this runs.
+        case 'open-task': openTaskForm(id); break;
         case 'edit-task': openTaskForm(id); break;
         case 'delete-task': confirmDelete('task',id); break;
         case 'toggle-task': toggleTask(id, el.checked); break;
