@@ -2235,12 +2235,60 @@ async function loadCore(){
   applyCore(data);
   if(!state.users.length) await seed();
 }
+/* ---- Last-known KPI cache (2026-08-18) ---------------------------------
+   Deferring kpi_entries made the first paint fast, but it also meant every
+   KPI number rendered as an em-dash for ~400ms and then popped into place.
+   Fast, but it reads as the screen glitching.
+
+   So the rows are kept in localStorage and hydrated SYNCHRONOUSLY before the
+   first render: the dashboard paints real numbers immediately, and the live
+   fetch quietly replaces them a moment later. Because render() skips the DOM
+   entirely when the generated HTML is unchanged, the usual case — nothing
+   moved since last visit — produces no repaint at all. The number that was
+   there when you closed the tab is the number that's there when you open it.
+
+   Only the trailing 180 days are cached: that covers every built-in window
+   (7/30/90) plus their previous-period comparisons, and keeps the blob near
+   100KB rather than the full ~370KB. A custom range reaching further back
+   simply fills in when the live rows land.
+
+   The cache is a display accelerator, never a source of truth — it's
+   replaced wholesale by the fetch, and any read/write failure (private mode,
+   quota, corrupted JSON) is swallowed and just costs us the em-dashes. */
+const KPI_CACHE_KEY = 'ulc_kpiCache_v1';
+const KPI_CACHE_DAYS = 180;
+
+function readKpiCache(){
+  try{
+    const raw = localStorage.getItem(KPI_CACHE_KEY);
+    if(!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed && parsed.rows) ? parsed.rows : null;
+  }catch(e){ return null; }
+}
+function writeKpiCache(rows){
+  try{
+    const cutoff = isoLocal(new Date(Date.now() - KPI_CACHE_DAYS*86400000));
+    const recent = rows.filter(r => r.date >= cutoff);
+    localStorage.setItem(KPI_CACHE_KEY, JSON.stringify({savedAt: Date.now(), rows: recent}));
+  }catch(e){ /* quota or private mode — the app works fine without it */ }
+}
+// Paints last-known numbers before the first render. Returns true if it had
+// anything, so boot can tell "showing cached" from "genuinely has nothing".
+function hydrateKpiCache(){
+  const rows = readKpiCache();
+  if(!rows || !rows.length) return false;
+  state.kpiEntries = rows;
+  return true;
+}
+
 // KPI history, after the first paint. Only touches state.kpiEntries, so it
 // can't disturb anything the user is already interacting with.
 async function loadKpiEntriesInto(){
   const rows = await StorageAdapter.loadKpiEntries();
   state.kpiEntries = migrateKpiEntryKeys(rows || []);
   state.kpiEntriesLoaded = true;
+  writeKpiCache(state.kpiEntries);
 }
 function applyCore(data){
   state.users = data.users;
@@ -2442,6 +2490,11 @@ const app = {
     // comes from localStorage rather than from the fetch, so it never needed
     // to wait for it — the dependency was accidental. Core data and prefs now
     // go out together, and KPI history is deliberately NOT awaited here.
+    // Last-known KPI numbers, straight from localStorage — no network, so the
+    // first paint shows real figures instead of em-dashes. Overwritten by the
+    // live fetch below; see hydrateKpiCache().
+    hydrateKpiCache();
+
     await Promise.all([
       loadCore(),
       Prefs.load(localStorage.getItem(StorageAdapter.localKeys.active) || '')
@@ -2463,7 +2516,7 @@ const app = {
     // rather than "no data", a distinction that matters when the honest
     // answer to "why is this zero" is "it hasn't arrived yet".
     loadKpiEntriesInto()
-      .then(() => this.render())
+      .then(() => this.requestRender())
       .catch(e => console.warn('KPI history failed to load:', e.message||e));
 
     checkDueNotifications();
@@ -2471,7 +2524,13 @@ const app = {
       // Pull fresh data first so a task assigned to you from someone else's
       // device shows up here too, not just ones saved on this browser.
       if(StorageAdapter.backend==='supabase'){
-        try{ await loadAll(); }catch(e){ console.log('Background refresh failed:', e); }
+        try{
+          await loadAll();
+          // Repaint so a teammate's change shows up — but through the same
+          // identical-HTML guard, so a refresh that changed nothing (the
+          // common case) leaves the DOM completely untouched.
+          app.requestRender();
+        }catch(e){ console.log('Background refresh failed:', e); }
       }
       checkDueNotifications();
     };
@@ -2571,10 +2630,6 @@ const app = {
     this.buildUserSelect();
 
     const main = $('#main');
-    main.className = 'main view-enter';
-    // trigger reflow to restart animation
-    void main.offsetWidth;
-    main.className = 'main view-enter';
 
     const renderers = {
       dashboard: renderDashboard,
@@ -2586,11 +2641,64 @@ const app = {
       team: renderTeam,
       settings: renderSettings,
     };
-    main.innerHTML = (renderers[state.activeView] || renderDashboard)();
+    /* ---- Repaint discipline (2026-08-18) --------------------------------
+       This used to blow away #main and restart the .view-enter/fadeUp
+       animation on EVERY call, and render() is called from ~50 places. On a
+       cold load of the KPI tab that meant up to six full rebuilds inside the
+       first second — first paint, KPI history arriving, then four cohort RPCs
+       resolving one after another — each one flashing the whole screen and
+       throwing away scroll position. Three rules now:
+
+         1. Animate only on a genuine VIEW CHANGE. Data arriving under the
+            view you're already looking at repaints silently.
+         2. If the generated HTML is byte-identical to what's on screen,
+            don't touch the DOM at all. Most redundant renders are no-ops,
+            and this makes them free and invisible — once a number is on
+            screen it stays there rather than being torn down and rebuilt
+            with the same value.
+         3. Preserve scroll across an in-place repaint. Replacing innerHTML
+            resets it, which is what made late-arriving data yank the page
+            back to the top mid-read.                                      */
+    const html = (renderers[state.activeView] || renderDashboard)();
+    const viewChanged = this._lastView !== state.activeView;
+
+    if(!viewChanged && html === this._lastHtml) return;   // nothing to do
+
+    const scrollY = window.scrollY;
+    const mainScroll = main.scrollTop;
+
+    if(viewChanged){
+      main.className = 'main view-enter';
+      void main.offsetWidth;          // restart the entrance animation
+      main.className = 'main view-enter';
+    }else{
+      main.className = 'main';        // no animation for a data repaint
+    }
+
+    main.innerHTML = html;
+    this._lastView = state.activeView;
+    this._lastHtml = html;
+
+    if(!viewChanged){
+      // Same screen, new numbers — keep the reader where they were.
+      if(mainScroll) main.scrollTop = mainScroll;
+      if(scrollY) window.scrollTo(0, scrollY);
+    }
+
     bindViewEvents();
     // The inline funding editor builds its rows as real DOM nodes, so it has
     // to be filled in after the view's HTML is in place.
     hydrateFundingPanel();
+  },
+
+  /* Coalesce bursts of render requests into one repaint. The four cohort
+     RPCs resolve within milliseconds of each other; without this each one
+     rebuilds the view separately. Anything that repaints in response to data
+     ARRIVING should call this rather than render() directly. */
+  requestRender(){
+    if(this._rafPending) return;
+    this._rafPending = true;
+    requestAnimationFrame(() => { this._rafPending = false; this.render(); });
   },
 };
 
@@ -3135,6 +3243,41 @@ function setKpiTarget(key, value){
    and returns null while pending — the fetch's .then() calls app.render()
    once it lands, same fire-and-render-again pattern the rest of the app's
    render path assumes for anything async.                                */
+/* The two cohort caches below are also seeded from localStorage, for the same
+   reason as the KPI row cache: these values come from live RPCs, so without a
+   seed the percentage tiles render as em-dashes on every single load while
+   the round trip completes. Seeded, they show last-known immediately and are
+   overwritten in place when the RPC answers — and if the answer matches (the
+   normal case within a day), render()'s identical-HTML guard means the DOM is
+   never touched at all.
+
+   Keyed by the exact "from_to" range string, so a seeded value can only ever
+   be shown for the window it was actually computed for. Capped at 24 entries
+   so a month of custom ranges can't grow the blob unbounded. */
+const COHORT_CACHE_KEY = 'ulc_cohortCache_v1';
+function loadCohortSeed(){
+  try{
+    const raw = localStorage.getItem(COHORT_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  }catch(e){ return {}; }
+}
+const _cohortSeed = loadCohortSeed();
+function persistCohort(bucket, key, row){
+  if(!row) return;
+  try{
+    const all = loadCohortSeed();
+    all[bucket] = all[bucket] || {};
+    all[bucket][key] = row;
+    // Keep the most recent 24 per bucket; insertion order is good enough.
+    const keys = Object.keys(all[bucket]);
+    if(keys.length > 24) keys.slice(0, keys.length - 24).forEach(k => delete all[bucket][k]);
+    localStorage.setItem(COHORT_CACHE_KEY, JSON.stringify(all));
+  }catch(e){ /* non-essential */ }
+}
+const seededCohort = (bucket, key) =>
+  (_cohortSeed[bucket] && _cohortSeed[bucket][key]) || undefined;
+
 const _cohortCache = {};
 function getCohortConversion(from, to){
   if(!from || !to) return null;
@@ -3150,16 +3293,17 @@ function getCohortConversion(from, to){
        'pending' -> in flight
        null      -> asked, genuinely no data (do NOT ask again)
        object    -> asked, got a row                                       */
-  if(cached === 'pending') return null;
+  if(cached === 'pending') return seededCohort('conv', key) || null;
   if(cached !== undefined) return cached;
 
   _cohortCache[key] = 'pending';
   const settle = row => {
     _cohortCache[key] = row;
+    persistCohort('conv', key, row);
     // Only repaint if this actually resolved to something. A null result
     // changes nothing on screen, and re-rendering for it is what created
     // the loop in the first place.
-    if(row) app.render();
+    if(row) app.requestRender();   // coalesced — four of these land together
   };
   StorageAdapter.supabase.rpc('cohort_lead_conversion', {from_date: from, to_date: to})
     .then(({data, error}) => {
@@ -3184,13 +3328,14 @@ function getCohortFromContacted(from, to){
   const key = from + '_' + to;
   const cached = _contactedCohortCache[key];
 
-  if(cached === 'pending') return null;
+  if(cached === 'pending') return seededCohort('contacted', key) || null;
   if(cached !== undefined) return cached;
 
   _contactedCohortCache[key] = 'pending';
   const settle = row => {
     _contactedCohortCache[key] = row;
-    if(row) app.render();
+    persistCohort('contacted', key, row);
+    if(row) app.requestRender();   // coalesced — four of these land together
   };
   StorageAdapter.supabase.rpc('cohort_from_contacted', {from_date: from, to_date: to})
     .then(({data, error}) => {
@@ -3223,7 +3368,7 @@ function getLostTouchAvg(from, to){
   _lostTouchCache[key] = 'pending';
   const settle = row => {
     _lostTouchCache[key] = row;
-    if(row) app.render();
+    if(row) app.requestRender();   // coalesced — four of these land together
   };
   StorageAdapter.supabase.rpc('avg_touches_before_lost', {from_date: from, to_date: to})
     .then(({data, error}) => {
@@ -3253,7 +3398,7 @@ function getDealTouchAvg(from, to){
   _dealTouchCache[key] = 'pending';
   const settle = row => {
     _dealTouchCache[key] = row;
-    if(row) app.render();
+    if(row) app.requestRender();   // coalesced — four of these land together
   };
   StorageAdapter.supabase.rpc('avg_touches_before_deal', {from_date: from, to_date: to})
     .then(({data, error}) => {
