@@ -4255,35 +4255,72 @@ function kpiPrevWindow(days){
   return {from: isoLocal(start), to: isoLocal(end)};
 }
 
+/* ---- Snapshot goals (2026-08-18) ---------------------------------------
+   The snapshot used to show "% vs prior period", which answers "are we busier
+   than last week" — interesting, but not the question the dashboard is for.
+   It's now measured against the goal instead: am I on track or not.
+
+   Scaling a 7-day goal to the 30-day view is only valid for metrics that
+   ACCUMULATE. A volume target (14,000 SMS a week) becomes 60,000 over 30
+   days. A rate or a duration does NOT: "reply within 48 hours" is 48 hours
+   whether you look at a week or a month, and "60% of leads contacted" is 60%
+   either way. Multiplying those by 30/7 would invent a 205-hour target and
+   a 257% one — numbers that look authoritative and are meaningless.
+
+   So the scaling test is the unit: counts accumulate, hours and percentages
+   don't. Anything added later inherits the right behaviour from its unit. */
+const SNAPSHOT_GOAL_SCALES = unit => unit === 'count';
+
+function snapshotGoal(def, days){
+  const base = getKpiTarget(def.key);            // goals are always set per 7 days
+  if(base === null || base === undefined) return null;
+  return SNAPSHOT_GOAL_SCALES(def.unit) ? base * (days / 7) : base;
+}
+
+/* The line under each number: where it sits against the goal, and which way
+   that reads. Returns the class the tile colours itself with, so "good" is
+   green whether good means bigger (volume) or smaller (time-to). */
+function snapshotGoalNote(def, value, days){
+  const target = snapshotGoal(def, days);
+  const cmp = def.dir === 'down' ? '≤' : '≥';
+
+  if(target === null) return {cls:'flat', text:'No goal set', icon:''};
+  const targetTxt = kpiFormat(target, def.unit);
+  if(value === null)  return {cls:'flat', text:`goal ${cmp} ${targetTxt}`, icon:''};
+
+  const onTrack = def.dir === 'down' ? value <= target : value >= target;
+
+  if(def.dir === 'down'){
+    // Time-to metrics: say how far over or under, which is more useful than
+    // a bare percentage of an upper bound.
+    const off = target ? Math.round(Math.abs(value - target) / target * 100) : 0;
+    const word = onTrack ? 'under' : 'over';
+    return {cls: onTrack ? 'up' : 'down', icon: onTrack ? 'ti-check' : 'ti-alert-triangle',
+            text: off === 0 ? `at goal ${targetTxt}` : `${off}% ${word} goal ${targetTxt}`};
+  }
+  // Volume and rate metrics: share of the goal reached so far.
+  const pct = target ? Math.round(value / target * 100) : 0;
+  return {cls: onTrack ? 'up' : 'down', icon: onTrack ? 'ti-check' : '',
+          text: `${pct}% of goal ${targetTxt}`};
+}
+
 function renderKpiSection(){
   const days = getSnapshotWindow();
-  const w = kpiWindow(days), pw = kpiPrevWindow(days);
+  const w = kpiWindow(days);
   const logged = kpiDaysLogged(w.from, w.to);
 
   const tile = t => {
     const def = KPI_DEFS.find(d => d.key === t.defKey);
     if(!def) return '';
-    const value = kpiHasDataOver(def, w.from, w.to)  ? kpiValueOver(def, w.from, w.to)   : null;
-    const prev  = kpiHasDataOver(def, pw.from, pw.to) ? kpiValueOver(def, pw.from, pw.to) : null;
-
-    // Direction is keyed to better/worse, not to sign: for a 'down' KPI
-    // (every "time to..." number) a fall is the good outcome.
-    let dir = 'flat', delta;
-    if(value !== null && prev !== null && prev !== 0){
-      const pct = Math.round(((value - prev) / Math.abs(prev)) * 100);
-      const better = def.dir === 'down' ? pct < 0 : pct > 0;
-      dir = pct === 0 ? 'flat' : (better ? 'up' : 'down');
-      delta = `${pct > 0 ? '+' : ''}${pct}% vs prior ${days} days`;
-    }else{
-      delta = value !== null ? `No prior-${days}-day data` : 'Nothing logged';
-    }
+    const value = kpiHasDataOver(def, w.from, w.to) ? kpiValueOver(def, w.from, w.to) : null;
+    const g = snapshotGoalNote(def, value, days);
 
     return `<div class="snap-tile" onclick="openKpiBreakdown('${def.key}','${w.from}','${w.to}','Last ${days} days')"
                  title="See the numbers behind this KPI" style="cursor:pointer">
       <div class="snap-label"><i class="ti ${t.icon}"></i> ${escape(t.label)}</div>
       <div class="snap-value">${value !== null ? kpiFormat(value, def.unit) : '—'}</div>
-      <div class="snap-delta ${dir}">
-        ${(value !== null && prev !== null && prev !== 0) ? `<i class="ti ti-arrow-${dir==='flat'?'right':(value>prev?'up':'down')}"></i> ` : ''}${delta}
+      <div class="snap-delta ${g.cls}">
+        ${g.icon ? `<i class="ti ${g.icon}"></i> ` : ''}${escape(g.text)}
       </div>
     </div>`;
   };
@@ -4300,7 +4337,7 @@ function renderKpiSection(){
     <div class="card-header" style="flex-wrap:wrap;gap:10px">
       <div>
         <div class="card-title">KPI Snapshot</div>
-        <div class="card-sub">Last ${days} days · ${fmtLong(w.from)} – ${fmtLong(w.to)} · ${logged}/${days} days logged</div>
+        <div class="card-sub">Last ${days} days · ${fmtLong(w.from)} – ${fmtLong(w.to)} · ${logged}/${days} days logged${days===30?` · volume goals scaled ×${(30/7).toFixed(1)}`:''}</div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <div class="seg" style="display:flex;gap:4px">${winBtn(7)}${winBtn(30)}</div>
