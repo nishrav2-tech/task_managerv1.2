@@ -52,6 +52,14 @@ create table if not exists properties (
   -- Tiers saved under the older {name,date,percent,amount} model are migrated
   -- on read by the app.
   funding_schedule jsonb not null default '[]'::jsonb,
+  -- Where the deal sits, for the Properties tab's filter — 'pre-closing'
+  -- (the default), 'closed', or 'listed'. Deliberately just three states.
+  status       text default 'pre-closing',
+  -- Listing details: a Zillow URL plus a hand-entered daily saves/views log,
+  -- e.g. [{"date":"2026-08-24","views":12,"saves":3}, ...]. One entry per
+  -- calendar date; the app upserts by date rather than appending duplicates.
+  listing_url   text,
+  listing_stats jsonb not null default '[]'::jsonb,
   created_at   timestamptz not null default now()
 );
 alter table properties add column if not exists property_id  text;
@@ -63,11 +71,30 @@ alter table properties add column if not exists sell_price   numeric;
 alter table properties add column if not exists closing_date date;
 alter table properties add column if not exists notes        text;
 alter table properties add column if not exists funding_schedule jsonb not null default '[]'::jsonb;
+alter table properties add column if not exists status        text default 'pre-closing';
+alter table properties add column if not exists listing_url   text;
+alter table properties add column if not exists listing_stats jsonb not null default '[]'::jsonb;
 alter table properties add column if not exists created_at   timestamptz not null default now();
 
 -- Existing rows predating the funding schedule get an empty list rather
 -- than a null the app would have to defend against on every render.
 update properties set funding_schedule = '[]'::jsonb where funding_schedule is null;
+update properties set status = 'pre-closing' where status is null or status = 'new';
+update properties set listing_stats = '[]'::jsonb where listing_stats is null;
+
+-- ---------------------------------------------------------
+-- funding_templates (saved profit-split schedules, e.g. "Rooster Flow
+-- Capital split" — reusable across properties from the funding tier editor)
+-- ---------------------------------------------------------
+create table if not exists funding_templates (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  tiers      jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+alter table funding_templates add column if not exists name       text not null default '';
+alter table funding_templates add column if not exists tiers      jsonb not null default '[]'::jsonb;
+alter table funding_templates add column if not exists created_at timestamptz not null default now();
 
 -- Optional: if your old "address" column has values you want carried
 -- into the new "property_id" field, this COPIES them (the original
@@ -445,7 +472,8 @@ begin
   for t in
     select * from (values
       ('users',         array['id','name','role','color_idx','created_at']),
-      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','created_at']),
+      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_stats','created_at']),
+      ('funding_templates', array['id','name','tiers','created_at']),
       ('tasks',         array['id','title','linked_id','linked_type','due_date','priority','status','notes','assignees','completed_at','created_at']),
       ('projects',      array['id','title','category','status','priority','description','due_date','assignees','created_at']),
       ('kpi_metrics',   array['id','metric_key','trailing_7_value','trailing_30_value','created_at']),
@@ -531,6 +559,7 @@ update tasks    set priority = 'medium' where priority is null or priority not i
 update tasks    set status   = 'todo'   where status   is null or status   not in ('todo','in-progress','done','blocked');
 update projects set status   = 'ideas'  where status   is null or status   not in ('ideas','planned','in-progress','done');
 update projects set priority = 'medium' where priority is null or priority not in ('high','medium','low');
+update properties set status = 'pre-closing' where status is null or status not in ('pre-closing','closed','listed');
 
 -- completed_at only means something on a done task, and the app expects
 -- a done task to have one (its on-time / cycle-time stats read it).
@@ -544,6 +573,7 @@ alter table tasks    drop constraint if exists tasks_status_check;
 alter table tasks    drop constraint if exists tasks_linked_type_check;
 alter table projects drop constraint if exists projects_status_check;
 alter table projects drop constraint if exists projects_priority_check;
+alter table properties drop constraint if exists properties_status_check;
 
 -- Added one at a time and guarded: if a row still somehow violates one,
 -- you get a NOTICE naming the constraint instead of the whole script
@@ -558,7 +588,8 @@ begin
       ('tasks',    'tasks_status_check',      $q$check (status in ('todo','in-progress','done','blocked'))$q$),
       ('tasks',    'tasks_linked_type_check', $q$check (linked_type in ('property') or linked_type is null)$q$),
       ('projects', 'projects_status_check',   $q$check (status in ('ideas','planned','in-progress','done'))$q$),
-      ('projects', 'projects_priority_check', $q$check (priority in ('high','medium','low'))$q$)
+      ('projects', 'projects_priority_check', $q$check (priority in ('high','medium','low'))$q$),
+      ('properties', 'properties_status_check', $q$check (status in ('pre-closing','closed','listed'))$q$)
     ) as v(tbl, cname, cdef)
   loop
     begin
@@ -590,7 +621,7 @@ begin
   foreach tbl in array array[
     'users','properties','tasks','projects',
     'kpi_metrics','kpi_meta','kpi_entries','kpi_targets','call_logs','campaign_logs',
-    'user_prefs'
+    'user_prefs','funding_templates'
   ]
   loop
     execute format('alter table public.%I enable row level security', tbl);

@@ -793,6 +793,35 @@ input,select,textarea{font:inherit;color:inherit}
   .funding-row .funding-band{grid-column:1/-1}
 }
 
+/* ---- saved funding splits (templates) ---- */
+.funding-template-bar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin-bottom:12px;padding-bottom:12px;border-bottom:1px dashed var(--border);
+}
+
+/* ---- property status pill (Properties list) ---- */
+.prop-status-pill{
+  appearance:none;-webkit-appearance:none;cursor:pointer;
+  border:1px solid var(--border);border-radius:20px;
+  padding:2px 22px 2px 10px;font-size:10.5px;font-weight:700;font-family:inherit;
+  background-color:var(--surface-2);color:var(--ink-2);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23857F76' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 7px center;
+}
+.prop-status-pill.prop-status-pre-closing{background-color:var(--warn-soft);color:var(--warn-ink)}
+.prop-status-pill.prop-status-listed{background-color:var(--info-soft,#E4EBF3);color:var(--info-ink,#1F3C5C)}
+.prop-status-pill.prop-status-closed{background-color:var(--accent-soft);color:var(--accent)}
+
+/* ---- listing details panel (property card) ---- */
+.listing-url-row{display:flex;align-items:flex-end;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.listing-entry-row{
+  display:grid;grid-template-columns:150px 1fr 1fr auto;gap:8px;margin-bottom:6px;
+}
+@media(max-width:640px){
+  .listing-entry-row{grid-template-columns:1fr 1fr}
+  .listing-entry-row button{grid-column:1/-1}
+}
+
 /* ============ TASK CHECK ============ */
 .task-check{
   appearance:none;-webkit-appearance:none;
@@ -1235,7 +1264,8 @@ const StorageAdapter = {
     users:'users', props:'properties',
     tasks:'tasks', projects:'projects', kpis:'kpi_metrics', kpiMeta:'kpi_meta',
     kpiEntries:'kpi_entries', kpiTargets:'kpi_targets',
-    callLogs:'call_logs', campaignLogs:'campaign_logs'
+    callLogs:'call_logs', campaignLogs:'campaign_logs',
+    fundingTemplates:'funding_templates'
   },
 
   // ---- camelCase (app) <-> snake_case (Postgres) mappers ----
@@ -1248,7 +1278,11 @@ const StorageAdapter = {
       sell_price:p.sellPrice!==''&&p.sellPrice!=null?parseFloat(p.sellPrice):null,
       closing_date:p.closingDate||null,
       notes:p.notes||null,
-      funding_schedule:normalizeFunding(p.funding, p)}),
+      funding_schedule:normalizeFunding(p.funding, p),
+      status:PROP_STATUSES.includes(p.status)?p.status:'pre-closing',
+      listing_url:p.listingUrl||null,
+      listing_stats:normalizeListingStats(p.listingStats)}),
+    fundingTemplates: t => ({id:t.id, name:t.name, tiers:normalizeFunding(t.tiers, {})}),
     tasks: t => ({id:t.id, title:t.title, linked_id:t.linkedId||null,
       linked_type:t.linkedType||null, due_date:t.dueDate||null,
       priority:t.priority||'medium', status:t.status||'todo',
@@ -1288,6 +1322,9 @@ const StorageAdapter = {
       // Pass the closing date through: tiers saved under the older dated-payment
       // model are converted to day offsets against it on the way in.
       funding:normalizeFunding(p.funding_schedule, {closingDate:p.closing_date||''}),
+      status:PROP_STATUSES.includes(p.status)?p.status:'pre-closing',
+      listingUrl:p.listing_url||'',
+      listingStats:normalizeListingStats(p.listing_stats),
       created:p.created_at?p.created_at.split('T')[0]:''}),
     tasks: t => ({id:t.id, title:t.title, linkedId:t.linked_id||'',
       linkedType:t.linked_type||'', dueDate:t.due_date||'',
@@ -1313,7 +1350,10 @@ const StorageAdapter = {
     campaignLogs: c => ({id:c.id, date:c.log_date, campaignName:c.campaign_name,
       channel:c.channel||'', countiesHit:c.counties_hit||'',
       leadsGenerated:c.leads_generated!=null?String(c.leads_generated):'',
-      notes:c.notes||''})
+      notes:c.notes||''}),
+    fundingTemplates: t => ({id:t.id, name:t.name,
+      tiers:normalizeFunding(t.tiers, {}),
+      created:t.created_at?t.created_at.split('T')[0]:''})
   },
 
   // Set when a connection attempt fails, so the boot screen can say exactly
@@ -1470,7 +1510,7 @@ const StorageAdapter = {
   async loadCore(){
     this.assertConnected();
     {
-      const [u, p, t, pr, k, km, kt, cl, cal] = await Promise.all([
+      const [u, p, t, pr, k, km, kt, cl, cal, ft] = await Promise.all([
         this.supabase.from('users').select('*').order('created_at'),
         this.supabase.from('properties').select('*').order('created_at',{ascending:false}),
         this.supabase.from('tasks').select('*').order('created_at',{ascending:false}),
@@ -1480,7 +1520,9 @@ const StorageAdapter = {
         this.supabase.from('kpi_targets').select('*').order('kpi_key'),
         this.supabase.from('call_logs').select('*').order('log_date',{ascending:false}),
         this.supabase.from('campaign_logs').select('*').order('log_date',{ascending:false}),
+        this.supabase.from('funding_templates').select('*').order('created_at'),
       ]);
+      if(ft.error) console.warn('funding_templates table not found yet — saved splits will be empty.', ft.error.message);
       const ke = {data: null, error: null};
       if(k.error) console.warn('kpi_metrics table not found yet — run the updated schema.sql to enable KPIs.', k.error.message);
       if(ke.error) console.warn('kpi_entries table not found yet — run the updated schema.sql to enable daily KPI logging.', ke.error.message);
@@ -1517,6 +1559,7 @@ const StorageAdapter = {
         }, {}),
         callLogs: (cl.data||[]).map(this.fromDb.callLogs),
         campaignLogs: (cal.data||[]).map(this.fromDb.campaignLogs),
+        fundingTemplates: (ft.data||[]).map(this.fromDb.fundingTemplates),
         // Which teammate this browser is signed in as stays on the device —
         // it's the key used to look everything else up, so it can't itself
         // live behind that lookup.
@@ -1767,6 +1810,10 @@ const ICON_CHEVRON_RIGHT = '<svg width="16" height="16" viewBox="0 0 24 24" fill
 const TASK_STATUSES = ['todo','in-progress','done','blocked'];
 const PROJECT_CATEGORIES = ['Marketing','SOPs & Processes','Tools & Software','Team & Hiring','Finance','Other'];
 const PROJECT_STATUSES = ['ideas','planned','in-progress','done'];
+// Where a deal sits, for the Properties filter. Kept deliberately small —
+// three stages a person glances at, not a full pipeline.
+const PROP_STATUSES = ['pre-closing','closed','listed'];
+const PROP_STATUS_LABEL = {'pre-closing':'Pre-closing', closed:'Closed', listed:'Listed'};
 const CAMPAIGN_CHANNELS = ['Direct Mail','Cold Call','SMS','PPC','Facebook','Email','Referral','Other'];
 
 const state = {
@@ -1774,11 +1821,13 @@ const state = {
   // false until the (large, deferred) kpi_entries fetch resolves — lets the
   // KPI screens distinguish "still loading" from "genuinely nothing logged".
   kpiEntriesLoaded:false,
-  callLogs:[], campaignLogs:[],
+  callLogs:[], campaignLogs:[], fundingTemplates:[],
   activeUserId:'', activeView:'dashboard',
   // Which property has its funding-tier editor open on the Properties list.
   // Held in state rather than the DOM so a re-render doesn't snap it shut.
   fundingOpen:null,
+  // Same idea for the Listing details tab, alongside the funding tab.
+  listingOpen:null,
   filters:{}
 };
 
@@ -2055,6 +2104,28 @@ const dateMs = d => new Date(d+'T00:00:00').getTime();
 function equityOf(p){
   if(p.sellPrice===''||p.sellPrice==null) return null;
   return (parseFloat(p.sellPrice)||0) - (parseFloat(p.buyPrice)||0);
+}
+
+/* ---- Listing details ------------------------------------------------------
+   A Zillow URL plus a hand-entered daily log of saves and views. One entry
+   per calendar date — logging today's numbers again overwrites today's row
+   rather than appending a duplicate, so the graph can't double-count a day
+   you corrected. Kept sorted oldest-first, which is what the chart wants.
+   Round-trips to properties.listing_stats, the same gate pattern as
+   normalizeFunding() so nothing downstream has to defend against nulls or a
+   JSON string left over from an older export. */
+function normalizeListingStats(raw){
+  let list = raw;
+  if(typeof list === 'string'){
+    try{ list = JSON.parse(list); }catch(e){ return []; }
+  }
+  if(!Array.isArray(list)) return [];
+  const byDate = new Map();
+  list
+    .filter(e => e && typeof e === 'object' && e.date)
+    .forEach(e => byDate.set(String(e.date).slice(0,10),
+      {date:String(e.date).slice(0,10), views:numOrNull(e.views), saves:numOrNull(e.saves)}));
+  return [...byDate.values()].sort((a,b) => a.date.localeCompare(b.date));
 }
 
 /* ===== LOCAL NOTIFICATIONS =====
@@ -2404,6 +2475,7 @@ function applyCore(data){
   state.kpiTargets = migrateKpiTargetKeys(data.kpiTargets || {});
   state.callLogs = data.callLogs || [];
   state.campaignLogs = data.campaignLogs || [];
+  state.fundingTemplates = data.fundingTemplates || [];
   state.activeUserId = data.activeUserId;
 }
 async function loadAll(){
@@ -5567,7 +5639,7 @@ function renderClosingTimeline(p){
         <i class="ti ti-calendar-off" style="font-size:13px"></i>
         No closing date set${bands.length?` — ${bands.length} tier${bands.length===1?'':'s'} waiting on one`:''}
       </div>
-      ${renderFundingTab(p, bands)}
+      ${renderPropPanels(p, bands)}
     </div>`;
   }
   if(!bands.length){
@@ -5576,7 +5648,7 @@ function renderClosingTimeline(p){
         <i class="ti ti-timeline-event" style="font-size:13px"></i>
         Closing ${fmtLong(p.closingDate)} · no funding tiers set
       </div>
-      ${renderFundingTab(p, bands)}
+      ${renderPropPanels(p, bands)}
     </div>`;
   }
 
@@ -5651,40 +5723,58 @@ function renderClosingTimeline(p){
     <div class="prop-timeline-status" style="color:${accent}">
       <i class="ti ti-flag-3" style="font-size:11px"></i> ${statusLabel} ${bandBit}
     </div>
-    ${renderFundingTab(p, bands)}
+    ${renderPropPanels(p, bands)}
   </div>`;
 }
 
-/* The tab under the timeline: click it to edit this property's funding tiers
-   in place, without opening the whole property form. Open/closed lives in
-   state.fundingOpen so a re-render (a save elsewhere, a background refresh)
-   doesn't snap the panel shut mid-edit.
+/* Two tabs sit under the timeline: click one to edit this property's funding
+   tiers or its listing details in place, without opening the whole property
+   form. Open/closed lives in state.fundingOpen / state.listingOpen so a
+   re-render (a save elsewhere, a background refresh) doesn't snap either
+   panel shut mid-edit. Both can be open at once — they're independent.
 
-   The card stays quiet until you ask: closed, it's just the tab. The editor
-   and the band breakdown both live behind it, so a list of properties reads
-   as timelines rather than a wall of numbers.
-
-   Rows are appended to the DOM directly rather than re-rendering, so nothing
-   you've typed is lost while the panel is open. */
-function renderFundingTab(p, bands){
+   The card stays quiet until you ask: closed, it's just the tabs. Whatever's
+   open lives behind them, so a list of properties reads as timelines rather
+   than a wall of numbers. */
+function renderPropPanels(p, bands){
   bands = bands || fundingBands(p);
-  const open = state.fundingOpen === p.id;
+  const fundingOpen = state.fundingOpen === p.id;
+  const listingOpen = state.listingOpen === p.id;
+  const stats = normalizeListingStats(p.listingStats);
 
-  const tab = `<button class="funding-tab ${open?'is-open':''}" data-action="toggle-funding" data-id="${p.id}">
-    <i class="ti ti-${open?'chevron-down':'chevron-right'}"></i>
+  const fundingTab = `<button class="funding-tab ${fundingOpen?'is-open':''}" data-action="toggle-funding" data-id="${p.id}">
+    <i class="ti ti-${fundingOpen?'chevron-down':'chevron-right'}"></i>
     ${bands.length ? `Edit funding tiers <span class="funding-tab-count">${bands.length}</span>`
                    : 'Add funding tiers'}
   </button>`;
+  const listingTab = `<button class="funding-tab ${listingOpen?'is-open':''}" data-action="toggle-listing" data-id="${p.id}">
+    <i class="ti ti-${listingOpen?'chevron-down':'chevron-right'}"></i>
+    Listing details${stats.length?` <span class="funding-tab-count">${stats.length}</span>`:''}
+  </button>`;
 
-  if(!open) return `<div class="funding-tabs">${tab}</div>`;
+  return `<div class="funding-tabs">${fundingTab}${listingTab}</div>
+    ${fundingOpen ? renderFundingPanel(p, bands) : ''}
+    ${listingOpen ? renderListingPanel(p, stats) : ''}`;
+}
 
-  return `<div class="funding-tabs">${tab}</div>
-    <div class="funding-panel">
+/* ---- Funding tier panel (inline, per-property) ---- */
+function renderFundingPanel(p, bands){
+  bands = bands || fundingBands(p);
+  const templates = state.fundingTemplates || [];
+  return `<div class="funding-panel">
       <p class="form-hint" style="margin-top:0">
         One row per band. Enter the day the band ends — counted from the closing
         date — and how the profit splits while the deal sits in it. Start days,
         dates and totals are worked out for you.
       </p>
+      ${templates.length ? `<div class="funding-template-bar">
+        <label class="form-label" style="margin:0">Load a saved split</label>
+        <select class="form-select" id="fund-template-${p.id}" style="max-width:220px">
+          <option value="">Choose a template…</option>
+          ${templates.map(t=>`<option value="${t.id}">${escape(t.name)}</option>`).join('')}
+        </select>
+        <button type="button" class="btn btn-sm" onclick="applyFundingTemplate('${p.id}')">Load</button>
+      </div>` : ''}
       <div class="funding-panel-head">
         <span>Band</span><span>Ends day</span><span>% to us</span><span>% to funder</span><span></span>
       </div>
@@ -5695,6 +5785,9 @@ function renderFundingTab(p, bands){
         </button>
         <span id="fund-total-${p.id}" class="funding-total"></span>
         <span class="funding-panel-actions">
+          <button type="button" class="btn btn-sm" onclick="saveFundingAsTemplate('${p.id}')">
+            <i class="ti ti-device-floppy"></i> Save as template
+          </button>
           <button type="button" class="btn btn-sm" onclick="closeFundingPanel()">Cancel</button>
           <button type="button" class="btn btn-sm btn-primary" onclick="saveFundingTiers('${p.id}')">Save tiers</button>
         </span>
@@ -5738,6 +5831,179 @@ async function saveFundingTiers(id){
     ? `Saved ${tiers.length} tier${tiers.length===1?'':'s'} · ${typed-tiers.length} skipped (needs an end day)`
     : `Funding tiers saved`);
   app.render();
+}
+
+/* ---- Saved funding splits (templates) -------------------------------------
+   A reusable band/percent schedule, named and stored once so it can be
+   dropped onto any property instead of retyping the same rows every time —
+   e.g. "Rooster Flow Capital split". Lives in its own table (funding_templates)
+   since it isn't tied to any one deal. */
+async function saveFundingAsTemplate(scope){
+  const rows = readFundingRows(scope);
+  if(!rows.length) return toast('Add at least one tier before saving a template','err');
+  const name = (prompt('Name this split (e.g. "Rooster Flow Capital split")') || '').trim();
+  if(!name) return;
+  const tpl = {id: uid(), name, tiers: rows};
+  state.fundingTemplates = [...(state.fundingTemplates||[]), tpl];
+  await saveOne('fundingTemplates', tpl);
+  toast(`Saved "${name}" as a template`);
+  app.render();
+}
+// Applies a saved split's tiers to the funding rows currently on screen —
+// in the modal ('form') or an open card panel (a property id) — replacing
+// whatever rows are there now.
+function applyFundingTemplate(scope){
+  const select = document.getElementById(`fund-template-${scope}`);
+  const tplId = select && select.value;
+  if(!tplId) return;
+  const tpl = (state.fundingTemplates||[]).find(t=>t.id===tplId);
+  if(!tpl) return;
+  const wrap = document.getElementById(fundingCtx(scope).rows);
+  if(wrap) wrap.innerHTML = '';
+  tpl.tiers.forEach(t => addFundingRow(t, scope));
+  updateFundingTotal(scope);
+  toast(`Loaded "${tpl.name}"`);
+}
+
+/* ---- Listing details (inline, per-property) --------------------------------
+   A Zillow URL plus a hand-entered daily saves/views log, graphed as a small
+   trend chart. Sits behind its own tab next to "Edit funding tiers" — see
+   renderPropPanels(). Entries are read straight off the DOM inputs, the same
+   pattern the property form uses, rather than built up as live row nodes
+   like the funding editor: there's a fixed handful of fields here, not an
+   open-ended list of rows. */
+function toggleListingPanel(id){
+  state.listingOpen = state.listingOpen === id ? null : id;
+  app.render();
+}
+function closeListingPanel(){
+  state.listingOpen = null;
+  app.render();
+}
+async function saveListingUrl(id){
+  const p = state.props.find(x=>x.id===id);
+  if(!p) return;
+  const input = document.getElementById(`lst-url-${id}`);
+  p.listingUrl = input ? input.value.trim() : p.listingUrl;
+  await saveOne('props', p);
+  toast('Zillow listing saved');
+  app.render();
+}
+// One entry per calendar date — logging today's numbers again overwrites
+// today's row instead of appending a duplicate. Leaving a field blank keeps
+// whatever was already logged for that date rather than clearing it, so you
+// can log just views one day and just saves the next without losing either.
+async function logListingEntry(id){
+  const p = state.props.find(x=>x.id===id);
+  if(!p) return;
+  const date  = (document.getElementById(`lst-date-${id}`)||{}).value || today();
+  const views = (document.getElementById(`lst-views-${id}`)||{}).value;
+  const saves = (document.getElementById(`lst-saves-${id}`)||{}).value;
+  if(views === '' && saves === '') return toast('Enter views or saves first', 'err');
+  const stats = normalizeListingStats(p.listingStats);
+  const existing = stats.find(e => e.date === date);
+  const merged = {
+    date,
+    views: views !== '' ? numOrNull(views) : (existing ? existing.views : null),
+    saves: saves !== '' ? numOrNull(saves) : (existing ? existing.saves : null)
+  };
+  p.listingStats = normalizeListingStats([...stats.filter(e=>e.date!==date), merged]);
+  await saveOne('props', p);
+  toast(`Logged ${fmtLong(date)}`);
+  app.render();
+}
+async function deleteListingEntry(id, date){
+  const p = state.props.find(x=>x.id===id);
+  if(!p) return;
+  p.listingStats = normalizeListingStats(p.listingStats).filter(e => e.date !== date);
+  await saveOne('props', p);
+  app.render();
+}
+function renderListingPanel(p, stats){
+  stats = stats || normalizeListingStats(p.listingStats);
+  const rows = [...stats].reverse().slice(0, 21).map(e => `
+    <tr>
+      <td class="ft-name">${fmt(e.date)}</td>
+      <td class="ft-num">${e.views!=null?e.views.toLocaleString():'—'}</td>
+      <td class="ft-num">${e.saves!=null?e.saves.toLocaleString():'—'}</td>
+      <td class="ft-status">
+        <button type="button" class="icon-btn" title="Remove entry"
+                onclick="deleteListingEntry('${p.id}','${e.date}')"><i class="ti ti-x"></i></button>
+      </td>
+    </tr>`).join('');
+
+  return `<div class="funding-panel">
+    <div class="listing-url-row">
+      <div class="form-group" style="margin-bottom:0;flex:1">
+        <label class="form-label">Zillow listing</label>
+        <input class="form-input" id="lst-url-${p.id}" placeholder="https://www.zillow.com/…"
+               value="${escape(p.listingUrl||'')}">
+      </div>
+      <button type="button" class="btn btn-sm" onclick="saveListingUrl('${p.id}')">Save link</button>
+      ${p.listingUrl ? `<a class="btn btn-sm" href="${escape(p.listingUrl)}" target="_blank" rel="noopener">
+        <i class="ti ti-external-link"></i> Open</a>` : ''}
+    </div>
+
+    <p class="form-hint">Log today's saves and views by hand. One entry per day —
+      logging the same date again updates it instead of adding a duplicate.</p>
+    <div class="listing-entry-row">
+      <input class="form-input" type="date" id="lst-date-${p.id}" value="${today()}">
+      <input class="form-input" type="number" min="0" step="1" id="lst-views-${p.id}" placeholder="Views today">
+      <input class="form-input" type="number" min="0" step="1" id="lst-saves-${p.id}" placeholder="Saves today">
+      <button type="button" class="btn btn-sm btn-primary" onclick="logListingEntry('${p.id}')">
+        <i class="ti ti-plus"></i> Log
+      </button>
+    </div>
+
+    ${renderListingChart(stats)}
+
+    ${stats.length ? `<table class="funding-table" style="margin-top:4px">
+      <thead><tr><th>Date</th><th class="ft-num">Views</th><th class="ft-num">Saves</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>` : ''}
+  </div>`;
+}
+// Small dual-line trend of views vs. saves, same construction as the
+// Activity trends chart (renderTrendChart) so it reads consistently with
+// the rest of the app's charts.
+function renderListingChart(stats){
+  if(stats.length < 2){
+    return `<div class="prop-timeline-empty" style="margin:6px 0 14px">
+      <i class="ti ti-chart-line" style="font-size:13px"></i>
+      Log at least two days to see the trend.
+    </div>`;
+  }
+  const W=560, H=160, padL=30, padR=10, padT=12, padB=20;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = stats.length;
+  const maxVal = Math.max(1, ...stats.map(e => Math.max(e.views||0, e.saves||0)));
+  const xFor = i => padL + (n<=1?0:(i/(n-1))*plotW);
+  const yFor = v => padT + plotH - ((v||0)/maxVal)*plotH;
+  const pathFor = key => stats.map((e,i)=>`${i===0?'M':'L'}${xFor(i).toFixed(1)},${yFor(e[key]).toFixed(1)}`).join(' ');
+  const gridLines = [0,0.5,1].map(f=>{
+    const y = padT + plotH - f*plotH;
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1"/><text x="${padL-6}" y="${(y+3).toFixed(1)}" font-size="9" fill="var(--ink-3)" text-anchor="end">${Math.round(maxVal*f)}</text>`;
+  }).join('');
+  const labelCount = Math.min(5, n);
+  const xLabels = [];
+  for(let k=0;k<labelCount;k++){
+    const idx = n<=1?0:Math.round(k*(n-1)/((labelCount-1)||1));
+    xLabels.push(`<text x="${xFor(idx).toFixed(1)}" y="${H-5}" font-size="9" fill="var(--ink-3)" text-anchor="middle">${fmt(stats[idx].date)}</text>`);
+  }
+  const totalViews = stats.reduce((s,e)=>s+(e.views||0),0);
+  const totalSaves = stats.reduce((s,e)=>s+(e.saves||0),0);
+  return `<div style="margin:2px 0 14px">
+    <div style="display:flex;gap:16px;margin-bottom:8px;font-size:11.5px;flex-wrap:wrap">
+      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);display:inline-block"></span>Views · ${totalViews.toLocaleString()} total</span>
+      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--danger);display:inline-block;border:1px dashed var(--danger)"></span>Saves · ${totalSaves.toLocaleString()} total</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible">
+      ${gridLines}
+      <path d="${pathFor('views')}" fill="none" stroke="var(--accent)" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="${pathFor('saves')}" fill="none" stroke="var(--danger)" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="5,3"/>
+      ${xLabels.join('')}
+    </svg>
+  </div>`;
 }
 
 // The band-by-band breakdown, shown inside the open panel. The timeline
@@ -5810,8 +6076,10 @@ function renderProperties(){
   const q = (state.filters.propSearch||'').toLowerCase();
   const sortKey = state.filters.propSort || 'closing';
   const sorter  = PROP_SORTS[sortKey] || PROP_SORTS.closing;
+  const statusFilter = state.filters.propStatus || '';
 
   const filtered = state.props.filter(p=>{
+    if(statusFilter && (p.status||'pre-closing') !== statusFilter) return false;
     if(q && !JSON.stringify(p).toLowerCase().includes(q)) return false;
     return true;
   }).sort((a,b)=>{
@@ -5826,6 +6094,14 @@ function renderProperties(){
 
   return pageHeader('Deals', 'Properties', 'Every parcel, offer, and ARV.',
     `<button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button>`) + `
+    <div class="seg-control" role="tablist" style="margin-bottom:12px">
+      <button class="seg-btn ${!statusFilter?'active':''}" role="tab" aria-selected="${!statusFilter}" onclick="setPropStatusFilter('')">
+        All <span class="seg-count">${state.props.length}</span>
+      </button>
+      ${PROP_STATUSES.map(s=>`<button class="seg-btn ${statusFilter===s?'active':''}" role="tab" aria-selected="${statusFilter===s}" onclick="setPropStatusFilter('${s}')">
+        ${PROP_STATUS_LABEL[s]} <span class="seg-count">${state.props.filter(p=>(p.status||'pre-closing')===s).length}</span>
+      </button>`).join('')}
+    </div>
     <div class="toolbar">
       <div class="search-wrap">
         <i class="ti ti-search"></i>
@@ -5844,11 +6120,15 @@ function renderProperties(){
     ${filtered.map(p=>{
       const equity = equityOf(p);
       const equityPct = (equity!==null && parseFloat(p.buyPrice)) ? Math.round((equity/parseFloat(p.buyPrice))*100) : null;
+      const status = p.status || 'pre-closing';
       return `<div class="item-row" style="flex-wrap:wrap">
         <div style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-map-2" style="font-size:20px"></i></div>
         <div class="item-main">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
             <span class="item-title">${escape(p.propertyId || 'No property ID')}</span>
+            <select class="prop-status-pill prop-status-${status}" title="Change status" onchange="setPropStatus('${p.id}', this.value)">
+              ${PROP_STATUSES.map(s=>`<option value="${s}" ${status===s?'selected':''}>${PROP_STATUS_LABEL[s]}</option>`).join('')}
+            </select>
           </div>
           <div class="item-meta">
             <span>${escape(p.county)}, ${escape(p.state)}</span>
@@ -5866,8 +6146,20 @@ function renderProperties(){
         </div>
         <div style="flex-basis:100%">${renderClosingTimeline(p)}</div>
       </div>`;
-    }).join('') || `<div class="empty"><i class="ti ti-home"></i><h3>No properties yet</h3><p>${q?'Try a different search.':'Track your first deal.'}</p><button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button></div>`}
+    }).join('') || `<div class="empty"><i class="ti ti-home"></i><h3>No properties${statusFilter?` — ${PROP_STATUS_LABEL[statusFilter].toLowerCase()}`:''}</h3><p>${q?'Try a different search.':statusFilter?'Nothing in this status yet.':'Track your first deal.'}</p><button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button></div>`}
     </div>`;
+}
+function setPropStatusFilter(status){
+  state.filters.propStatus = status;
+  app.render();
+}
+async function setPropStatus(id, status){
+  const p = state.props.find(x=>x.id===id);
+  if(!p || !PROP_STATUSES.includes(status)) return;
+  p.status = status;
+  await saveOne('props', p);
+  toast(`Marked ${PROP_STATUS_LABEL[status].toLowerCase()}`);
+  app.render();
 }
 
 /* =========================================================
@@ -6670,6 +6962,7 @@ function bindViewEvents(){
         case 'import-data': importData(); break;
         case 'reset-data': resetData(); break;
         case 'toggle-funding': toggleFundingPanel(id); break;
+        case 'toggle-listing': toggleListingPanel(id); break;
       }
     });
   });
@@ -6919,6 +7212,12 @@ function openPropForm(id){
       <div class="form-group"><label class="form-label">Buy price</label><input class="form-input" id="fp-buy" type="number" value="${escape(p.buyPrice||'')}" oninput="updateEquityPreview()"></div>
       <div class="form-group"><label class="form-label">Sell price</label><input class="form-input" id="fp-sell" type="number" value="${escape(p.sellPrice||'')}" oninput="updateEquityPreview()" placeholder="Once known"></div>
     </div>
+    <div class="form-group">
+      <label class="form-label">Status</label>
+      <select class="form-select" id="fp-status">
+        ${PROP_STATUSES.map(s=>`<option value="${s}" ${(p.status||'pre-closing')===s?'selected':''}>${PROP_STATUS_LABEL[s]}</option>`).join('')}
+      </select>
+    </div>
     <div id="fp-equity-preview" style="font-size:12.5px;font-weight:600;margin:-8px 0 14px"></div>
 
     <div class="form-group">
@@ -6926,6 +7225,14 @@ function openPropForm(id){
       <p class="form-hint">One row per band. Enter the day the band ends — counted from the
         closing date — and how the profit splits while the deal sits in it. Start days, dates
         and labels are worked out for you.</p>
+      ${(state.fundingTemplates||[]).length ? `<div class="funding-template-bar">
+        <label class="form-label" style="margin:0">Load a saved split</label>
+        <select class="form-select" id="fund-template-form" style="max-width:220px">
+          <option value="">Choose a template…</option>
+          ${state.fundingTemplates.map(t=>`<option value="${t.id}">${escape(t.name)}</option>`).join('')}
+        </select>
+        <button type="button" class="btn btn-sm" onclick="applyFundingTemplate('form')">Load</button>
+      </div>` : ''}
       <div class="funding-panel-head">
         <span>Band</span><span>Ends day</span><span>% to us</span><span>% to funder</span><span></span>
       </div>
@@ -6933,6 +7240,11 @@ function openPropForm(id){
       <div class="funding-foot">
         <button type="button" class="btn btn-sm" onclick="addFundingRow()"><i class="ti ti-plus"></i> Add tier</button>
         <span id="fp-funding-total" class="funding-total"></span>
+        <span class="funding-panel-actions">
+          <button type="button" class="btn btn-sm" onclick="saveFundingAsTemplate('form')">
+            <i class="ti ti-device-floppy"></i> Save as template
+          </button>
+        </span>
       </div>
     </div>
 
@@ -7088,6 +7400,7 @@ function updateEquityPreview(){
 async function saveProp(id){
   const propertyId = $('#fp-propid').value.trim();
   if(!propertyId) return toast('Property ID is required','err');
+  const existing = id ? state.props.find(x=>x.id===id) : null;
   const data = {
     id: id||uid(), propertyId,
     county: $('#fp-county').value,
@@ -7096,9 +7409,14 @@ async function saveProp(id){
     buyPrice: $('#fp-buy').value,
     sellPrice: $('#fp-sell').value,
     closingDate: $('#fp-closing').value,
+    status: $('#fp-status').value,
     notes: $('#fp-notes').value,
     funding: readFundingRows('form'),
-    created: id ? state.props.find(x=>x.id===id).created : today()
+    // Listing details live behind their own tab on the card, not this form —
+    // carry them through untouched rather than letting an edit here wipe them.
+    listingUrl: existing ? existing.listingUrl : '',
+    listingStats: existing ? existing.listingStats : [],
+    created: existing ? existing.created : today()
   };
   if(id){ const i=state.props.findIndex(p=>p.id===id); state.props[i]=data; }
   else state.props.unshift(data);
