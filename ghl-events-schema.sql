@@ -307,8 +307,19 @@ declare
   STAGE_NOT_A_FIT       constant text := 'af524f69-fb50-4776-a0ee-d93639eb379e';
   FIELD_CONTRACT_STATUS constant text := 'SsD1lNNGo0UKFQG0K4Ti';
   FIELD_LEAD_NOTES      constant text := 'u19ve7mWJJUctzbrAqZ7';
-  day_start timestamptz := target_date::timestamptz;
-  day_end   timestamptz := (target_date + 1)::timestamptz;
+  -- CENTRAL DAYS, not UTC (2026-08-26). The database runs in UTC, so
+  -- `target_date::timestamptz` meant midnight UTC — a "day" ran 7pm to 7pm
+  -- Central. 5.8% of all calls and texts (97 of 1,669) were filed against the
+  -- wrong day: anything after 7pm Central counted as tomorrow. Harmless in a
+  -- 30-day total, glaring the moment anyone filters to a single day, which
+  -- the dashboard and KPI page now both allow.
+  --
+  -- `at time zone 'America/Chicago'` reads the local wall-clock midnight and
+  -- returns the correct absolute instant, and it is DST-aware — no hardcoded
+  -- -5/-6 to break in March and November. Applied to every day-bucketing
+  -- function in this file so they cannot disagree with each other.
+  day_start timestamptz := (target_date::timestamp) at time zone 'America/Chicago';
+  day_end   timestamptz := ((target_date + 1)::timestamp) at time zone 'America/Chicago';
   v_first_contact_hrs   numeric;
   v_first_contact_count integer;
   v_first_attempt_hrs   numeric;
@@ -1297,8 +1308,9 @@ language plpgsql
 security definer
 as $$
 declare
-  day_start timestamptz := target_date::timestamptz;
-  day_end   timestamptz := (target_date + 1)::timestamptz;
+  -- Central days — see the note in refresh_ghl_kpis above.
+  day_start timestamptz := (target_date::timestamp) at time zone 'America/Chicago';
+  day_end   timestamptz := ((target_date + 1)::timestamp) at time zone 'America/Chicago';
 begin
   perform set_kpi_entry('scLeadsProcessed', target_date, (
     select count(*)
