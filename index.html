@@ -799,14 +799,14 @@ input,select,textarea{font:inherit;color:inherit}
   margin-bottom:12px;padding-bottom:12px;border-bottom:1px dashed var(--border);
 }
 
-/* ---- property status pill (Properties list) ---- */
+/* ---- property status pill (Properties list) ----
+   A plain badge, not a control — status is derived (see propStatus()), so
+   there's nothing here to click or change directly. */
 .prop-status-pill{
-  appearance:none;-webkit-appearance:none;cursor:pointer;
+  display:inline-flex;align-items:center;
   border:1px solid var(--border);border-radius:20px;
-  padding:2px 22px 2px 10px;font-size:10.5px;font-weight:700;font-family:inherit;
+  padding:2px 10px;font-size:10.5px;font-weight:700;font-family:inherit;
   background-color:var(--surface-2);color:var(--ink-2);
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23857F76' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 7px center;
 }
 .prop-status-pill.prop-status-pre-closing{background-color:var(--warn-soft);color:var(--warn-ink)}
 .prop-status-pill.prop-status-listed{background-color:var(--info-soft,#E4EBF3);color:var(--info-ink,#1F3C5C)}
@@ -1279,7 +1279,9 @@ const StorageAdapter = {
       closing_date:p.closingDate||null,
       notes:p.notes||null,
       funding_schedule:normalizeFunding(p.funding, p),
-      status:PROP_STATUSES.includes(p.status)?p.status:'pre-closing',
+      // Derived, not read from p.status — see propStatus(). Written through
+      // to the column on every save so it stays queryable outside the app.
+      status:propStatus(p),
       listing_url:p.listingUrl||null,
       listing_stats:normalizeListingStats(p.listingStats)}),
     fundingTemplates: t => ({id:t.id, name:t.name, tiers:normalizeFunding(t.tiers, {})}),
@@ -1322,7 +1324,9 @@ const StorageAdapter = {
       // Pass the closing date through: tiers saved under the older dated-payment
       // model are converted to day offsets against it on the way in.
       funding:normalizeFunding(p.funding_schedule, {closingDate:p.closing_date||''}),
-      status:PROP_STATUSES.includes(p.status)?p.status:'pre-closing',
+      // No app-state status field — propStatus(p) computes it live from
+      // closingDate/listingUrl wherever it's needed, so there's nothing here
+      // that could go stale relative to those two.
       listingUrl:p.listing_url||'',
       listingStats:normalizeListingStats(p.listing_stats),
       created:p.created_at?p.created_at.split('T')[0]:''}),
@@ -2126,6 +2130,22 @@ function normalizeListingStats(raw){
     .forEach(e => byDate.set(String(e.date).slice(0,10),
       {date:String(e.date).slice(0,10), views:numOrNull(e.views), saves:numOrNull(e.saves)}));
   return [...byDate.values()].sort((a,b) => a.date.localeCompare(b.date));
+}
+
+// A deal's status is derived, never chosen — it reflects two facts that are
+// already entered elsewhere, rather than a fourth thing that could drift out
+// of sync with them:
+//   listed      — a Zillow link has been added under Listing details
+//   closed      — the closing date has arrived (the purchase is done) but
+//                 nothing's listed yet
+//   pre-closing — neither of the above yet (no closing date, or it's still
+//                 ahead of today)
+// Listed wins over closed: once there's a listing, that's the more useful
+// thing to see, even on a deal whose closing date has also passed.
+function propStatus(p){
+  if((p.listingUrl||'').trim()) return 'listed';
+  if(p.closingDate && p.closingDate <= today()) return 'closed';
+  return 'pre-closing';
 }
 
 /* ===== LOCAL NOTIFICATIONS =====
@@ -6079,7 +6099,7 @@ function renderProperties(){
   const statusFilter = state.filters.propStatus || '';
 
   const filtered = state.props.filter(p=>{
-    if(statusFilter && (p.status||'pre-closing') !== statusFilter) return false;
+    if(statusFilter && propStatus(p) !== statusFilter) return false;
     if(q && !JSON.stringify(p).toLowerCase().includes(q)) return false;
     return true;
   }).sort((a,b)=>{
@@ -6099,7 +6119,7 @@ function renderProperties(){
         All <span class="seg-count">${state.props.length}</span>
       </button>
       ${PROP_STATUSES.map(s=>`<button class="seg-btn ${statusFilter===s?'active':''}" role="tab" aria-selected="${statusFilter===s}" onclick="setPropStatusFilter('${s}')">
-        ${PROP_STATUS_LABEL[s]} <span class="seg-count">${state.props.filter(p=>(p.status||'pre-closing')===s).length}</span>
+        ${PROP_STATUS_LABEL[s]} <span class="seg-count">${state.props.filter(p=>propStatus(p)===s).length}</span>
       </button>`).join('')}
     </div>
     <div class="toolbar">
@@ -6120,15 +6140,16 @@ function renderProperties(){
     ${filtered.map(p=>{
       const equity = equityOf(p);
       const equityPct = (equity!==null && parseFloat(p.buyPrice)) ? Math.round((equity/parseFloat(p.buyPrice))*100) : null;
-      const status = p.status || 'pre-closing';
+      const status = propStatus(p);
       return `<div class="item-row" style="flex-wrap:wrap">
         <div style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-map-2" style="font-size:20px"></i></div>
         <div class="item-main">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
             <span class="item-title">${escape(p.propertyId || 'No property ID')}</span>
-            <select class="prop-status-pill prop-status-${status}" title="Change status" onchange="setPropStatus('${p.id}', this.value)">
-              ${PROP_STATUSES.map(s=>`<option value="${s}" ${status===s?'selected':''}>${PROP_STATUS_LABEL[s]}</option>`).join('')}
-            </select>
+            <span class="prop-status-pill prop-status-${status}"
+                  title="${status==='listed'?'Has a Zillow link under Listing details':status==='closed'?'Closing date has passed':'No closing date yet, or it is still ahead'}">
+              ${PROP_STATUS_LABEL[status]}
+            </span>
           </div>
           <div class="item-meta">
             <span>${escape(p.county)}, ${escape(p.state)}</span>
@@ -6151,14 +6172,6 @@ function renderProperties(){
 }
 function setPropStatusFilter(status){
   state.filters.propStatus = status;
-  app.render();
-}
-async function setPropStatus(id, status){
-  const p = state.props.find(x=>x.id===id);
-  if(!p || !PROP_STATUSES.includes(status)) return;
-  p.status = status;
-  await saveOne('props', p);
-  toast(`Marked ${PROP_STATUS_LABEL[status].toLowerCase()}`);
   app.render();
 }
 
@@ -7212,13 +7225,12 @@ function openPropForm(id){
       <div class="form-group"><label class="form-label">Buy price</label><input class="form-input" id="fp-buy" type="number" value="${escape(p.buyPrice||'')}" oninput="updateEquityPreview()"></div>
       <div class="form-group"><label class="form-label">Sell price</label><input class="form-input" id="fp-sell" type="number" value="${escape(p.sellPrice||'')}" oninput="updateEquityPreview()" placeholder="Once known"></div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Status</label>
-      <select class="form-select" id="fp-status">
-        ${PROP_STATUSES.map(s=>`<option value="${s}" ${(p.status||'pre-closing')===s?'selected':''}>${PROP_STATUS_LABEL[s]}</option>`).join('')}
-      </select>
-    </div>
     <div id="fp-equity-preview" style="font-size:12.5px;font-weight:600;margin:-8px 0 14px"></div>
+    <p class="form-hint" style="margin-top:-10px">
+      Status (pre-closing / closed / listed) isn't set here — it follows automatically
+      from the closing date above and whether a Zillow link is added under this
+      property's Listing details tab.
+    </p>
 
     <div class="form-group">
       <label class="form-label">Funding tiers</label>
@@ -7311,22 +7323,24 @@ function addFundingRow(entry, scope){
   updateFundingTotal(scope);
   if(s !== 'form') row.querySelector('.funding-days').focus();
 }
-// The two shares are two halves of one number. Filling either one fills the
-// other, so a 75/25 split is one keystroke rather than two — but typing
-// directly into the other field still overrides it.
+// The two shares are two halves of one number, always exactly 100 between
+// them — there's no such thing as an intentional 73/24 split. Editing
+// either field recalculates the other every time, so a row can never sit
+// unbalanced: type 75 into "us" and "funder" becomes 25, always, even if
+// funder already had something else in it.
 function syncSplit(input, scope){
   const row = input.parentNode;
   const us  = row.querySelector('.funding-us');
   const fu  = row.querySelector('.funding-funder');
   const other = input === us ? fu : us;
   const v = parseFloat(input.value);
-  if(input.value !== '' && !isNaN(v) && v >= 0 && v <= 100){
-    if(other.value === '' || other.dataset.auto === '1'){
-      other.value = Math.round((100 - v) * 100) / 100;
-      other.dataset.auto = '1';
-    }
+  if(input.value !== '' && !isNaN(v)){
+    const clamped = Math.min(100, Math.max(0, v));
+    if(clamped !== v) input.value = clamped;
+    other.value = Math.round((100 - clamped) * 100) / 100;
+  }else{
+    other.value = '';
   }
-  input.dataset.auto = '';
   updateFundingTotal(scope);
 }
 function readFundingRows(scope){
@@ -7409,7 +7423,6 @@ async function saveProp(id){
     buyPrice: $('#fp-buy').value,
     sellPrice: $('#fp-sell').value,
     closingDate: $('#fp-closing').value,
-    status: $('#fp-status').value,
     notes: $('#fp-notes').value,
     funding: readFundingRows('form'),
     // Listing details live behind their own tab on the card, not this form —
