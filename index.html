@@ -1787,7 +1787,42 @@ const state = {
    ========================================================= */
 const $ = sel => document.querySelector(sel);
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&0x3|0x8)).toString(16)}));
-const today = () => new Date().toISOString().split('T')[0];
+/* ---- The business day (2026-08-26) --------------------------------------
+   Everything in this app is reported on Central time, regardless of where the
+   device or the database happens to be. The rollup buckets events on Central
+   midnights, and these helpers give the browser the matching calendar day.
+
+   This replaces a genuinely broken today(): it was
+   `new Date().toISOString().split('T')[0]`, which is UTC. From 7pm Central
+   onwards that returns TOMORROW — so "due today" flipped over dinner, and
+   anything overdue gained a day early. Worse, isoLocal() right below uses
+   browser-LOCAL fields, so the app held two different opinions about what
+   day it was and quietly disagreed with itself all evening.
+
+   Intl with en-CA is the trick here: it yields YYYY-MM-DD directly and knows
+   about DST, so this stays correct across the March and November switches
+   without a hardcoded -5/-6. */
+const CRM_TZ = 'America/Chicago';
+const _crmDayFmt = new Intl.DateTimeFormat('en-CA', {
+  timeZone: CRM_TZ, year: 'numeric', month: '2-digit', day: '2-digit'
+});
+const crmDay = (d = new Date()) => _crmDayFmt.format(d);
+const today = () => crmDay();
+// Calendar arithmetic on a YYYY-MM-DD string. asLocalDate pins to local
+// midnight and isoLocal reads local fields back, so the round trip is
+// timezone-proof — no UTC shift can creep in between the two.
+const shiftDays = (isoStr, n) => {
+  const d = asLocalDate(isoStr);
+  d.setDate(d.getDate() + n);
+  return isoLocal(d);
+};
+const yesterday = () => shiftDays(today(), -1);
+/* A Date whose LOCAL fields spell out the Central calendar day, at midnight.
+   Everything that walks the calendar — week starts, month grids, trailing
+   series, "N days ago" — builds on this instead of `new Date()`, so the
+   answer no longer depends on where the viewer's laptop thinks it is.
+   Anything reading it back through isoLocal() round-trips exactly. */
+const crmNow = () => asLocalDate(crmDay());
 const isOverdue = d => d && d < today();
 // Builds a YYYY-MM-DD string from a Date's *local* fields (no UTC shift) —
 // used anywhere we need to match against stored dueDate/log_date strings,
@@ -2116,8 +2151,8 @@ function checkDueNotifications(){
   if(!uid) return;
 
   const todayStr = today();
-  const tmrw = new Date(); tmrw.setDate(tmrw.getDate()+1);
-  const tomorrowStr = tmrw.toISOString().slice(0,10);
+  const tmrw = crmNow(); tmrw.setDate(tmrw.getDate()+1);
+  const tomorrowStr = isoLocal(tmrw);
 
   const myTasks = state.tasks.filter(t=>(t.assignees||[]).includes(uid));
   const myOpenTasks = myTasks.filter(t=>t.status!=='done');
@@ -2832,6 +2867,37 @@ const app = {
       for(const at of Array.from(oldNode.attributes)){
         if(!newNode.hasAttribute(at.name)) oldNode.removeAttribute(at.name);
       }
+
+      /* Form controls hold live STATE as DOM properties, not attributes, and
+         the loop above only copies attributes. A ticked checkbox is
+         `.checked = true` with nothing in the markup to match it — so when a
+         completed task dropped out of the agenda and the rows shifted up, the
+         node the user had just ticked got reused for the NEXT task and
+         carried the tick with it. The check appeared to jump to the wrong row
+         and stay there.
+
+         Properties are therefore reset explicitly from the incoming markup.
+         All of this sits under the `isLive` guard, so it can never yank a
+         value out from under someone mid-edit. */
+      const tag = oldNode.tagName;
+      if(tag === 'INPUT'){
+        const type = (oldNode.type || '').toLowerCase();
+        if(type === 'checkbox' || type === 'radio'){
+          const want = newNode.hasAttribute('checked');
+          if(oldNode.checked !== want) oldNode.checked = want;
+        }else if(newNode.hasAttribute('value')){
+          const want = newNode.getAttribute('value');
+          if(oldNode.value !== want) oldNode.value = want;
+        }
+      }else if(tag === 'SELECT'){
+        // The chosen option is a property too: the `selected` attribute stops
+        // steering the control once it has been touched.
+        const opt = Array.from(newNode.options || []).find(o => o.hasAttribute('selected'));
+        const want = opt ? opt.value : '';
+        if(want !== '' && oldNode.value !== want) oldNode.value = want;
+      }else if(tag === 'TEXTAREA'){
+        if(oldNode.value !== newNode.textContent) oldNode.value = newNode.textContent;
+      }
     }
 
     /* Children are reconciled position by position rather than requiring the
@@ -2892,7 +2958,7 @@ function renderDashboard(){
   const overdue = overdueTasks.length;
   const todayStr = today();
   const dueTodayTasks = openTasks.filter(t=>t.dueDate===todayStr);
-  const dayLabel = new Date().toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'});
+  const dayLabel = asLocalDate(today()).toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'});
 
   // Today's agenda can be scoped to one person. Defaults to "Everyone" so
   // nothing silently disappears; the choice sticks across tab changes and
@@ -3659,7 +3725,7 @@ function kpiValueOver(def, from, to){
 }
 // The same window, shifted back one full period — used for the trend delta.
 function kpiValuePrev(def, days, anchor){
-  const end = anchor ? asLocalDate(anchor) : new Date();
+  const end = anchor ? asLocalDate(anchor) : crmNow();
   end.setDate(end.getDate() - days);
   const start = new Date(end);
   start.setDate(start.getDate() - (days - 1));
@@ -3767,10 +3833,9 @@ function kpiDaysLogged(from, to){
 // anchor defaults to today, but the KPI tab passes an arbitrary past day so
 // every average and percentage can be recomputed as of that date.
 function kpiWindow(days, anchor){
-  const end = anchor ? asLocalDate(anchor) : new Date();
-  const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1));
-  return {from: isoLocal(start), to: isoLocal(end)};
+  // Anchored on the Central calendar day, not the device's.
+  const to = anchor || today();
+  return {from: shiftDays(to, -(days - 1)), to};
 }
 
 /* ---- The "as of" day ----------------------------------------------------
@@ -3815,6 +3880,14 @@ const KPI_TRACKER_RANGE_PRESETS = {
   '30': {label: 'Last 30 days', days: 30},
   '90': {label: 'Last 90 days', days: 90}
 };
+/* Single Central days, not trailing windows — handled ahead of the presets
+   in resolveKpiTrackerRange(). Anchored to the KPI page's "as of" day so
+   stepping the as-of date back keeps today/yesterday meaningful relative to
+   it rather than snapping to the wall clock. */
+const KPI_TRACKER_DAY_MODES = {
+  today:     {label: 'Today',     offset: 0},
+  yesterday: {label: 'Yesterday', offset: -1}
+};
 function getKpiTrackerRangeMode(){
   if(state.kpiTrackerRangeMode === undefined){
     state.kpiTrackerRangeMode = Prefs.get('kpiTrackerRangeMode', '7');
@@ -3850,7 +3923,7 @@ function setKpiTrackerCustomRange(from, to){
 // The most recently completed calendar month — e.g. viewed any day in
 // August, this is all of July, regardless of the "ends on" day picker.
 function kpiLastCalendarMonth(){
-  const d = new Date();
+  const d = crmNow();
   d.setDate(1);   // first of this month
   d.setDate(0);   // rolls back to the last day of the PREVIOUS month
   const to = isoLocal(d);
@@ -3950,7 +4023,7 @@ function toggleKpiRangeCalendar(){
     c.pendingFrom = null;
     // Open on the month the range starts in, not always the current month.
     const from = getKpiTrackerCustomRange().from;
-    c.monthOffset = from ? monthDiff(new Date(), asLocalDate(from)) : 0;
+    c.monthOffset = from ? monthDiff(crmNow(), asLocalDate(from)) : 0;
     refreshKpiCalPicker();
     bindKpiCalDismiss();
   }else{
@@ -3991,7 +4064,7 @@ function pickKpiRangeDay(dateStr){
 
 function renderKpiRangeCalendar(range){
   const c = getKpiCal();
-  const base = new Date();
+  const base = crmNow();
   base.setDate(1);
   base.setMonth(base.getMonth() + c.monthOffset);
   const year = base.getFullYear(), month = base.getMonth();
@@ -4043,7 +4116,7 @@ function renderKpiRangeCalendar(range){
 // "a period that has actually finished" option: mid-week this shows all of
 // last week rather than a partial current one.
 function kpiLastCalendarWeek(){
-  const d = new Date();
+  const d = crmNow();
   d.setHours(0,0,0,0);
   d.setDate(d.getDate() - d.getDay());   // Sunday that starts this week
   d.setDate(d.getDate() - 1);            // back one day = last Saturday
@@ -4053,6 +4126,11 @@ function kpiLastCalendarWeek(){
 }
 function resolveKpiTrackerRange(){
   const mode = getKpiTrackerRangeMode();
+  if(KPI_TRACKER_DAY_MODES[mode]){
+    const m = KPI_TRACKER_DAY_MODES[mode];
+    const d = shiftDays(getKpiAsOf(), m.offset);
+    return {from: d, to: d, label: m.label};
+  }
   if(mode === 'lastWeek'){
     const r = kpiLastCalendarWeek();
     return {from: r.from, to: r.to, label: 'Last week'};
@@ -4273,23 +4351,37 @@ const DASHBOARD_SNAPSHOT_ROWS = [
 
 // Which window the snapshot reports. Device-local: it's a viewing preference,
 // not shared team state, so it sits in localStorage rather than user_prefs.
+/* today / yesterday / 7 / 30. The first two are single Central days rather
+   than trailing windows, so the snapshot is described by a resolved range
+   instead of a day count — "yesterday" isn't expressible as a length. */
+const SNAPSHOT_MODES = {
+  today:     {label: 'Today',        days: 1},
+  yesterday: {label: 'Yesterday',    days: 1},
+  '7':       {label: 'Last 7 days',  days: 7},
+  '30':      {label: 'Last 30 days', days: 30}
+};
 function getSnapshotWindow(){
-  const v = parseInt(localStorage.getItem('ulc_snapWin'), 10);
-  return v === 30 ? 30 : 7;
+  const v = localStorage.getItem('ulc_snapWin');
+  return SNAPSHOT_MODES[v] ? v : '7';
 }
-function setSnapshotWindow(days){
-  localStorage.setItem('ulc_snapWin', String(days));
+function setSnapshotWindow(mode){
+  localStorage.setItem('ulc_snapWin', String(mode));
   app.render();
+}
+function resolveSnapshotRange(){
+  const mode = getSnapshotWindow();
+  const m = SNAPSHOT_MODES[mode];
+  if(mode === 'today')     { const d = today();     return {from:d, to:d, days:1,  label:m.label, mode}; }
+  if(mode === 'yesterday') { const d = yesterday(); return {from:d, to:d, days:1,  label:m.label, mode}; }
+  const w = kpiWindow(m.days);
+  return {from:w.from, to:w.to, days:m.days, label:m.label, mode};
 }
 
 // The 7 days before the current 7-day window, for the trend comparison.
 function kpiPrevWindow(days){
   const w = kpiWindow(days);
-  const end = asLocalDate(w.from);
-  end.setDate(end.getDate() - 1);
-  const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1));
-  return {from: isoLocal(start), to: isoLocal(end)};
+  const to = shiftDays(w.from, -1);
+  return {from: shiftDays(to, -(days - 1)), to};
 }
 
 /* ---- Snapshot goals (2026-08-18) ---------------------------------------
@@ -4311,6 +4403,8 @@ const SNAPSHOT_GOAL_SCALES = unit => unit === 'count';
 function snapshotGoal(def, days){
   const base = getKpiTarget(def.key);            // goals are always set per 7 days
   if(base === null || base === undefined) return null;
+  // A single day gets a seventh of the weekly volume target; 30 days gets
+  // 30/7 of it. Rates and durations never scale — see the note above.
   return SNAPSHOT_GOAL_SCALES(def.unit) ? base * (days / 7) : base;
 }
 
@@ -4342,8 +4436,8 @@ function snapshotGoalNote(def, value, days){
 }
 
 function renderKpiSection(){
-  const days = getSnapshotWindow();
-  const w = kpiWindow(days);
+  const range = resolveSnapshotRange();
+  const days = range.days, w = {from: range.from, to: range.to};
   const logged = kpiDaysLogged(w.from, w.to);
 
   const tile = t => {
@@ -4352,7 +4446,7 @@ function renderKpiSection(){
     const value = kpiHasDataOver(def, w.from, w.to) ? kpiValueOver(def, w.from, w.to) : null;
     const g = snapshotGoalNote(def, value, days);
 
-    return `<div class="snap-tile" onclick="openKpiBreakdown('${def.key}','${w.from}','${w.to}','Last ${days} days')"
+    return `<div class="snap-tile" onclick="openKpiBreakdown('${def.key}','${w.from}','${w.to}','${escape(range.label)}')"
                  title="See the numbers behind this KPI" style="cursor:pointer">
       <div class="snap-label"><i class="ti ${t.icon}"></i> ${escape(t.label)}</div>
       <div class="snap-value">${value !== null ? kpiFormat(value, def.unit) : '—'}</div>
@@ -4367,17 +4461,17 @@ function renderKpiSection(){
       <div class="snap-grid">${r.tiles.map(tile).join('')}</div>
     </div>`;
 
-  const winBtn = n => `<button class="btn btn-sm ${days===n?'btn-primary':''}"
-    onclick="event.stopPropagation();setSnapshotWindow(${n})">${n} days</button>`;
+  const winBtn = key => `<button class="btn btn-sm ${range.mode===key?'btn-primary':''}"
+    onclick="event.stopPropagation();setSnapshotWindow('${key}')">${escape(SNAPSHOT_MODES[key].label)}</button>`;
 
   return `<div class="card" style="margin-bottom:24px">
     <div class="card-header" style="flex-wrap:wrap;gap:10px">
       <div>
         <div class="card-title">KPI Snapshot</div>
-        <div class="card-sub">Last ${days} days · ${fmtLong(w.from)} – ${fmtLong(w.to)} · ${logged}/${days} days logged${days===30?` · volume goals scaled ×${(30/7).toFixed(1)}`:''}</div>
+        <div class="card-sub">${escape(range.label)} · ${days===1?fmtLong(w.to):`${fmtLong(w.from)} – ${fmtLong(w.to)}`} (CT) · ${logged}/${days} day${days!==1?'s':''} logged${SNAPSHOT_GOAL_SCALES('count')&&days!==7?` · volume goals scaled ×${(days/7).toFixed(2).replace(/\.?0+$/,'')}`:''}</div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <div class="seg" style="display:flex;gap:4px">${winBtn(7)}${winBtn(30)}</div>
+        <div class="seg" style="display:flex;gap:4px;flex-wrap:wrap">${winBtn('today')}${winBtn('yesterday')}${winBtn('7')}${winBtn('30')}</div>
         <button class="btn btn-sm" onclick="app.go('activity');setKtTab('kpis')">Full breakdown <i class="ti ti-arrow-right"></i></button>
       </div>
     </div>
@@ -4695,12 +4789,14 @@ function renderKpiTrackingView(){
     <div class="card-header" style="flex-wrap:wrap;gap:10px">
       <div>
         <div class="card-title">Firm performance</div>
-        <div class="card-sub">Showing ${range.label.toLowerCase()} (${fmtLong(range.from)} – ${fmtLong(range.to)}) · ${loggedOnDay}/${inputs.length} inputs logged ${isToday?'today':'on '+fmtLong(asOf)}</div>
+        <div class="card-sub">Showing ${range.label.toLowerCase()} (${range.from===range.to?fmtLong(range.to):`${fmtLong(range.from)} – ${fmtLong(range.to)}`}, CT) · ${loggedOnDay}/${inputs.length} inputs logged ${isToday?'today':'on '+fmtLong(asOf)}</div>
       </div>
     </div>
 
     <div class="kpi-range">
       <span class="kpi-range-label"><i class="ti ti-calendar-stats"></i> Range</span>
+      ${rangePill('today','Today')}
+      ${rangePill('yesterday','Yesterday')}
       ${rangePill('7','7 days')}
       ${rangePill('30','30 days')}
       ${rangePill('90','90 days')}
@@ -4810,7 +4906,7 @@ function kpiChartSeriesMeta(sel){
 }
 // One point per day in the range. `value` is null where there's nothing to show.
 function buildKpiChartSeries(meta, days){
-  const end = new Date(), out = [];
+  const end = crmNow(), out = [];
   for(let i = days - 1; i >= 0; i--){
     const d = new Date(end);
     d.setDate(d.getDate() - i);
@@ -5224,7 +5320,7 @@ function jumpToWeekOf(dateStr){
 }
 // Sunday that starts the week `offsetWeeks` away from the current week.
 function getWeekStart(offsetWeeks){
-  const d = new Date();
+  const d = crmNow();
   d.setHours(0,0,0,0);
   d.setDate(d.getDate() - d.getDay() + offsetWeeks*7);
   return d;
@@ -5930,7 +6026,7 @@ function getActivityCalendarOffset(){
   return state.activityCalendarOffset;
 }
 function activityMonthBase(){
-  const base = new Date();
+  const base = crmNow();
   base.setDate(1);
   base.setMonth(base.getMonth() + getActivityCalendarOffset());
   return base;
@@ -5947,9 +6043,9 @@ const ACTIVITY_RANGES = {
   custom: {label:'Custom range'}
 };
 function isoDaysAgo(n){
-  const d = new Date();
+  const d = crmNow();
   d.setDate(d.getDate()-n);
-  return d.toISOString().slice(0,10);
+  return isoLocal(d);
 }
 /* =========================================================
    ACTIVITY TRENDS CHART — pick any two metrics from calls,
@@ -5977,8 +6073,8 @@ function getTrendDayValue(metricKey, dateStr){
 function buildTrendSeries(metricKey, days){
   const points = [];
   for(let i=days-1;i>=0;i--){
-    const d = new Date(); d.setDate(d.getDate()-i);
-    const dateStr = d.toISOString().slice(0,10);
+    const d = crmNow(); d.setDate(d.getDate()-i);
+    const dateStr = isoLocal(d);
     points.push({date:dateStr, value:getTrendDayValue(metricKey,dateStr)});
   }
   if(days<=45) return points;
@@ -6058,16 +6154,16 @@ function getActivityRange(){
   let start, end;
   if(range === 'today'){ start = todayStr; end = todayStr; }
   else if(range === 'week'){
-    const d = new Date(); d.setDate(d.getDate()-d.getDay());
-    start = d.toISOString().slice(0,10); end = todayStr;
+    const d = crmNow(); d.setDate(d.getDate()-d.getDay());
+    start = isoLocal(d); end = todayStr;
   }
   else if(range === 'last7'){ start = isoDaysAgo(6); end = todayStr; }
   else if(range === 'last30'){ start = isoDaysAgo(29); end = todayStr; }
   else if(range === 'month'){
-    const d = new Date(); d.setDate(1);
-    start = d.toISOString().slice(0,10);
+    const d = crmNow(); d.setDate(1);
+    start = isoLocal(d);
     const e = new Date(d); e.setMonth(e.getMonth()+1); e.setDate(0);
-    end = e.toISOString().slice(0,10);
+    end = isoLocal(e);
   }
   else if(range === 'all'){ start = '0000-01-01'; end = '9999-12-31'; }
   else { // custom
