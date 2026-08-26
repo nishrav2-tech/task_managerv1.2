@@ -1462,7 +1462,7 @@ const StorageAdapter = {
      behind it and triggers a second render. loadAll() is kept as the
      "everything, then render" call the background refresh timer uses. */
   async loadAll(){
-    const core = await this.loadCore();
+    const core = await this.loadCore();          // carries fetchOk
     const entries = await this.loadKpiEntries();
     return {...core, kpiEntries: entries};
   },
@@ -1487,7 +1487,18 @@ const StorageAdapter = {
       if(kt.error) console.warn('kpi_targets table not found yet — run the updated schema.sql to enable shared KPI goals.', kt.error.message);
       if(cl.error) console.warn('call_logs table not found yet — run the updated schema.sql to enable the Activity Log.', cl.error.message);
       if(cal.error) console.warn('campaign_logs table not found yet — run the updated schema.sql to enable the Activity Log.', cal.error.message);
+      /* fetchOk distinguishes "this table is empty" from "this read failed".
+         Both used to arrive as an empty array, and the caller treated empty
+         as "brand new install, seed it" — so a single transient error on the
+         users query wrote demo users, tasks and projects into a live
+         database. (That happened on 2026-08-26.) Errors are now reported
+         alongside the data and the seed decision refuses to run without a
+         clean read. */
+      const readErr = [u, p, t, pr].find(r => r && r.error);
+      if(readErr) console.error('Core data read failed — NOT treating this as an empty database.', readErr.error.message);
+
       return {
+        fetchOk: !readErr,
         users: (u.data||[]).map(this.fromDb.users),
         props: (p.data||[]).map(this.fromDb.props),
         tasks: (t.data||[]).map(this.fromDb.tasks),
@@ -2259,7 +2270,32 @@ function updateBackendBadge(){
 async function loadCore(){
   const data = await StorageAdapter.loadCore();
   applyCore(data);
-  if(!state.users.length) await seed();
+  await maybeSeedEmptyDatabase();
+}
+
+/* Demo data is only ever written into a database that is provably, entirely
+   empty — and only when every read succeeded.
+
+   The old test was `if(!state.users.length) seed()`, which conflated a failed
+   read with an empty table. On 2026-08-26 that fired against a live database
+   holding 68 tasks and 19 projects, inserting three fake teammates, four
+   sample tasks and four sample projects into production.
+
+   Two independent conditions now have to hold. A failed read can't satisfy
+   the first, and a database with any real content of its own can't satisfy
+   the second — so no single fault can reach seed() again. A genuinely fresh
+   install still gets its starter content, and Settings → Reset all data
+   still calls seed() directly, which is the one place it should be
+   unconditional because the user explicitly asked for it. */
+async function maybeSeedEmptyDatabase(){
+  if(state.coreFetchOk === false){
+    console.warn('Skipping first-run seed: the last read errored, so "empty" cannot be trusted.');
+    return;
+  }
+  const totallyEmpty = !state.users.length && !state.tasks.length
+                    && !state.projects.length && !state.props.length;
+  if(!totallyEmpty) return;
+  await seed();
 }
 /* ---- Last-known KPI cache (2026-08-18) ---------------------------------
    Deferring kpi_entries made the first paint fast, but it also meant every
@@ -2317,6 +2353,7 @@ async function loadKpiEntriesInto(){
   writeKpiCache(state.kpiEntries);
 }
 function applyCore(data){
+  state.coreFetchOk = data.fetchOk !== false;
   state.users = data.users;
   state.props = data.props;
   state.tasks = data.tasks;
@@ -2337,7 +2374,7 @@ function applyCore(data){
 async function loadAll(){
   const data = await StorageAdapter.loadAll();
   applyCore(data);
-  if(!state.users.length) await seed();
+  await maybeSeedEmptyDatabase();
 }
 
 // Save one entity to whichever backend is active
