@@ -2874,20 +2874,7 @@ const app = {
       const staging = document.createElement('div');
       staging.innerHTML = html;
       patched = true;
-      const oldKids = Array.from(main.childNodes);
-      const newKids = Array.from(staging.childNodes);
-      const shared  = Math.min(oldKids.length, newKids.length);
-      for(let i = 0; i < shared; i++){
-        if(!this._patchDom(oldKids[i], newKids[i])){
-          main.replaceChild(newKids[i].cloneNode(true), oldKids[i]);
-          this._patchCreatedNodes = true;
-        }
-      }
-      for(let i = shared; i < oldKids.length; i++) main.removeChild(oldKids[i]);
-      for(let i = shared; i < newKids.length; i++){
-        main.appendChild(newKids[i].cloneNode(true));
-        this._patchCreatedNodes = true;
-      }
+      this._patchChildren(main, staging);
     }
 
     if(!patched){
@@ -2992,30 +2979,111 @@ const app = {
       }
     }
 
-    /* Children are reconciled position by position rather than requiring the
-       counts to match. An earlier version bailed out whenever they differed,
-       which sounded safe but meant the dashboard rebuilt wholesale every time
-       a trend arrow appeared — one extra <i> in a tile was enough to restart
-       every card animation on the screen. Now a mismatch replaces only the
-       node that actually differs, and its siblings are left untouched. */
-    const oldKids = Array.from(oldNode.childNodes);
-    const newKids = Array.from(newNode.childNodes);
-    const shared  = Math.min(oldKids.length, newKids.length);
+    /* Children are reconciled by KEY where one exists, position otherwise —
+       see _patchChildren() below for why a bare index match isn't enough. */
+    this._patchChildren(oldNode, newNode);
+    return true;
+  },
 
-    for(let i = 0; i < shared; i++){
-      if(!this._patchDom(oldKids[i], newKids[i])){
-        oldNode.replaceChild(newKids[i].cloneNode(true), oldKids[i]);
-        this._patchCreatedNodes = true;
+  /* ---- Keyed child reconciliation (2026-08-27) -------------------------
+     Reconciling a parent's children purely by index (the original approach)
+     silently breaks the moment a list gains or loses an item ABOVE the end:
+     check a task off on the Dashboard agenda and it drops out of the list,
+     so every row after it shifts up one slot. Positional matching then pairs
+     the DOM node that used to be "task Y, 2nd in the list" against the render
+     for whatever task now SITS 2nd — a completely different task — and
+     patches that node's attributes/children to match. Two concrete failures
+     came from this: a checkbox's `.checked` state (a live DOM property, not
+     an attribute — see the isLive block above) could ride along onto the
+     wrong task, and an element that only gained data-action="edit-task" via
+     this attribute rewrite was never bound by bindViewEvents (which only
+     iterates [data-action] elements when the render created NEW nodes) — so
+     it looked like a button but silently did nothing.
+
+     The fix: elements carrying data-id (every list row, and the buttons
+     inside it) are matched by an identity key — tag + data-action + data-id —
+     wherever they land in the new list, so "task Y"'s own DOM node (with
+     whatever's already correctly bound to it) stays task Y's, full stop.
+     Reordering falls out for free: appendChild on a node already in the
+     document MOVES it rather than duplicating it, so replaying the new
+     order via appendChild both reorders matched nodes and places new ones,
+     in one pass. Anything left over afterward (a row that's gone) is
+     removed outright — not overwritten in place — so its exact node, and
+     nothing else's, disappears.
+
+     Unkeyed children (plain wrapper divs, text nodes — most of the page)
+     have no identity to preserve and fall back to positional pairing,
+     unchanged from before. */
+  _patchChildren(oldParent, newParent){
+    const keyOf = (n) => {
+      if(n.nodeType !== Node.ELEMENT_NODE || !n.dataset) return null;
+      const id = n.dataset.id;
+      if(!id) return null;
+      return n.tagName + '|' + (n.dataset.action || '') + '|' + id;
+    };
+
+    const oldKids = Array.from(oldParent.childNodes);
+    const newKids = Array.from(newParent.childNodes);
+
+    const oldByKey = new Map();
+    oldKids.forEach((n, i) => {
+      const k = keyOf(n);
+      if(k === null) return;
+      if(!oldByKey.has(k)) oldByKey.set(k, []);
+      oldByKey.get(k).push(i);
+    });
+
+    const usedOld = new Array(oldKids.length).fill(false);
+    const pairs = new Array(newKids.length).fill(null);
+
+    // Pass 1: exact identity matches, regardless of position.
+    newKids.forEach((n, i) => {
+      const k = keyOf(n);
+      if(k === null) return;
+      const bucket = oldByKey.get(k);
+      if(bucket && bucket.length){
+        const idx = bucket.shift();
+        usedOld[idx] = true;
+        pairs[i] = oldKids[idx];
+      }
+    });
+    // Pass 2: whatever's left (unkeyed nodes, or a key with no old match —
+    // i.e. a genuinely new item) pairs positionally against whatever old
+    // nodes are still unclaimed, same behavior as the old index-only patch.
+    let cursor = 0;
+    for(let i = 0; i < newKids.length; i++){
+      if(pairs[i] !== null) continue;
+      while(cursor < oldKids.length && usedOld[cursor]) cursor++;
+      if(cursor < oldKids.length){
+        pairs[i] = oldKids[cursor];
+        usedOld[cursor] = true;
+        cursor++;
       }
     }
-    for(let i = shared; i < oldKids.length; i++){
-      oldNode.removeChild(oldKids[i]);
-    }
-    for(let i = shared; i < newKids.length; i++){
-      oldNode.appendChild(newKids[i].cloneNode(true));
-      this._patchCreatedNodes = true;
-    }
-    return true;
+
+    newKids.forEach((newN, i) => {
+      const reuse = pairs[i];
+      let node;
+      if(reuse && this._patchDom(reuse, newN)){
+        node = reuse;
+      }else{
+        // Patch refused (different tag) — the paired old node, if any, is
+        // being discarded, not reused, so drop it now rather than leaving
+        // an orphan once appendChild below moves the clone into place.
+        if(reuse && reuse.parentNode) reuse.parentNode.removeChild(reuse);
+        node = newN.cloneNode(true);
+        this._patchCreatedNodes = true;
+      }
+      // appendChild on a node already in this document MOVES it instead of
+      // duplicating it — replaying newKids' order this way both reorders
+      // matched nodes and drops new ones into place in a single pass.
+      oldParent.appendChild(node);
+    });
+    // Anything old left unclaimed is a row that no longer exists — remove
+    // the actual node rather than repurposing it for something else.
+    oldKids.forEach((n, i) => {
+      if(!usedOld[i] && n.parentNode === oldParent) oldParent.removeChild(n);
+    });
   },
 
   /* Coalesce bursts of render requests into one repaint. The four cohort
