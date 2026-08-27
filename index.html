@@ -5772,9 +5772,18 @@ function renderPropPanels(p, bands){
     Listing details${stats.length?` <span class="funding-tab-count">${stats.length}</span>`:''}
   </button>`;
 
+  // Each panel sits in its own always-present slot div, never a bare
+  // conditional sibling. render()'s patcher diffs children by POSITION, not
+  // identity — with no slot, opening funding while listing was already open
+  // (or vice versa) shifts everything after it by one, so the patcher pairs
+  // the old listing-panel node up against the new funding-panel markup (both
+  // are just <div class="funding-panel">...</div> to it), mutates one into a
+  // mangled hybrid of the two, and the tabs stop opening/closing cleanly.
+  // Fixed slots keep each panel's node at the same index every render, so a
+  // toggle only ever touches its own slot's contents.
   return `<div class="funding-tabs">${fundingTab}${listingTab}</div>
-    ${fundingOpen ? renderFundingPanel(p, bands) : ''}
-    ${listingOpen ? renderListingPanel(p, stats) : ''}`;
+    <div class="funding-panel-slot">${fundingOpen ? renderFundingPanel(p, bands) : ''}</div>
+    <div class="listing-panel-slot">${listingOpen ? renderListingPanel(p, stats) : ''}</div>`;
 }
 
 /* ---- Funding tier panel (inline, per-property) ---- */
