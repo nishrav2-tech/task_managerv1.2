@@ -3050,17 +3050,36 @@ const app = {
     // Pass 2: whatever's left (unkeyed nodes, or a key with no old match —
     // i.e. a genuinely new item) pairs positionally against whatever old
     // nodes are still unclaimed, same behavior as the old index-only patch.
-    let cursor = 0;
+    let posCursor = 0;
     for(let i = 0; i < newKids.length; i++){
       if(pairs[i] !== null) continue;
-      while(cursor < oldKids.length && usedOld[cursor]) cursor++;
-      if(cursor < oldKids.length){
-        pairs[i] = oldKids[cursor];
-        usedOld[cursor] = true;
-        cursor++;
+      while(posCursor < oldKids.length && usedOld[posCursor]) posCursor++;
+      if(posCursor < oldKids.length){
+        pairs[i] = oldKids[posCursor];
+        usedOld[posCursor] = true;
+        posCursor++;
       }
     }
 
+    // Walk in the new order, but only actually MOVE a node when it isn't
+    // already sitting exactly where it needs to be. `cursor` is "the next
+    // old child not yet confirmed in place"; when the node we want IS
+    // cursor, nothing happens to it at all -- no DOM call, same object,
+    // same position. Only a genuinely out-of-order or brand-new node gets
+    // an insertBefore.
+    //
+    // This isn't just an optimization: unconditionally calling
+    // appendChild()/insertBefore() on EVERY child of EVERY patched parent
+    // (the first version of this function) touched every static, unchanged
+    // node on the page on every single render -- a task being created or
+    // completed on the Dashboard doesn't just update the agenda list, it
+    // was re-inserting the sidebar nav, the topbar, every KPI tile, all of
+    // it. Removing and reinserting that much of the page confused the
+    // browser's scroll anchoring (which exists specifically to keep your
+    // scroll position stable across content changes, but assumes stable
+    // nodes stay put) and was what made the whole Dashboard jump back to
+    // the top on every task create/complete.
+    let cursor = oldParent.firstChild;
     newKids.forEach((newN, i) => {
       const reuse = pairs[i];
       let node;
@@ -3069,15 +3088,27 @@ const app = {
       }else{
         // Patch refused (different tag) — the paired old node, if any, is
         // being discarded, not reused, so drop it now rather than leaving
-        // an orphan once appendChild below moves the clone into place.
-        if(reuse && reuse.parentNode) reuse.parentNode.removeChild(reuse);
+        // an orphan once it's inserted into place below. If `cursor` itself
+        // IS this node, it must be moved off it first — otherwise cursor is
+        // left pointing at a now-detached node, and the next iteration's
+        // insertBefore(node, cursor) throws ("child can not be found in
+        // the parent") instead of quietly appending.
+        if(reuse && reuse.parentNode){
+          if(reuse === cursor) cursor = cursor.nextSibling;
+          reuse.parentNode.removeChild(reuse);
+        }
         node = newN.cloneNode(true);
         this._patchCreatedNodes = true;
       }
-      // appendChild on a node already in this document MOVES it instead of
-      // duplicating it — replaying newKids' order this way both reorders
-      // matched nodes and drops new ones into place in a single pass.
-      oldParent.appendChild(node);
+      if(node === cursor){
+        cursor = cursor.nextSibling;
+      }else{
+        // insertBefore(node, null) is appendChild — covers "goes at the
+        // end" when cursor has run off the list. On a node already in this
+        // document this MOVES it rather than duplicating it, so this one
+        // call both reorders a shifted node and drops a new one into place.
+        oldParent.insertBefore(node, cursor);
+      }
     });
     // Anything old left unclaimed is a row that no longer exists — remove
     // the actual node rather than repurposing it for something else.
