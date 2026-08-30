@@ -212,8 +212,18 @@ create table if not exists ghl_contact_state (
   -- these get populated.
   contact_date_added timestamptz,
   sms_reply_at_raw text,
+  -- ADDED 2026-08-28: the GHL contact's "Zillow Listing" custom field
+  -- (Closing and Marketing section). Stored so pollContacts can tell when
+  -- it CHANGES and only then push the new value into properties.listing_url
+  -- -- matched by properties.property_id = ghl_contact_state.contact_id,
+  -- since the property's own Property ID field is set to the same value as
+  -- the GHL contact id that produced it. See
+  -- supabase/functions/ghl-hourly-poll/index.ts (zillowListingUrl /
+  -- FIELD_ZILLOW_LISTING / the sync step at the end of pollContacts).
+  zillow_listing_url text,
   updated_at     timestamptz not null default now()
 );
+alter table ghl_contact_state add column if not exists zillow_listing_url text;
 alter table ghl_contact_state enable row level security;
 drop policy if exists "service role only" on ghl_contact_state;
 create policy "service role only" on ghl_contact_state for all to service_role using (true) with check (true);

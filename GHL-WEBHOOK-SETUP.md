@@ -203,3 +203,54 @@ group by event_type order by 2 desc;
 Trigger a real stage change on a test opportunity in GHL, then re-run
 that query — you should see a fresh `OpportunityStageUpdate` row with
 `most_recent` matching right now.
+
+## 7. Auto-populating the Zillow Listing link on a property
+
+`ghl-hourly-poll`'s `pollContacts()` step now also reads each GHL contact's
+**Zillow Listing** custom field (Closing and Marketing section) and, when it
+CHANGES, writes it straight into that property's Listing Details tab in the
+CRM (`properties.listing_url`) — no more copy-pasting the link over by hand.
+
+**How it finds the right property:** by matching `properties.property_id`
+against the GHL contact id — the same id already used when the property was
+produced from that lead. There's no separate linking field to fill in; if a
+property's Property ID field already holds the GHL contact id that produced
+it, this works automatically.
+
+**One-time setup — the field id isn't known yet, so the sync is currently a
+no-op:**
+
+1. Run `python3 ghl-probe.py`, find section **"4b. CUSTOM FIELDS"**, and
+   look for the field named `"Zillow Listing"`. Copy its `id` (looks like
+   `SsD1lNNGo0UKFQG0K4Ti`, same shape as `FIELD_CONTRACT_STATUS` above).
+2. Supabase dashboard → **Edge Functions → Secrets** → add
+   `GHL_FIELD_ZILLOW_LISTING` = that id.
+
+That's it — no redeploy needed, no new GHL Workflow. The existing 5-minute
+poll picks it up on its next run. A property only gets overwritten when the
+GHL value actually **changes** since the last poll (tracked in
+`ghl_contact_state.zillow_listing_url`), so a link someone already fixed up
+by hand in the CRM won't get silently reset to the same GHL value on every
+cycle — it's only touched again once the GHL side changes.
+
+### Verify it's working
+
+```sql
+select contact_id, zillow_listing_url, updated_at
+from ghl_contact_state
+where zillow_listing_url is not null
+order by updated_at desc
+limit 10;
+```
+
+Rows here confirm the poll is reading the field at all. Then check it
+actually landed on the property:
+
+```sql
+select property_id, listing_url from properties where listing_url is not null;
+```
+
+If a property's `property_id` matches one of the `contact_id`s above but
+`listing_url` didn't update, the most likely cause is the property's
+Property ID field not exactly matching the GHL contact id (extra spaces,
+wrong id pasted, etc.) — the match is an exact string comparison.
