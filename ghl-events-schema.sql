@@ -1277,6 +1277,129 @@ revoke all on function avg_touches_before_deal(date, date) from public;
 grant execute on function avg_touches_before_deal(date, date) to anon, authenticated;
 
 -- ---------------------------------------------------------
+-- purchase_stage_avgs(from_date, to_date) — ADDED 2026-09-02
+--
+-- Backs the new "Purchase" KPI section: a separate GHL pipeline from
+-- PIPE_LEAD_TO_CONTRACT above, covering everything from a signed
+-- contract through closing (New Contract -> EMD Confirmed -> DD Phase II
+-- -> Funding -> DD Phase III -> Post Closing Docs). For every opportunity
+-- in that pipeline whose FIRST-EVER entry into "New Contract" falls
+-- inside [from_date, to_date], this reports how many hours passed before
+-- that same opportunity's first-ever entry into each of the five
+-- downstream stages. Same cohort shape as cohort_lead_conversion /
+-- avg_touches_before_lost above: anchored to when the opportunity
+-- entered the START stage, checked against full history for when (if
+-- ever) it reached each later stage, called live via RPC for whatever
+-- date range the KPI Tracker's picker has selected.
+--
+-- A stage average is NULL, not 0, for the opportunities in the cohort
+-- that haven't reached that stage yet — averaging only counts
+-- opportunities that actually got there, same reasoning as
+-- contractSentAvg only counting contracts that reached "Send Paperwork"
+-- above. cohort_count is how the app tells "no opportunities entered New
+-- Contract in this window" (genuinely nothing to show) apart from "none
+-- of them have reached Funding YET" (still nothing to show for that one
+-- field, but a different reason) — see the 'purchaseStageAvg' calc type
+-- in index.html, which checks each field individually rather than just
+-- cohort_count.
+--
+-- REQUIRES SETUP BEFORE THIS RETURNS ANYTHING REAL: the seven
+-- PLACEHOLDER_* ids below are not real ids. Run `python3 ghl-probe.py`
+-- from the repo root (reads GHL_TOKEN/GHL_LOCATION_ID from .env) to
+-- print your account's actual pipeline and stage ids and names, then
+-- replace every constant below with the real value. The stage names
+-- assumed here — New Contract, EMD Confirmed, DD Phase II, Funding, DD
+-- Phase III, Post Closing Docs — need to match your GHL pipeline's stage
+-- names exactly; rename the constants (not just their values) if yours
+-- differ. The SAME seven ids also need to go into the STAGE_NAME_TO_ID
+-- map in supabase/functions/ghl-webhook/index.ts, and a GHL Workflow
+-- (trigger: Opportunity Stage Changed, scoped to this pipeline, action:
+-- the same Webhook action already used for the Lead -> Contract
+-- pipeline) needs to be pointed at that same webhook URL — see
+-- GHL-WEBHOOK-SETUP.md. Until both sides are wired up with real ids, no
+-- rows land in ghl_events for this pipeline and every "Purchase" tile
+-- just reads "no data."
+--
+-- SECURITY DEFINER + explicit grants, same reasoning as
+-- cohort_lead_conversion: ghl_events stays service-role-only, this
+-- narrow read-only aggregate is what's reachable from the browser.
+create or replace function purchase_stage_avgs(from_date date, to_date date)
+returns table (
+  cohort_count            bigint,
+  avg_hrs_to_emd          numeric,
+  avg_hrs_to_dd2          numeric,
+  avg_hrs_to_funding      numeric,
+  avg_hrs_to_dd3          numeric,
+  avg_hrs_to_post_closing numeric
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  PIPE_PURCHASE           constant text := 'PLACEHOLDER_PIPELINE_ID__PURCHASE';
+  STAGE_NEW_CONTRACT      constant text := 'PLACEHOLDER_STAGE_ID__NEW_CONTRACT';
+  STAGE_EMD_CONFIRMED     constant text := 'PLACEHOLDER_STAGE_ID__EMD_CONFIRMED';
+  STAGE_DD_PHASE_2        constant text := 'PLACEHOLDER_STAGE_ID__DD_PHASE_2';
+  STAGE_FUNDING           constant text := 'PLACEHOLDER_STAGE_ID__FUNDING';
+  STAGE_DD_PHASE_3        constant text := 'PLACEHOLDER_STAGE_ID__DD_PHASE_3';
+  STAGE_POST_CLOSING_DOCS constant text := 'PLACEHOLDER_STAGE_ID__POST_CLOSING_DOCS';
+  win_start timestamptz := from_date::timestamptz;
+  win_end   timestamptz := (to_date + 1)::timestamptz;
+begin
+  return query
+  with new_contract as (
+    select distinct on (opportunity_id) opportunity_id, occurred_at as entered_at
+    from ghl_events
+    where event_type = 'OpportunityStageUpdate'
+      and pipeline_id = PIPE_PURCHASE
+      and stage_id = STAGE_NEW_CONTRACT
+    order by opportunity_id, occurred_at asc
+  ),
+  cohort as (
+    select * from new_contract
+    where entered_at >= win_start and entered_at < win_end
+  ),
+  first_stage as (
+    -- First-ever entry into each downstream stage, for any opportunity in
+    -- the pipeline (not just cohort members yet) — narrowed to the
+    -- cohort by the joins below.
+    select opportunity_id, stage_id, min(occurred_at) as entered_at
+    from ghl_events
+    where event_type = 'OpportunityStageUpdate'
+      and pipeline_id = PIPE_PURCHASE
+      and stage_id in (STAGE_EMD_CONFIRMED, STAGE_DD_PHASE_2, STAGE_FUNDING, STAGE_DD_PHASE_3, STAGE_POST_CLOSING_DOCS)
+    group by opportunity_id, stage_id
+  ),
+  hrs as (
+    select
+      extract(epoch from (fs_emd.entered_at  - c.entered_at)) / 3600.0 as hrs_to_emd,
+      extract(epoch from (fs_dd2.entered_at  - c.entered_at)) / 3600.0 as hrs_to_dd2,
+      extract(epoch from (fs_fund.entered_at - c.entered_at)) / 3600.0 as hrs_to_funding,
+      extract(epoch from (fs_dd3.entered_at  - c.entered_at)) / 3600.0 as hrs_to_dd3,
+      extract(epoch from (fs_post.entered_at - c.entered_at)) / 3600.0 as hrs_to_post_closing
+    from cohort c
+    left join first_stage fs_emd  on fs_emd.opportunity_id  = c.opportunity_id and fs_emd.stage_id  = STAGE_EMD_CONFIRMED
+    left join first_stage fs_dd2  on fs_dd2.opportunity_id  = c.opportunity_id and fs_dd2.stage_id  = STAGE_DD_PHASE_2
+    left join first_stage fs_fund on fs_fund.opportunity_id = c.opportunity_id and fs_fund.stage_id = STAGE_FUNDING
+    left join first_stage fs_dd3  on fs_dd3.opportunity_id  = c.opportunity_id and fs_dd3.stage_id  = STAGE_DD_PHASE_3
+    left join first_stage fs_post on fs_post.opportunity_id = c.opportunity_id and fs_post.stage_id = STAGE_POST_CLOSING_DOCS
+  )
+  select
+    (select count(*) from cohort),
+    round(avg(hrs_to_emd)::numeric, 1),
+    round(avg(hrs_to_dd2)::numeric, 1),
+    round(avg(hrs_to_funding)::numeric, 1),
+    round(avg(hrs_to_dd3)::numeric, 1),
+    round(avg(hrs_to_post_closing)::numeric, 1)
+  from hrs;
+end;
+$$;
+
+revoke all on function purchase_stage_avgs(date, date) from public;
+grant execute on function purchase_stage_avgs(date, date) to anon, authenticated;
+
+-- ---------------------------------------------------------
 -- refresh_sc_process_kpis — Smarter Contact processing-time, ADDED
 -- 2026-08-16
 --

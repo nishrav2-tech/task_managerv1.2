@@ -3612,7 +3612,32 @@ const KPI_DEFS = [
    source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
   {key:'fbPerProp',      section:'disposition', label:'Avg Facebook Marketplace hits per property', win:30, unit:'num', dir:'up',
    calc:{type:'avg', total:'fbHits', count:'propsListed'},
-   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'}
+   source:'Manually logged — no automated source. This section isn\'t GHL-integrated.'},
+
+  // ---- Purchase: New Contract -> Close pipeline stage timing ----
+  // ADDED 2026-09-02. A different GHL pipeline from the Lead -> Contract
+  // one everything else above reads from — covers a signed contract
+  // through closing. All five live off one RPC, purchase_stage_avgs()
+  // (ghl-events-schema.sql), keyed to each opportunity's first-ever entry
+  // into "New Contract" — see that function's comments for the cohort
+  // logic. Requires real GHL pipeline/stage ids filled into that function
+  // and into ghl-webhook's STAGE_NAME_TO_ID before any of these show
+  // real numbers; until then every tile here reads "no data."
+  {key:'purchTimeToEmd',          section:'purchase', label:'Avg time to EMD confirmed',    win:30, unit:'hrs', dir:'down',
+   calc:{type:'purchaseStageAvg', field:'avg_hrs_to_emd'},
+   source:'GoHighLevel, live: hours from an opportunity\'s first entry into "New Contract" to its first entry into "EMD Confirmed," for opportunities whose New Contract entry falls in the selected range.'},
+  {key:'purchTimeToDD2',          section:'purchase', label:'Avg time to DD Phase II',       win:30, unit:'hrs', dir:'down',
+   calc:{type:'purchaseStageAvg', field:'avg_hrs_to_dd2'},
+   source:'GoHighLevel, live: hours from an opportunity\'s first entry into "New Contract" to its first entry into "DD Phase II," for opportunities whose New Contract entry falls in the selected range.'},
+  {key:'purchTimeToFunding',      section:'purchase', label:'Avg time to Funding',           win:30, unit:'hrs', dir:'down',
+   calc:{type:'purchaseStageAvg', field:'avg_hrs_to_funding'},
+   source:'GoHighLevel, live: hours from an opportunity\'s first entry into "New Contract" to its first entry into "Funding," for opportunities whose New Contract entry falls in the selected range.'},
+  {key:'purchTimeToDD3',          section:'purchase', label:'Avg time to DD Phase III',      win:30, unit:'hrs', dir:'down',
+   calc:{type:'purchaseStageAvg', field:'avg_hrs_to_dd3'},
+   source:'GoHighLevel, live: hours from an opportunity\'s first entry into "New Contract" to its first entry into "DD Phase III," for opportunities whose New Contract entry falls in the selected range.'},
+  {key:'purchTimeToPostClosing',  section:'purchase', label:'Avg time to Post Closing Docs', win:30, unit:'hrs', dir:'down',
+   calc:{type:'purchaseStageAvg', field:'avg_hrs_to_post_closing'},
+   source:'GoHighLevel, live: hours from an opportunity\'s first entry into "New Contract" to its first entry into "Post Closing Docs," for opportunities whose New Contract entry falls in the selected range.'}
 ];
 /* ---- KPI sections -------------------------------------------------------
    The four stages a deal moves through. Sections are fixed; which metrics
@@ -3623,7 +3648,8 @@ const KPI_SECTIONS = [
   {key:'leadGen',    label:'Lead Generation', icon:'ti-seeding'},
   {key:'leadConv',   label:'Lead Conversion', icon:'ti-arrows-right'},
   {key:'dueDil',     label:'Due Diligence',   icon:'ti-file-search'},
-  {key:'disposition',label:'Disposition',     icon:'ti-tag'}
+  {key:'disposition',label:'Disposition',     icon:'ti-tag'},
+  {key:'purchase',   label:'Purchase',        icon:'ti-file-certificate'}
 ];
 
 /* ---- Which sections are live right now ---------------------------------
@@ -3631,8 +3657,11 @@ const KPI_SECTIONS = [
    while the team focuses on the top of the funnel. Nothing is deleted: add
    'dueDil' and 'disposition' back to this array and their KPIs, inputs,
    tiles, grid rows and calendar options all reappear, with any data logged
-   in the meantime still intact.                                           */
-const KPI_ACTIVE_SECTIONS = ['leadGen','leadConv'];
+   in the meantime still intact. Purchase is turned ON despite being just
+   as GHL-dependent as the other two, since its tiles correctly show "no
+   data" (rather than a wrong number) until the pipeline/stage ids in
+   purchase_stage_avgs() and ghl-webhook are filled in — see those files. */
+const KPI_ACTIVE_SECTIONS = ['leadGen','leadConv','purchase'];
 const isKpiSectionActive = key => KPI_ACTIVE_SECTIONS.includes(key);
 
 // Everything the UI iterates over reads these, not the raw constants.
@@ -3865,6 +3894,41 @@ function getDealTouchAvg(from, to){
   return null; // still loading — kpiValueOver treats this as "no data yet"
 }
 
+/* ---- Live "Purchase" stage-to-stage timing (ADDED 2026-09-02) ----------
+   Same shape as getLostTouchAvg above: a live RPC (purchase_stage_avgs)
+   run for the exact date range asked for, not something derivable from
+   state.kpiEntries. Backs every KPI in the "Purchase" section — hours
+   from an opportunity's first-ever entry into "New Contract" to its
+   first-ever entry into each of the five downstream stages, for
+   opportunities whose New Contract entry falls in the selected range.
+   Own module-level cache, same absent/'pending'/resolved-or-null states
+   as the others. Requires the New Contract -> Close pipeline's stage ids
+   to be filled into purchase_stage_avgs() and ghl-webhook's
+   STAGE_NAME_TO_ID first — see the comments on both. */
+const _purchaseStageCache = {};
+function getPurchaseStageAvgs(from, to){
+  if(!from || !to) return null;
+  const key = from + '_' + to;
+  const cached = _purchaseStageCache[key];
+
+  if(cached === 'pending') return null;
+  if(cached !== undefined) return cached;
+
+  _purchaseStageCache[key] = 'pending';
+  const settle = row => {
+    _purchaseStageCache[key] = row;
+    if(row) app.requestRender();   // coalesced — five of these land together
+  };
+  StorageAdapter.supabase.rpc('purchase_stage_avgs', {from_date: from, to_date: to})
+    .then(({data, error}) => {
+      if(error){ console.warn('purchase_stage_avgs rpc failed', error.message); settle(null); }
+      else settle((data && data[0]) || null);
+    })
+    .catch(err => { console.warn('purchase_stage_avgs rpc failed', err); settle(null); });
+
+  return null; // still loading — kpiValueOver treats this as "no data yet"
+}
+
 /* ---- Deriving a KPI over a window ---------------------------------------
    All three shapes sum their component inputs across the whole window first,
    then divide once. Returns null — not zero — when there's nothing to divide
@@ -3912,6 +3976,15 @@ function kpiValueOver(def, from, to){
     // zero, not missing data — the RPC returns 0 server-side.
     return Number(row.avg_touches);
   }
+  if(c.type === 'purchaseStageAvg'){
+    const row = getPurchaseStageAvgs(from, to);
+    if(!row) return null;
+    // The field is NULL (not 0) when nobody in the cohort has reached
+    // that stage yet — see purchase_stage_avgs() — so pass that through
+    // as "no data" rather than coercing it to a misleading 0.
+    const v = row[c.field];
+    return (v === null || v === undefined) ? null : Number(v);
+  }
   return null;
 }
 // The same window, shifted back one full period — used for the trend delta.
@@ -3944,25 +4017,29 @@ function kpiHasData(def, days, anchor){
     const row = getDealTouchAvg(w.from, w.to);
     return !!row && Number(row.deals_closed) > 0;
   }
+  if(def.calc.type === 'purchaseStageAvg'){
+    const row = getPurchaseStageAvgs(w.from, w.to);
+    return !!row && row[def.calc.field] !== null && row[def.calc.field] !== undefined;
+  }
   return kpiComponentKeys(def).some(k =>
     state.kpiEntries.some(e => e.metricKey === k && e.date >= w.from && e.date <= w.to));
 }
 const kpiComponentKeys = def => def.calc.type === 'sum' ? [def.calc.of]
   : def.calc.type === 'ratio' ? [def.calc.num, def.calc.den]
   : def.calc.type === 'latest' ? [def.calc.of]
-  : (def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount' || def.calc.type === 'lostTouchAvg' || def.calc.type === 'dealTouchAvg') ? []
+  : (def.calc.type === 'cohortPct' || def.calc.type === 'cohortCount' || def.calc.type === 'lostTouchAvg' || def.calc.type === 'dealTouchAvg' || def.calc.type === 'purchaseStageAvg') ? []
   : [def.calc.total, def.calc.count];
 // Which raw inputs feed a KPI — what the log modal opens to. 'latest',
-// cohortPct/cohortCount, lostTouchAvg, and dealTouchAvg metrics are all
-// server-computed snapshots (see touchPerActiveLead / avg_touches_before_lost
-// / avg_touches_before_deal) with no manual-entry path by design, same
-// reasoning as leadEntryLag before it got folded into scProcessHrs — so this
-// returns no inputs for them, same as an empty result for any other calc
-// type would.
+// cohortPct/cohortCount, lostTouchAvg, dealTouchAvg, and purchaseStageAvg
+// metrics are all server-computed snapshots (see touchPerActiveLead /
+// avg_touches_before_lost / avg_touches_before_deal / purchase_stage_avgs)
+// with no manual-entry path by design, same reasoning as leadEntryLag
+// before it got folded into scProcessHrs — so this returns no inputs for
+// them, same as an empty result for any other calc type would.
 function kpiInputsFor(def){
   const c = def.calc;
   const keys = c.type === 'sum' ? [c.of] : c.type === 'ratio' ? [c.num, c.den]
-    : (c.type === 'latest' || c.type === 'cohortPct' || c.type === 'cohortCount' || c.type === 'lostTouchAvg' || c.type === 'dealTouchAvg') ? [] : [c.total, c.count];
+    : (c.type === 'latest' || c.type === 'cohortPct' || c.type === 'cohortCount' || c.type === 'lostTouchAvg' || c.type === 'dealTouchAvg' || c.type === 'purchaseStageAvg') ? [] : [c.total, c.count];
   return keys.map(k => KPI_INPUT_BY_KEY[k]).filter(Boolean);
 }
 
@@ -4360,6 +4437,10 @@ function kpiHasDataOver(def, from, to){
   if(def.calc.type === 'dealTouchAvg'){
     const row = getDealTouchAvg(from, to);
     return !!row && Number(row.deals_closed) > 0;
+  }
+  if(def.calc.type === 'purchaseStageAvg'){
+    const row = getPurchaseStageAvgs(from, to);
+    return !!row && row[def.calc.field] !== null && row[def.calc.field] !== undefined;
   }
   return kpiComponentKeys(def).some(k =>
     state.kpiEntries.some(e => e.metricKey === k && e.date >= from && e.date <= to));
@@ -4794,6 +4875,28 @@ function kpiBreakdownRows(def, from, to){
         {label: 'Avg touches per lead', value: kpiFormat(avg, 'num')}
       ],
       result: kpiFormat(avg, 'num')
+    };
+  }
+  if(c.type === 'purchaseStageAvg'){
+    const STAGE_LABELS = {
+      avg_hrs_to_emd:'EMD Confirmed', avg_hrs_to_dd2:'DD Phase II', avg_hrs_to_funding:'Funding',
+      avg_hrs_to_dd3:'DD Phase III', avg_hrs_to_post_closing:'Post Closing Docs'
+    };
+    const stageLabel = STAGE_LABELS[c.field] || c.field;
+    const base = {
+      formula: `${escape(def.label)} = average hours from an opportunity's first-ever entry into "New Contract" to its first-ever entry into "${escape(stageLabel)}", across every opportunity whose New Contract entry landed in this range (only counting those that have reached "${escape(stageLabel)}" so far).`,
+      editable: false, live: true
+    };
+    const row = getPurchaseStageAvgs(from, to);
+    if(!row) return {...base, rows: []};
+    const cohort = Number(row.cohort_count) || 0;
+    const v = row[c.field];
+    return {...base,
+      rows: [
+        {label:'Entered New Contract in this range', value: kpiFormat(cohort, 'count')},
+        {label:`Reached ${stageLabel}`, value: (v === null || v === undefined) ? '—' : kpiFormat(Number(v), 'hrs')}
+      ],
+      result: (v === null || v === undefined) ? '—' : kpiFormat(Number(v), 'hrs')
     };
   }
   return {formula: '', rows: [], editable: false};

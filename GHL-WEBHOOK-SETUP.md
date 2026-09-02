@@ -254,3 +254,63 @@ If a property's `property_id` matches one of the `contact_id`s above but
 `listing_url` didn't update, the most likely cause is the property's
 Property ID field not exactly matching the GHL contact id (extra spaces,
 wrong id pasted, etc.) — the match is an exact string comparison.
+
+## 8. The "Purchase" KPI section — New Contract → Close pipeline timing
+
+ADDED 2026-09-02. This is a **separate GHL pipeline** from Lead →
+Contract (everything in sections 1–7 above) — it covers a signed
+contract through closing: New Contract → EMD Confirmed → DD Phase II →
+Funding → DD Phase III → Post Closing Docs. Five KPI tiles report the
+average hours from an opportunity's first entry into **New Contract** to
+its first entry into each of the other five stages. They're switched on
+in the app already but will read "no data" until both pieces below use
+your account's real ids instead of the placeholders currently in the
+code.
+
+**1. Get your real pipeline and stage ids.** Run `python3 ghl-probe.py`
+from the repo root — it prints every pipeline's name alongside each of
+its stages' names and ids, safely (no contact data). Find the New
+Contract → Close pipeline (or whatever it's actually named in your GHL
+account) and copy its pipeline id and the six stage ids for New
+Contract, EMD Confirmed, DD Phase II, Funding, DD Phase III, and Post
+Closing Docs. If any of those stage names differ from what's in GHL,
+use the exact names your account has.
+
+**2. Fill them into two places, matching exactly:**
+
+- `ghl-events-schema.sql` → `purchase_stage_avgs()` → the
+  `PIPE_PURCHASE` / `STAGE_NEW_CONTRACT` / `STAGE_EMD_CONFIRMED` /
+  `STAGE_DD_PHASE_2` / `STAGE_FUNDING` / `STAGE_DD_PHASE_3` /
+  `STAGE_POST_CLOSING_DOCS` constants. Re-run the whole file in the SQL
+  Editor after editing (safe — `create or replace function`).
+- `supabase/functions/ghl-webhook/index.ts` → `STAGE_NAME_TO_ID` → the
+  six entries added under the "ADDED 2026-09-02" comment. Redeploy the
+  `ghl-webhook` function after editing.
+
+Both sides need the *same* ids — the SQL function reads `ghl_events`
+rows the webhook already wrote, keyed by `stage_id`; if the two disagree
+about which id means "EMD Confirmed," the average silently comes out
+wrong instead of erroring.
+
+**3. Point a GHL Workflow at the webhook**, same pattern as step 6
+above: **Automation → Workflows → Create Workflow** → trigger
+"Opportunity Stage Changed," scoped to the New Contract → Close pipeline
+(all stages) → action "Webhook" → same URL as section 6 (secret already
+in the query string) → one Custom Data row, `event_type` =
+`OpportunityStageUpdate` (literal text) → publish.
+
+### Verify it's working
+
+```sql
+select stage_id, count(*), max(occurred_at) as most_recent
+from ghl_events
+where event_type = 'OpportunityStageUpdate'
+  and pipeline_id = 'the pipeline id you filled in above'
+group by stage_id order by 2 desc;
+```
+
+Rows here mean the webhook is capturing this pipeline's stage changes.
+Then in the app, open the KPI Tracker tab and check the Purchase
+section's tiles — each one's "Reached <stage>" breakdown row (click a
+tile to see it) should now show a real number instead of "no data" once
+at least one opportunity has moved from New Contract into that stage.
