@@ -2936,9 +2936,20 @@ const app = {
     if(oldNode.tagName !== newNode.tagName) return false;
 
 
-    // Attributes. Skip anything the user is currently interacting with, so a
+    // Attributes. Skip anything the user is currently TYPING/EDITING in, so a
     // background repaint can't wipe half-typed input or reset a scroll box.
-    const isLive = document.activeElement === oldNode;
+    // Scoped to actual editable controls only (2026-09-03 fix) -- it used to
+    // fire for ANY focused element, which included the button just clicked.
+    // A toggle-style pill (the KPI range/window buttons) receives focus the
+    // instant it's clicked, and that same click synchronously triggers the
+    // re-render meant to add its "selected"/btn-primary class -- so the
+    // attribute sync got skipped on exactly the node that needed it, and the
+    // button never turned dark green even though the click's side effect
+    // (the state change) worked fine. Buttons, links, checkboxes etc. don't
+    // hold live in-progress text, so they were never what this guard was
+    // protecting.
+    const LIVE_TAGS = {INPUT:1, TEXTAREA:1, SELECT:1};
+    const isLive = document.activeElement === oldNode && LIVE_TAGS[oldNode.tagName];
     if(!isLive){
       for(const at of Array.from(newNode.attributes)){
         if(oldNode.getAttribute(at.name) !== at.value) oldNode.setAttribute(at.name, at.value);
