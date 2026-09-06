@@ -6885,48 +6885,167 @@ function renderAuditSection(section){
   const standard = getAuditStandard(section.key);
   const wk = currentAuditWeekStart();
   const currentEntry = getAuditEntry(section.key, wk);
-  const history = auditEntriesForSection(section.key).filter(a => a.weekStart !== wk);
-  return `<div class="card" style="margin-bottom:20px">
-    <div class="card-header">
+  return `<div class="card" style="margin-bottom:14px;padding:16px 18px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px">
+      <div class="card-title" style="font-size:14px">${escape(section.label)}</div>
+      <span style="font-size:11px;color:var(--ink-3);white-space:nowrap">${escape(auditWeekLabel(wk))}</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <label class="form-label" style="margin:0;white-space:nowrap;font-size:11px;color:var(--ink-3)">Standard</label>
+      <input class="form-input" id="audit-standard-${section.key}" style="flex:1" placeholder="e.g. 1 call per 100 made" value="${escape(standard.standardText)}">
+      <button class="icon-btn" onclick="saveAuditStandard('${section.key}')" title="Save standard"><i class="ti ti-device-floppy"></i></button>
+    </div>
+    <textarea class="form-textarea" id="audit-notes-${section.key}-${wk}" rows="2" placeholder="This week's notes / comments">${escape(currentEntry ? currentEntry.notes : '')}</textarea>
+    <div style="display:flex;justify-content:flex-end;margin-top:6px">
+      <button class="btn btn-primary btn-sm" onclick="saveAuditEntry('${section.key}','${wk}')">Save entry</button>
+    </div>
+  </div>`;
+}
+
+// ---- Audit history calendar — a month grid, one card per week (the Sunday
+// cell), showing how many of the 3 sections have a logged note that week.
+// Click any day to open that week's entries across all sections. ----
+function getAuditCalendarOffset(){
+  if(state.auditCalendarOffset === undefined){
+    state.auditCalendarOffset = parseInt(Prefs.get('auditCalOffset', 0), 10) || 0;
+  }
+  return state.auditCalendarOffset;
+}
+function setAuditCalendarOffset(offset){
+  state.auditCalendarOffset = offset;
+  Prefs.set('auditCalOffset', offset);
+  app.render();
+}
+function shiftAuditCalendar(delta){
+  setAuditCalendarOffset(delta===0 ? 0 : getAuditCalendarOffset()+delta);
+}
+function auditCalendarMonthBase(){
+  const base = crmNow();
+  base.setDate(1);
+  base.setMonth(base.getMonth() + getAuditCalendarOffset());
+  return base;
+}
+function auditCalJumpChanged(){
+  const monthSel = document.getElementById('audit-cal-jump-month');
+  const yearSel = document.getElementById('audit-cal-jump-year');
+  if(!monthSel || !yearSel) return;
+  const targetMonth = parseInt(monthSel.value, 10);
+  const targetYear = parseInt(yearSel.value, 10);
+  const now = new Date(); now.setDate(1);
+  const offset = (targetYear - now.getFullYear()) * 12 + (targetMonth - now.getMonth());
+  setAuditCalendarOffset(offset);
+}
+function auditSectionsLoggedCount(weekStart){
+  return AUDIT_SECTIONS.filter(s => { const e = getAuditEntry(s.key, weekStart); return e && e.notes; }).length;
+}
+function openAuditWeekModal(weekStart){
+  const label = auditWeekLabel(weekStart);
+  showModal(`<div class="modal" style="max-width:560px">
+    <div class="modal-header">
       <div>
-        <div class="card-title">${escape(section.label)}</div>
-        <div class="card-sub">One audit entry per week</div>
+        <div class="page-eyebrow" style="margin-bottom:2px">Audit log</div>
+        <h2 class="modal-title">Week of ${escape(label)}</h2>
       </div>
+      <button class="icon-btn" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
-    <div class="form-group">
-      <label class="form-label">Audit standard</label>
-      <textarea class="form-textarea" id="audit-standard-${section.key}" rows="2" placeholder="e.g. 1 call per 100 made">${escape(standard.standardText)}</textarea>
-      <div style="display:flex;justify-content:flex-end;margin-top:6px">
-        <button class="btn btn-sm" onclick="saveAuditStandard('${section.key}')">Save standard</button>
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">This week (${escape(auditWeekLabel(wk))})</label>
-      <textarea class="form-textarea" id="audit-notes-${section.key}-${wk}" rows="3" placeholder="Notes / comments for this week">${escape(currentEntry ? currentEntry.notes : '')}</textarea>
-      <div style="display:flex;justify-content:flex-end;margin-top:6px">
-        <button class="btn btn-primary btn-sm" onclick="saveAuditEntry('${section.key}','${wk}')">Save entry</button>
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 8px">
-      <div class="form-label" style="margin:0">Past weeks</div>
-      <button class="btn btn-sm" onclick="addAuditEntryForOtherWeek('${section.key}')"><i class="ti ti-plus"></i> Add for another week</button>
-    </div>
-    ${history.length ? `<div class="item-list">
-      ${history.map(a => `
-        <div class="item-row" style="align-items:flex-start;animation:none">
-          <div class="item-main">
-            <div class="item-title">${escape(auditWeekLabel(a.weekStart))}</div>
-            <div class="item-meta" style="white-space:pre-wrap">${a.notes ? escape(a.notes) : '<span style="color:var(--ink-3)">No notes</span>'}</div>
-          </div>
-          <button class="icon-btn" onclick="editAuditEntry('${section.key}','${a.weekStart}')" title="Edit">${ICON_EDIT}</button>
-          <button class="icon-btn" onclick="deleteAuditEntry('${a.id}')" title="Delete">${ICON_DELETE}</button>
+    ${AUDIT_SECTIONS.map(section => {
+      const standard = getAuditStandard(section.key);
+      const entry = getAuditEntry(section.key, weekStart);
+      return `<div class="form-group" style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--border)">
+        <label class="form-label">${escape(section.label)}</label>
+        ${standard.standardText ? `<div style="font-size:11px;color:var(--ink-3);margin-bottom:6px">Standard: ${escape(standard.standardText)}</div>` : ''}
+        <textarea class="form-textarea" id="audit-week-notes-${section.key}" rows="2" placeholder="Notes for this week">${escape(entry ? entry.notes : '')}</textarea>
+        <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:6px">
+          ${entry ? `<button class="btn btn-sm" onclick="deleteAuditEntry('${entry.id}');closeModal()">Clear</button>` : ''}
+          <button class="btn btn-sm btn-primary" onclick="saveAuditEntryFromWeekModal('${section.key}','${weekStart}')">Save</button>
         </div>
-      `).join('')}
-    </div>` : '<div style="font-size:13px;color:var(--ink-3);padding:4px 0 0">No past weeks logged yet.</div>'}
+      </div>`;
+    }).join('')}
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+    </div>
+  </div>`);
+}
+async function saveAuditEntryFromWeekModal(sectionKey, weekStart){
+  const el = document.getElementById(`audit-week-notes-${sectionKey}`);
+  if(!el) return;
+  const notes = el.value.trim();
+  const existing = getAuditEntry(sectionKey, weekStart);
+  const data = {id: existing ? existing.id : uid(), section: sectionKey, weekStart, notes};
+  if(existing){ const i = state.auditLogs.findIndex(a => a.id === existing.id); state.auditLogs[i] = data; }
+  else state.auditLogs.push(data);
+  await saveOne('auditLogs', data);
+  toast('Audit entry saved');
+  app.render();
+  openAuditWeekModal(weekStart);
+}
+function renderAuditCalendar(){
+  const base = auditCalendarMonthBase();
+  const year = base.getFullYear(), month = base.getMonth();
+  const startWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const monthLabel = base.toLocaleDateString('en-US', {month:'long', year:'numeric'});
+  const todayStr = today();
+  const thisWeekStart = currentAuditWeekStart();
+  const sectionCount = AUDIT_SECTIONS.length;
+
+  let cells = '';
+  for(let i=0;i<startWeekday;i++) cells += `<div class="cal-cell cal-empty"></div>`;
+  for(let d=1; d<=daysInMonth; d++){
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday = dateStr === todayStr;
+    const weekStart = auditWeekStart(dateStr);
+    let tag = '';
+    if(dateStr === weekStart){
+      const loggedCount = auditSectionsLoggedCount(weekStart);
+      const isPastWeek = weekStart < thisWeekStart;
+      if(loggedCount === sectionCount){
+        tag = `<div class="cal-task" style="border-left-color:var(--success-ink);background:var(--success-soft);color:var(--success-ink)"><i class="ti ti-check" style="font-size:10px"></i> ${loggedCount}/${sectionCount} logged</div>`;
+      } else if(loggedCount > 0){
+        tag = `<div class="cal-task" style="border-left-color:var(--info-ink);background:var(--info-soft);color:var(--info-ink)"><i class="ti ti-clipboard-list" style="font-size:10px"></i> ${loggedCount}/${sectionCount} logged</div>`;
+      } else if(isPastWeek){
+        tag = `<div class="cal-task" style="border-left-color:var(--danger);background:var(--danger-soft);color:var(--danger);font-weight:600"><i class="ti ti-alert-triangle" style="font-size:10px"></i> No audit</div>`;
+      }
+    }
+    cells += `<div class="cal-cell ${isToday?'cal-today':''}" onclick="openAuditWeekModal('${weekStart}')" title="View or edit this week's audit">
+      <div class="cal-daynum">${d}</div>
+      ${tag}
+    </div>`;
+  }
+
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const nowY = new Date().getFullYear();
+  const yearOptions = [];
+  for(let y = nowY - 10; y <= nowY + 1; y++) yearOptions.push(y);
+
+  return `<div class="card" style="margin-bottom:24px">
+    <div class="card-header" style="flex-wrap:wrap;gap:10px">
+      <div>
+        <div class="card-title">Audit history</div>
+        <div class="card-sub">${monthLabel} · click any day to view that week's audit</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <select class="filter-select" id="audit-cal-jump-month" style="min-width:120px" onchange="auditCalJumpChanged()">
+          ${MONTH_NAMES.map((m,i)=>`<option value="${i}" ${i===month?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <select class="filter-select" id="audit-cal-jump-year" style="min-width:90px" onchange="auditCalJumpChanged()">
+          ${yearOptions.map(y=>`<option value="${y}" ${y===year?'selected':''}>${y}</option>`).join('')}
+        </select>
+        <button class="icon-btn" onclick="shiftAuditCalendar(-1)" title="Previous month"><i class="ti ti-chevron-left"></i></button>
+        <button class="icon-btn" onclick="shiftAuditCalendar(0)" title="Jump to today"><i class="ti ti-calendar-event"></i></button>
+        <button class="icon-btn" onclick="shiftAuditCalendar(1)" title="Next month"><i class="ti ti-chevron-right"></i></button>
+      </div>
+    </div>
+    <div class="cal-weekdays"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div>
+    <div class="cal-grid">${cells}</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:12px;font-size:11px;color:var(--danger)">
+      <span style="width:9px;height:9px;border-radius:2px;background:var(--danger-soft);border:1px solid var(--danger);display:inline-block"></span>
+      Red tag = a past week with no audit logged for any section
+    </div>
   </div>`;
 }
 function renderAuditView(){
-  return AUDIT_SECTIONS.map(renderAuditSection).join('');
+  return AUDIT_SECTIONS.map(renderAuditSection).join('') + renderAuditCalendar();
 }
 
 function renderActivityView(){
