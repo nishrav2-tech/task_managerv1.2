@@ -448,6 +448,56 @@ alter table campaign_logs add column if not exists created_at      timestamptz n
 
 create index if not exists idx_campaign_logs_log_date on campaign_logs(log_date);
 
+-- ---------------------------------------------------------
+-- audit_standards (Audit log — one fixed reference note per section,
+-- e.g. "1 call per 100 made". Set once, shown every week.)
+-- ---------------------------------------------------------
+create table if not exists audit_standards (
+  id            uuid primary key default gen_random_uuid(),
+  section       text not null,
+  standard_text text,
+  updated_at    timestamptz not null default now()
+);
+alter table audit_standards add column if not exists section       text;
+alter table audit_standards add column if not exists standard_text text;
+alter table audit_standards add column if not exists updated_at    timestamptz not null default now();
+
+create index if not exists idx_audit_standards_section on audit_standards(section);
+-- One row per section.
+do $$
+begin
+  create unique index if not exists uq_audit_standards_section on audit_standards(section);
+exception when others then
+  raise notice 'Could not make audit_standards.section unique (duplicate rows?): %', sqlerrm;
+end $$;
+
+-- ---------------------------------------------------------
+-- audit_logs (Audit log — one entry per section per calendar week,
+-- week_start is the Sunday that week began)
+-- ---------------------------------------------------------
+create table if not exists audit_logs (
+  id         uuid primary key default gen_random_uuid(),
+  section    text not null,
+  week_start date not null,
+  notes      text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table audit_logs add column if not exists section    text;
+alter table audit_logs add column if not exists week_start date;
+alter table audit_logs add column if not exists notes      text;
+alter table audit_logs add column if not exists created_at timestamptz not null default now();
+alter table audit_logs add column if not exists updated_at timestamptz not null default now();
+
+create index if not exists idx_audit_logs_section_week on audit_logs(section, week_start);
+-- One row per section per week.
+do $$
+begin
+  create unique index if not exists uq_audit_logs_section_week on audit_logs(section, week_start);
+exception when others then
+  raise notice 'Could not make audit_logs (section, week_start) unique (duplicate rows?): %', sqlerrm;
+end $$;
+
 -- =========================================================
 -- REPAIR PASS — this is what fixes "new items won't save"
 --
@@ -481,7 +531,9 @@ begin
       ('kpi_entries',   array['id','metric_key','log_date','value','created_at']),
       ('kpi_targets',   array['id','kpi_key','target_value','updated_at']),
       ('call_logs',     array['id','log_date','calls_made','conversations_held','offers_made','offers_accepted','not_interested','notes','created_at']),
-      ('campaign_logs', array['id','log_date','campaign_name','channel','counties_hit','leads_generated','notes','created_at'])
+      ('campaign_logs', array['id','log_date','campaign_name','channel','counties_hit','leads_generated','notes','created_at']),
+      ('audit_standards', array['id','section','standard_text','updated_at']),
+      ('audit_logs',      array['id','section','week_start','notes','created_at','updated_at'])
     ) as v(tbl, cols)
   loop
     app_cols := t.cols;
@@ -621,7 +673,7 @@ begin
   foreach tbl in array array[
     'users','properties','tasks','projects',
     'kpi_metrics','kpi_meta','kpi_entries','kpi_targets','call_logs','campaign_logs',
-    'user_prefs','funding_templates'
+    'user_prefs','funding_templates','audit_standards','audit_logs'
   ]
   loop
     execute format('alter table public.%I enable row level security', tbl);

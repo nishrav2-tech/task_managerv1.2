@@ -1265,7 +1265,8 @@ const StorageAdapter = {
     tasks:'tasks', projects:'projects', kpis:'kpi_metrics', kpiMeta:'kpi_meta',
     kpiEntries:'kpi_entries', kpiTargets:'kpi_targets',
     callLogs:'call_logs', campaignLogs:'campaign_logs',
-    fundingTemplates:'funding_templates'
+    fundingTemplates:'funding_templates',
+    auditStandards:'audit_standards', auditLogs:'audit_logs'
   },
 
   // ---- camelCase (app) <-> snake_case (Postgres) mappers ----
@@ -1310,7 +1311,12 @@ const StorageAdapter = {
       channel:c.channel||null,
       counties_hit:c.countiesHit||null,
       leads_generated:c.leadsGenerated!==''&&c.leadsGenerated!=null?parseInt(c.leadsGenerated):null,
-      notes:c.notes||null})
+      notes:c.notes||null}),
+    auditStandards: s => ({id:s.id, section:s.section,
+      standard_text:s.standardText||null,
+      updated_at:new Date().toISOString()}),
+    auditLogs: a => ({id:a.id, section:a.section, week_start:a.weekStart,
+      notes:a.notes||null, updated_at:new Date().toISOString()})
   },
   fromDb: {
     users: u => ({id:u.id, name:u.name, role:u.role||'', colorIdx:u.color_idx||0}),
@@ -1357,7 +1363,9 @@ const StorageAdapter = {
       notes:c.notes||''}),
     fundingTemplates: t => ({id:t.id, name:t.name,
       tiers:normalizeFunding(t.tiers, {}),
-      created:t.created_at?t.created_at.split('T')[0]:''})
+      created:t.created_at?t.created_at.split('T')[0]:''}),
+    auditStandards: s => ({id:s.id, section:s.section, standardText:s.standard_text||''}),
+    auditLogs: a => ({id:a.id, section:a.section, weekStart:a.week_start, notes:a.notes||''})
   },
 
   // Set when a connection attempt fails, so the boot screen can say exactly
@@ -1370,7 +1378,8 @@ const StorageAdapter = {
   requiredTables: [
     'users','properties','tasks','projects',
     'kpi_metrics','kpi_meta','kpi_entries','kpi_targets',
-    'call_logs','campaign_logs','user_prefs'
+    'call_logs','campaign_logs','user_prefs',
+    'audit_standards','audit_logs'
   ],
 
   async init(){
@@ -1514,7 +1523,7 @@ const StorageAdapter = {
   async loadCore(){
     this.assertConnected();
     {
-      const [u, p, t, pr, k, km, kt, cl, cal, ft] = await Promise.all([
+      const [u, p, t, pr, k, km, kt, cl, cal, ft, aus, aul] = await Promise.all([
         this.supabase.from('users').select('*').order('created_at'),
         this.supabase.from('properties').select('*').order('created_at',{ascending:false}),
         this.supabase.from('tasks').select('*').order('created_at',{ascending:false}),
@@ -1525,8 +1534,12 @@ const StorageAdapter = {
         this.supabase.from('call_logs').select('*').order('log_date',{ascending:false}),
         this.supabase.from('campaign_logs').select('*').order('log_date',{ascending:false}),
         this.supabase.from('funding_templates').select('*').order('created_at'),
+        this.supabase.from('audit_standards').select('*'),
+        this.supabase.from('audit_logs').select('*').order('week_start',{ascending:false}),
       ]);
       if(ft.error) console.warn('funding_templates table not found yet — saved splits will be empty.', ft.error.message);
+      if(aus.error) console.warn('audit_standards table not found yet — run the updated schema.sql to enable the Audit log.', aus.error.message);
+      if(aul.error) console.warn('audit_logs table not found yet — run the updated schema.sql to enable the Audit log.', aul.error.message);
       const ke = {data: null, error: null};
       if(k.error) console.warn('kpi_metrics table not found yet — run the updated schema.sql to enable KPIs.', k.error.message);
       if(ke.error) console.warn('kpi_entries table not found yet — run the updated schema.sql to enable daily KPI logging.', ke.error.message);
@@ -1564,6 +1577,8 @@ const StorageAdapter = {
         callLogs: (cl.data||[]).map(this.fromDb.callLogs),
         campaignLogs: (cal.data||[]).map(this.fromDb.campaignLogs),
         fundingTemplates: (ft.data||[]).map(this.fromDb.fundingTemplates),
+        auditStandards: (aus.data||[]).map(this.fromDb.auditStandards),
+        auditLogs: (aul.data||[]).map(this.fromDb.auditLogs),
         // Which teammate this browser is signed in as stays on the device —
         // it's the key used to look everything else up, so it can't itself
         // live behind that lookup.
@@ -1709,7 +1724,7 @@ const StorageAdapter = {
     try{
       this.assertConnected();
       // Order matters: users first (foreign key references)
-      const order = ['users','props','tasks','projects','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs'];
+      const order = ['users','props','tasks','projects','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs'];
       for(const col of order){
         if(data[col]?.length){
           const rows = data[col].map(this.toDb[col]);
@@ -1728,7 +1743,7 @@ const StorageAdapter = {
   async wipeAll(){
     this.assertConnected();
     // Delete in reverse dep order
-    const order = ['tasks','projects','props','users','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs'];
+    const order = ['tasks','projects','props','users','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs'];
     for(const col of order){
       await this.supabase.from(this.tables[col]).delete().neq('id','00000000-0000-0000-0000-000000000000');
     }
@@ -2496,6 +2511,8 @@ function applyCore(data){
   state.callLogs = data.callLogs || [];
   state.campaignLogs = data.campaignLogs || [];
   state.fundingTemplates = data.fundingTemplates || [];
+  state.auditStandards = data.auditStandards || [];
+  state.auditLogs = data.auditLogs || [];
   state.activeUserId = data.activeUserId;
 }
 async function loadAll(){
@@ -6710,13 +6727,13 @@ function renderKpiTracking(){
   const tab = getKtTab();
   const isKpis = tab === 'kpis';
   const loggedToday = activeKpiInputs().filter(m => getKpiEntry(m.key, today())).length;
-  const activityEntries = state.callLogs.length + state.campaignLogs.length;
+  const auditEntryCount = state.auditLogs.length;
 
   // No action button up here — the day's numbers are entered directly in the
   // Raw daily inputs form further down, which has its own date picker.
   return pageHeader('Measurement', 'KPIs & Tracking',
     isKpis ? 'Pipeline numbers by stage, summed from your daily entries.'
-           : 'Daily call logging and campaign logging, at a glance.',
+           : 'Weekly audit notes against your own standards for scheduling, offers, and calls.',
     ''
   ) + `
   <div class="seg-control" role="tablist">
@@ -6724,10 +6741,192 @@ function renderKpiTracking(){
       <i class="ti ti-chart-histogram"></i> KPIs <span class="seg-count">${loggedToday}/${activeKpiInputs().length}</span>
     </button>
     <button class="seg-btn ${!isKpis?'active':''}" role="tab" aria-selected="${!isKpis}" onclick="setKtTab('activity')">
-      <i class="ti ti-clipboard-list"></i> Activity Log <span class="seg-count">${activityEntries}</span>
+      <i class="ti ti-shield-check"></i> Audit log <span class="seg-count">${auditEntryCount}</span>
     </button>
   </div>
-  ${isKpis ? renderKpiTrackingView() : renderActivityView()}`;
+  ${isKpis ? renderKpiTrackingView() : renderAuditView()}`;
+}
+
+/* =========================================================
+   AUDIT LOG — three fixed sections, each auditing its own
+   part of the pipeline against a standard you set once
+   (e.g. "1 call per 100 made") and one weekly comment per
+   section. Replaces the old daily call/campaign Activity Log.
+   ========================================================= */
+const AUDIT_SECTIONS = [
+  {key:'campaign_vetting', label:'Campaign Scheduling and Lead Vetting'},
+  {key:'offer_making',     label:'Offer Making'},
+  {key:'sales_calls',      label:'Sales Calls'}
+];
+function getAuditStandard(sectionKey){
+  return state.auditStandards.find(s => s.section === sectionKey)
+    || {id:null, section:sectionKey, standardText:''};
+}
+function auditEntriesForSection(sectionKey){
+  return state.auditLogs.filter(a => a.section === sectionKey)
+    .sort((a,b) => b.weekStart.localeCompare(a.weekStart));
+}
+function getAuditEntry(sectionKey, weekStart){
+  return state.auditLogs.find(a => a.section === sectionKey && a.weekStart === weekStart);
+}
+// Sunday-start week, matching the rest of the app's week-range logic.
+function auditWeekStart(dateStr){
+  const d = asLocalDate(dateStr);
+  d.setDate(d.getDate() - d.getDay());
+  return isoLocal(d);
+}
+function currentAuditWeekStart(){
+  return auditWeekStart(today());
+}
+function auditWeekLabel(weekStartStr){
+  const end = asLocalDate(weekStartStr);
+  end.setDate(end.getDate() + 6);
+  return `${fmt(weekStartStr)} – ${fmtLong(isoLocal(end))}`;
+}
+async function saveAuditStandard(sectionKey){
+  const el = document.getElementById(`audit-standard-${sectionKey}`);
+  if(!el) return;
+  const standardText = el.value.trim();
+  const existing = state.auditStandards.find(s => s.section === sectionKey);
+  const data = {id: existing ? existing.id : uid(), section: sectionKey, standardText};
+  if(existing){ const i = state.auditStandards.findIndex(s => s.id === existing.id); state.auditStandards[i] = data; }
+  else state.auditStandards.push(data);
+  await saveOne('auditStandards', data);
+  toast('Audit standard saved');
+  app.render();
+}
+async function saveAuditEntry(sectionKey, weekStart){
+  const el = document.getElementById(`audit-notes-${sectionKey}-${weekStart}`);
+  if(!el) return;
+  const notes = el.value.trim();
+  const existing = getAuditEntry(sectionKey, weekStart);
+  if(!notes && !existing) return;
+  const data = {id: existing ? existing.id : uid(), section: sectionKey, weekStart, notes};
+  if(existing){ const i = state.auditLogs.findIndex(a => a.id === existing.id); state.auditLogs[i] = data; }
+  else state.auditLogs.push(data);
+  await saveOne('auditLogs', data);
+  toast('Audit entry saved');
+  app.render();
+}
+function editAuditEntry(sectionKey, weekStart){
+  const section = AUDIT_SECTIONS.find(s => s.key === sectionKey);
+  const entry = getAuditEntry(sectionKey, weekStart) || {notes:''};
+  showSubModal(`<div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h2 class="modal-title">${escape(section.label)} — ${escape(auditWeekLabel(weekStart))}</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes</label>
+      <textarea class="form-textarea" id="audit-edit-notes" rows="4">${escape(entry.notes)}</textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAuditEntryFromModal('${sectionKey}','${weekStart}')">Save</button>
+    </div>
+  </div>`);
+}
+async function saveAuditEntryFromModal(sectionKey, weekStart){
+  const notes = $('#audit-edit-notes').value.trim();
+  const existing = getAuditEntry(sectionKey, weekStart);
+  const data = {id: existing ? existing.id : uid(), section: sectionKey, weekStart, notes};
+  if(existing){ const i = state.auditLogs.findIndex(a => a.id === existing.id); state.auditLogs[i] = data; }
+  else state.auditLogs.push(data);
+  await saveOne('auditLogs', data);
+  closeSubModal();
+  toast('Audit entry saved');
+  app.render();
+}
+async function deleteAuditEntry(id){
+  if(!confirm("Delete this week's audit entry?")) return;
+  state.auditLogs = state.auditLogs.filter(a => a.id !== id);
+  await deleteOne('auditLogs', id);
+  toast('Audit entry deleted');
+  app.render();
+}
+// Lets you back-fill a week other than the current one, snapping whatever
+// date is picked to that week's Sunday so it always lines up with the
+// section's weekly buckets.
+function addAuditEntryForOtherWeek(sectionKey){
+  const section = AUDIT_SECTIONS.find(s => s.key === sectionKey);
+  showSubModal(`<div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h2 class="modal-title">Add entry — ${escape(section.label)}</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Any date in that week</label>
+      <input class="form-input" type="date" id="audit-otherweek-date" value="${today()}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes</label>
+      <textarea class="form-textarea" id="audit-otherweek-notes" rows="4"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAuditEntryForOtherWeek('${sectionKey}')">Save</button>
+    </div>
+  </div>`);
+}
+async function saveAuditEntryForOtherWeek(sectionKey){
+  const dateVal = $('#audit-otherweek-date').value || today();
+  const weekStart = auditWeekStart(dateVal);
+  const notes = $('#audit-otherweek-notes').value.trim();
+  const existing = getAuditEntry(sectionKey, weekStart);
+  const data = {id: existing ? existing.id : uid(), section: sectionKey, weekStart, notes};
+  if(existing){ const i = state.auditLogs.findIndex(a => a.id === existing.id); state.auditLogs[i] = data; }
+  else state.auditLogs.push(data);
+  await saveOne('auditLogs', data);
+  closeSubModal();
+  toast('Audit entry saved');
+  app.render();
+}
+function renderAuditSection(section){
+  const standard = getAuditStandard(section.key);
+  const wk = currentAuditWeekStart();
+  const currentEntry = getAuditEntry(section.key, wk);
+  const history = auditEntriesForSection(section.key).filter(a => a.weekStart !== wk);
+  return `<div class="card" style="margin-bottom:20px">
+    <div class="card-header">
+      <div>
+        <div class="card-title">${escape(section.label)}</div>
+        <div class="card-sub">One audit entry per week</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Audit standard</label>
+      <textarea class="form-textarea" id="audit-standard-${section.key}" rows="2" placeholder="e.g. 1 call per 100 made">${escape(standard.standardText)}</textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:6px">
+        <button class="btn btn-sm" onclick="saveAuditStandard('${section.key}')">Save standard</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">This week (${escape(auditWeekLabel(wk))})</label>
+      <textarea class="form-textarea" id="audit-notes-${section.key}-${wk}" rows="3" placeholder="Notes / comments for this week">${escape(currentEntry ? currentEntry.notes : '')}</textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:6px">
+        <button class="btn btn-primary btn-sm" onclick="saveAuditEntry('${section.key}','${wk}')">Save entry</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 8px">
+      <div class="form-label" style="margin:0">Past weeks</div>
+      <button class="btn btn-sm" onclick="addAuditEntryForOtherWeek('${section.key}')"><i class="ti ti-plus"></i> Add for another week</button>
+    </div>
+    ${history.length ? `<div class="item-list">
+      ${history.map(a => `
+        <div class="item-row" style="align-items:flex-start;animation:none">
+          <div class="item-main">
+            <div class="item-title">${escape(auditWeekLabel(a.weekStart))}</div>
+            <div class="item-meta" style="white-space:pre-wrap">${a.notes ? escape(a.notes) : '<span style="color:var(--ink-3)">No notes</span>'}</div>
+          </div>
+          <button class="icon-btn" onclick="editAuditEntry('${section.key}','${a.weekStart}')" title="Edit">${ICON_EDIT}</button>
+          <button class="icon-btn" onclick="deleteAuditEntry('${a.id}')" title="Delete">${ICON_DELETE}</button>
+        </div>
+      `).join('')}
+    </div>` : '<div style="font-size:13px;color:var(--ink-3);padding:4px 0 0">No past weeks logged yet.</div>'}
+  </div>`;
+}
+function renderAuditView(){
+  return AUDIT_SECTIONS.map(renderAuditSection).join('');
 }
 
 function renderActivityView(){
@@ -7898,7 +8097,8 @@ function exportData(){
     tasks: state.tasks, projects: state.projects,
     kpis: state.kpis, kpiEntries: state.kpiEntries,
     kpiTargets: getKpiTargets(),
-    callLogs: state.callLogs, campaignLogs: state.campaignLogs
+    callLogs: state.callLogs, campaignLogs: state.campaignLogs,
+    auditStandards: state.auditStandards, auditLogs: state.auditLogs
   };
   const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -7930,11 +8130,14 @@ function importData(){
         if(data.kpiTargets) state.kpiTargets = migrateKpiTargetKeys(data.kpiTargets);
         if(data.callLogs) state.callLogs = data.callLogs;
         if(data.campaignLogs) state.campaignLogs = data.campaignLogs;
+        if(data.auditStandards) state.auditStandards = data.auditStandards;
+        if(data.auditLogs) state.auditLogs = data.auditLogs;
         await StorageAdapter.saveBulk({
           users:state.users, props:state.props,
           tasks:state.tasks, projects:state.projects,
           kpis:state.kpis, kpiEntries:state.kpiEntries,
-          callLogs:state.callLogs, campaignLogs:state.campaignLogs
+          callLogs:state.callLogs, campaignLogs:state.campaignLogs,
+          auditStandards:state.auditStandards, auditLogs:state.auditLogs
         });
         if(data.kpiTargets) await StorageAdapter.saveKpiTargets(state.kpiTargets);
         toast('Data imported');
@@ -7952,6 +8155,7 @@ async function resetData(){
   if(!confirm('Really sure? All properties, tasks, projects, and activity logs will be gone.')) return;
   state.users=[]; state.props=[]; state.tasks=[]; state.projects=[];
   state.callLogs=[]; state.campaignLogs=[]; state.activeUserId='';
+  state.auditStandards=[]; state.auditLogs=[];
   state.kpis=[]; state.kpiEntries=[]; state.kpiTargets={};
   await StorageAdapter.wipeAll();
   await seed();
