@@ -6881,21 +6881,37 @@ async function saveAuditEntryForOtherWeek(sectionKey){
   toast('Audit entry saved');
   app.render();
 }
+// Which week each section's card is showing — defaults to the current
+// week, but a date picker on the card lets you jump to any other week
+// without having to go through the calendar at the bottom.
+function getAuditSelectedWeek(sectionKey){
+  if(!state.auditSelectedWeek) state.auditSelectedWeek = {};
+  if(!state.auditSelectedWeek[sectionKey]) state.auditSelectedWeek[sectionKey] = currentAuditWeekStart();
+  return state.auditSelectedWeek[sectionKey];
+}
+function setAuditSelectedWeek(sectionKey, dateVal){
+  if(!state.auditSelectedWeek) state.auditSelectedWeek = {};
+  state.auditSelectedWeek[sectionKey] = auditWeekStart(dateVal || today());
+  app.render();
+}
 function renderAuditSection(section){
   const standard = getAuditStandard(section.key);
-  const wk = currentAuditWeekStart();
+  const wk = getAuditSelectedWeek(section.key);
   const currentEntry = getAuditEntry(section.key, wk);
   return `<div class="card" style="margin-bottom:14px;padding:16px 18px">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">
       <div class="card-title" style="font-size:14px">${escape(section.label)}</div>
-      <span style="font-size:11px;color:var(--ink-3);white-space:nowrap">${escape(auditWeekLabel(wk))}</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <input type="date" class="form-input" style="width:150px" value="${wk}" onchange="setAuditSelectedWeek('${section.key}', this.value)" title="Jump to a different week">
+        <span style="font-size:11px;color:var(--ink-3);white-space:nowrap">${escape(auditWeekLabel(wk))}</span>
+      </div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <label class="form-label" style="margin:0;white-space:nowrap;font-size:11px;color:var(--ink-3)">Standard</label>
       <input class="form-input" id="audit-standard-${section.key}" style="flex:1" placeholder="e.g. 1 call per 100 made" value="${escape(standard.standardText)}">
-      <button class="icon-btn" onclick="saveAuditStandard('${section.key}')" title="Save standard"><i class="ti ti-device-floppy"></i></button>
+      <button class="btn btn-sm" onclick="saveAuditStandard('${section.key}')" title="Save standard"><i class="ti ti-device-floppy"></i> Save</button>
     </div>
-    <textarea class="form-textarea" id="audit-notes-${section.key}-${wk}" rows="2" placeholder="This week's notes / comments">${escape(currentEntry ? currentEntry.notes : '')}</textarea>
+    <textarea class="form-textarea" id="audit-notes-${section.key}-${wk}" rows="2" placeholder="Notes / comments for this week">${escape(currentEntry ? currentEntry.notes : '')}</textarea>
     <div style="display:flex;justify-content:flex-end;margin-top:6px">
       <button class="btn btn-primary btn-sm" onclick="saveAuditEntry('${section.key}','${wk}')">Save entry</button>
     </div>
