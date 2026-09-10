@@ -837,6 +837,25 @@ input,select,textarea{font:inherit;color:inherit}
 .listing-chart-legend span{display:flex;align-items:center;gap:6px}
 .listing-swatch{width:10px;height:10px;border-radius:2px;display:inline-block}
 
+/* ---- collapsible day-by-day log ---- */
+.listing-log{margin-top:2px}
+.listing-log-toggle{
+  display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+  padding:5px 10px;font-size:11.5px;font-weight:600;font-family:inherit;
+  color:var(--ink-2);background:transparent;
+  border:1px solid var(--border);border-radius:var(--r-sm);
+}
+.listing-log-toggle:hover{background:var(--surface-2);color:var(--accent)}
+.listing-log-toggle i{font-size:13px}
+.listing-log-slot:not(:empty){
+  margin-top:10px;padding-top:12px;border-top:1px dashed var(--border);
+}
+.listing-stale{
+  font-size:11.5px;color:var(--warn-ink,#8A6A1F);
+  display:flex;align-items:center;gap:5px;margin:0 0 10px;
+}
+.listing-stale i{font-size:13px}
+
 /* ---- "closed but not listed" alert (property card + page banner) ---- */
 .prop-alert{
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
@@ -1889,8 +1908,13 @@ const state = {
   // Which property has its funding-tier editor open on the Properties list.
   // Held in state rather than the DOM so a re-render doesn't snap it shut.
   fundingOpen:null,
-  // Same idea for the Listing details tab, alongside the funding tab.
+  // Same idea for the Listing details tab, alongside the funding tab. Only
+  // one of these two is ever set — see toggleFundingPanel().
   listingOpen:null,
+  // Which property has the day-by-day listing log expanded inside its open
+  // Listing details panel. Separate from listingOpen so collapsing the log
+  // doesn't close the panel around it.
+  listingLogOpen:null,
   filters:{}
 };
 
@@ -6142,7 +6166,8 @@ function renderListingAlert(p){
    tiers or its listing details in place, without opening the whole property
    form. Open/closed lives in state.fundingOpen / state.listingOpen so a
    re-render (a save elsewhere, a background refresh) doesn't snap either
-   panel shut mid-edit. Both can be open at once — they're independent.
+   panel shut mid-edit. At most one is open at a time, list-wide — see
+   toggleFundingPanel() for why.
 
    The card stays quiet until you ask: closed, it's just the tabs. Whatever's
    open lives behind them, so a list of properties reads as timelines rather
@@ -6216,8 +6241,23 @@ function renderFundingPanel(p, bands){
     </div>`;
 }
 
+/* These two are TABS, and tabs are mutually exclusive — opening one closes
+   whatever else was open, anywhere in the list (2026-09-10).
+   
+   They used to be independent toggles, which is what still read as glitching
+   after the double-listener fix: open funding tiers on one deal, then open it
+   on the next, and the FIRST deal's Listing details panel stayed open behind
+   you, its tab still lit. Scroll back and two cards look half-opened at once,
+   with no single click that closes them. Both tabs on one card could also be
+   open together, giving a card two stacked panels under a single tab strip —
+   two seams, neither of which reads as belonging to either tab.
+
+   So: at most one panel is open across the whole Properties list, and
+   clicking the tab that is already open closes it. */
 function toggleFundingPanel(id){
-  state.fundingOpen = state.fundingOpen === id ? null : id;
+  const alreadyOpen = state.fundingOpen === id;
+  state.fundingOpen = alreadyOpen ? null : id;
+  state.listingOpen = null;
   app.render();
 }
 function closeFundingPanel(){
@@ -6306,7 +6346,17 @@ function applyFundingTemplate(scope){
    like the funding editor: there's a fixed handful of fields here, not an
    open-ended list of rows. */
 function toggleListingPanel(id){
-  state.listingOpen = state.listingOpen === id ? null : id;
+  const alreadyOpen = state.listingOpen === id;
+  state.listingOpen = alreadyOpen ? null : id;
+  state.fundingOpen = null;
+  if(!alreadyOpen) state.listingLogOpen = null;   // reopen collapsed, not mid-scroll
+  app.render();
+}
+// The day-by-day log inside an open Listing details panel. Collapsed by
+// default: the summary and the per-day chart are what the tab is for, and the
+// raw reading-by-reading table is reference material you go looking for.
+function toggleListingLog(id){
+  state.listingLogOpen = state.listingLogOpen === id ? null : id;
   app.render();
 }
 // The "Add listing" button on the needs-listing alert. Deliberately not a
@@ -6315,6 +6365,7 @@ function toggleListingPanel(id){
 // be open already.
 function openListingPanel(id){
   state.listingOpen = id;
+  state.fundingOpen = null;
   app.render();
   const input = document.getElementById(`lst-url-${id}`);
   if(input){ input.focus(); input.scrollIntoView({block:'nearest'}); }
@@ -6364,10 +6415,12 @@ async function deleteListingEntry(id, date){
 }
 function renderListingPanel(p, stats){
   stats = stats || normalizeListingStats(p.listingStats);
+  const logOpen = state.listingLogOpen === p.id;
   // Deltas are keyed by date so the table can show each row's own movement
-  // next to the rolling figure it was derived from.
-  const byDate = new Map(listingDeltas(stats).map(d => [d.date, d]));
-  const rows = [...stats].reverse().slice(0, 21).map(e => {
+  // next to the rolling figure it was derived from. Only built when the log
+  // is actually expanded — collapsed, none of it reaches the page.
+  const byDate = logOpen ? new Map(listingDeltas(stats).map(d => [d.date, d])) : new Map();
+  const rows = !logOpen ? '' : [...stats].reverse().slice(0, 21).map(e => {
     const d = byDate.get(e.date);
     const note = !d ? 'First reading — nothing before it to compare against'
       : d.agedSaves ? `Zillow's 30-day saves fell by ${Math.abs(d.changeSaves)} — older saves aged out of the window, counted as 0 new`
@@ -6413,17 +6466,24 @@ function renderListingPanel(p, stats){
     </div>
 
     ${renderListingDailyChart(stats)}
-    ${renderListingChart(stats)}
 
-    ${stats.length ? `<table class="funding-table" style="margin-top:4px">
-      <thead><tr>
-        <th>Date</th>
-        <th class="ft-num">Views 30d</th><th class="ft-num">Saves 30d</th>
-        <th class="ft-num">New views</th><th class="ft-num">New saves</th>
-        <th></th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>` : ''}
+    ${stats.length ? `<div class="listing-log">
+      <button type="button" class="listing-log-toggle" data-action="toggle-listing-log" data-id="${p.id}">
+        <i class="ti ti-${logOpen?'chevron-down':'chevron-right'}"></i>
+        Day-by-day log <span class="funding-tab-count">${stats.length}</span>
+      </button>
+      <div class="listing-log-slot">${logOpen ? `
+        ${renderListingChart(stats)}
+        <table class="funding-table" style="margin-top:4px">
+          <thead><tr>
+            <th>Date</th>
+            <th class="ft-num">Views 30d</th><th class="ft-num">Saves 30d</th>
+            <th class="ft-num">New views</th><th class="ft-num">New saves</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>` : ''}</div>
+    </div>` : ''}
   </div>`;
 }
 /* The chart this tab is actually for: how many NEW saves the listing picked
@@ -6488,21 +6548,48 @@ function renderListingDailyChart(stats){
     xLabels.push(`<text x="${cx(idx).toFixed(1)}" y="${H-5}" font-size="9" fill="var(--ink-3)" text-anchor="middle">${fmt(days[idx].date)}</text>`);
   }
 
-  // Summary strip. "Tracked" is the span the deltas actually cover — from the
-  // baseline reading to the latest one — not the number of entries, so a week
-  // logged twice reads as 7 days rather than 2.
+  /* Summary strip — the headline the tab exists for, so the raw log can stay
+     folded away underneath it.
+
+     "span" is the stretch of calendar the deltas actually cover, from the
+     baseline reading to the latest, NOT the number of entries: a fortnight
+     logged three times is 14 days of listing life, not 3.
+
+     The week-on-week pair is the number that answers "is this listing still
+     moving?". Each entry is counted in the bucket its own date falls in,
+     measured back from the latest reading. */
   const span    = days.reduce((a, d) => a + d.gap, 0);
   const totalS  = days.reduce((a, d) => a + (d.newSaves != null ? d.newSaves * d.gap : 0), 0);
   const totalV  = days.reduce((a, d) => a + (d.newViews != null ? d.newViews * d.gap : 0), 0);
   const best    = days.reduce((a, d) => (d.newSaves||0) > (a && a.newSaves||0) ? d : a, null);
   const aged    = days.filter(d => d.agedSaves).length;
 
+  const latest  = days[days.length-1].date;
+  const ageOf   = d => Math.round((dateMs(latest) - dateMs(d.date)) / 86400000);
+  const bucket  = (from, to) => days
+    .filter(d => { const a = ageOf(d); return a >= from && a < to; })
+    .reduce((a, d) => a + (d.newSaves != null ? d.newSaves * d.gap : 0), 0);
+  const week    = bucket(0, 7), prevWeek = bucket(7, 14);
+  const hasPrev = span > 7;
+  const dir     = !hasPrev ? '' : week > prevWeek ? 'up' : week < prevWeek ? 'down' : 'flat';
+
+  // Days between the last reading and today — a listing tracker nobody has
+  // updated in a week is showing stale numbers, and should say so.
+  const stale = Math.round((dateMs(today()) - dateMs(latest)) / 86400000);
+
   return `<div style="margin:2px 0 16px">
+    ${stale >= 3 ? `<p class="listing-stale">
+      <i class="ti ti-clock-exclamation"></i>
+      Last logged ${fmtLong(latest)} — ${stale} days ago. Numbers below are as of then.
+    </p>` : ''}
     <div class="listing-stat-strip">
-      <div><b>${Math.round(totalS).toLocaleString()}</b>new saves · ${span} day${span===1?'':'s'}</div>
+      <div><b>${Math.round(week).toLocaleString()}</b>new saves · last 7 days</div>
+      ${hasPrev ? `<div><b style="color:${dir==='up'?'var(--accent)':dir==='down'?'var(--danger)':'inherit'}">${
+        dir==='up'?'▲':dir==='down'?'▼':'='} ${Math.round(prevWeek).toLocaleString()}</b>the 7 before</div>` : ''}
       <div><b>${perDay(totalS/Math.max(1,span))}</b>saves per day</div>
       <div><b>${perDay(totalV/Math.max(1,span))}</b>views per day</div>
       ${best && best.newSaves ? `<div><b>${perDay(best.newSaves)}</b>best day · ${fmt(best.date)}</div>` : ''}
+      <div><b>${Math.round(totalS).toLocaleString()}</b>all time · ${span} day${span===1?'':'s'}</div>
     </div>
     <div class="listing-chart-legend">
       <span><span class="listing-swatch" style="background:var(--accent)"></span>New saves per day</span>
@@ -7848,6 +7935,7 @@ function bindViewEvents(){
         case 'toggle-funding': toggleFundingPanel(id); break;
         case 'toggle-listing': toggleListingPanel(id); break;
         case 'open-listing': openListingPanel(id); break;
+        case 'toggle-listing-log': toggleListingLog(id); break;
       }
     });
   });
