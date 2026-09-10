@@ -822,6 +822,50 @@ input,select,textarea{font:inherit;color:inherit}
   .listing-entry-row button{grid-column:1/-1}
 }
 
+/* ---- listing activity chart (per-day bars) ---- */
+.listing-stat-strip{
+  display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;
+  margin:2px 0 10px;font-size:11.5px;color:var(--ink-3);
+}
+.listing-stat-strip b{
+  display:block;font-size:15px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;
+}
+.listing-chart-legend{
+  display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px;font-size:11.5px;color:var(--ink-2);
+}
+.listing-chart-legend span{display:flex;align-items:center;gap:6px}
+.listing-swatch{width:10px;height:10px;border-radius:2px;display:inline-block}
+
+/* ---- "closed but not listed" alert (property card + page banner) ---- */
+.prop-alert{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-top:10px;padding:9px 12px;
+  border:1px solid var(--warn-ink,#8A6A1F);border-left-width:3px;
+  border-radius:var(--r-sm);
+  background:var(--warn-soft,#FBF3DC);color:var(--warn-ink,#8A6A1F);
+  font-size:12px;
+}
+.prop-alert.is-urgent{
+  border-color:var(--danger);background:var(--danger-soft);color:var(--danger);
+}
+.prop-alert > i{font-size:15px;flex-shrink:0}
+.prop-alert-body{flex:1;min-width:180px;line-height:1.45}
+.prop-alert-body strong{display:block;font-weight:700}
+.prop-alert-body span{color:inherit;opacity:.85}
+.prop-alert .btn{flex-shrink:0}
+.page-alert{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-bottom:12px;padding:10px 14px;
+  border:1px solid var(--warn-ink,#8A6A1F);border-left-width:3px;
+  border-radius:var(--r-md);
+  background:var(--warn-soft,#FBF3DC);color:var(--warn-ink,#8A6A1F);
+  font-size:12.5px;
+}
+.page-alert > i{font-size:16px;flex-shrink:0}
+.page-alert-body{flex:1;min-width:200px;line-height:1.45}
+.page-alert-body strong{font-weight:700}
+
 /* ============ TASK CHECK ============ */
 .task-check{
   appearance:none;-webkit-appearance:none;
@@ -2147,6 +2191,56 @@ function normalizeListingStats(raw){
   return [...byDate.values()].sort((a,b) => a.date.localeCompare(b.date));
 }
 
+/* ---- New saves and views per day ------------------------------------------
+   Zillow does not report a lifetime count. The figures on a listing page are
+   a ROLLING 30-DAY TOTAL — "1,204 views and 47 saves in the last 30 days" —
+   so the number logged on any given day is not that day's activity, it is the
+   previous thirty days' worth. What actually happened on a day is the
+   DIFFERENCE between that day's rolling figure and the one logged before it.
+
+   Named the way the maths runs:
+     prev    the rolling figure on the previous entry
+     curr    the rolling figure on this entry
+     gap     calendar days between the two entries (1 when logged daily)
+     change  curr - prev, the movement of the rolling window
+     perDay  change / gap, so a Monday entry logged after a Friday one reads
+             as a daily rate rather than one three-day spike
+
+   Two things this has to be honest about rather than paper over:
+     1. change can be NEGATIVE. Nobody un-saved the listing; saves made 31
+        days ago simply aged out of the back of the window faster than new
+        ones arrived at the front. Those days are counted as zero new saves
+        and flagged, not drawn below the axis as if buyers walked away.
+     2. The FIRST entry has no predecessor. It is a baseline reading, not a
+        day on which nothing happened, so it produces no bar at all.         */
+function listingDeltas(stats){
+  const out = [];
+  for(let i = 1; i < stats.length; i++){
+    const prev = stats[i-1], curr = stats[i];
+    const gap = Math.max(1, Math.round((dateMs(curr.date) - dateMs(prev.date)) / 86400000));
+    const change = key => (curr[key] == null || prev[key] == null) ? null : curr[key] - prev[key];
+    const cs = change('saves'), cv = change('views');
+    out.push({
+      date: curr.date, gap,
+      changeSaves: cs, changeViews: cv,
+      newSaves: cs == null ? null : Math.max(0, cs) / gap,
+      newViews: cv == null ? null : Math.max(0, cv) / gap,
+      agedSaves: cs != null && cs < 0,
+      agedViews: cv != null && cv < 0
+    });
+  }
+  return out;
+}
+// Per-day figures are usually whole numbers; they only go fractional when a
+// day was skipped and the change is spread back across the gap.
+const perDay = v => v == null ? '—' : (Math.round(v * 10) / 10).toLocaleString();
+
+// A deal whose purchase has closed but which has no Zillow link saved yet —
+// money is out the door and nothing is in front of buyers. propStatus()
+// already isolates exactly that case, so this is a name for it rather than a
+// second rule that could drift away from the first.
+const needsListing = p => propStatus(p) === 'closed';
+
 // A deal's status is derived, never chosen — it reflects two facts that are
 // already entered elsewhere, rather than a fourth thing that could drift out
 // of sync with them:
@@ -2912,12 +3006,17 @@ const app = {
     // is idempotent either way (it marks what it binds), so this is belt and
     // braces rather than the only thing standing between us and duplicate
     // listeners firing an action twice.
+    // The inline funding editor builds its rows as real DOM nodes, so it has
+    // to be filled in after the view's HTML is in place. This runs on EVERY
+    // render, not just ones that created nodes: a patch that only REMOVED
+    // nodes still leaves an empty rows container behind, and bailing out
+    // early used to leave the funding tab open but blank. hydrateFundingPanel
+    // is a no-op when the rows are already sitting there.
+    hydrateFundingPanel();
+
     if(patched && !this._patchCreatedNodes) return;
 
     bindViewEvents();
-    // The inline funding editor builds its rows as real DOM nodes, so it has
-    // to be filled in after the view's HTML is in place.
-    hydrateFundingPanel();
   },
 
   /* ---- In-place patching (2026-08-18) ---------------------------------
@@ -2971,8 +3070,31 @@ const app = {
       for(const at of Array.from(newNode.attributes)){
         if(oldNode.getAttribute(at.name) !== at.value) oldNode.setAttribute(at.name, at.value);
       }
+      /* Some attributes belong to the RUNTIME, not to the markup, and must
+         survive a patch untouched (2026-09-10):
+
+           data-bound*        bindViewEvents() stamps a node once it has wired
+                              a click listener to it, so a later pass can't
+                              wire a second one.
+           data-hydrated-for  hydrateFundingPanel() stamps the rows container
+                              with the property it filled it for.
+
+         Neither ever appears in generated HTML, so this loop stripped them on
+         every single patch — and that is what made the funding / listing tabs
+         glitch. With the stamp gone, the next bindViewEvents() bound the SAME
+         tab button a second time; one click then ran toggleFundingPanel twice
+         (open then straight back closed, so the panel looked dead), a third
+         listener made it open, a fourth killed it again. The tab appeared to
+         work only every other click, at random. Losing data-hydrated-for did
+         the matching damage inside the panel: the editor decided it had never
+         been filled and rebuilt its rows from the saved record, throwing away
+         whatever was half-typed.
+
+         Every other stale attribute is still removed as before. */
+      const isRuntimeAttr = name =>
+        name.indexOf('data-bound') === 0 || name === 'data-hydrated-for';
       for(const at of Array.from(oldNode.attributes)){
-        if(!newNode.hasAttribute(at.name)) oldNode.removeAttribute(at.name);
+        if(!newNode.hasAttribute(at.name) && !isRuntimeAttr(at.name)) oldNode.removeAttribute(at.name);
       }
 
       /* Form controls hold live STATE as DOM properties, not attributes, and
@@ -3006,6 +3128,17 @@ const app = {
         if(oldNode.value !== newNode.textContent) oldNode.value = newNode.textContent;
       }
     }
+
+    /* Some containers are filled in by JS AFTER the render — the inline
+       funding-tier editor builds its rows as real DOM nodes (see
+       hydrateFundingPanel), and those rows exist in the document but not in
+       the markup this render produced. Reconciling them against an empty
+       container would delete every row, which is exactly what made the
+       funding tab look like it "lost" its tiers whenever anything else on
+       the page repainted. data-preserve-children marks those containers: the
+       node itself still gets its attributes synced, its contents are left
+       entirely to the code that owns them. */
+    if(oldNode.dataset && oldNode.dataset.preserveChildren) return true;
 
     /* Children are reconciled by KEY where one exists, position otherwise —
        see _patchChildren() below for why a bare index match isn't enough. */
@@ -5977,6 +6110,34 @@ function renderClosingTimeline(p){
   </div>`;
 }
 
+/* A closed deal with no listing is the one state on this page that costs
+   money while you look at it: the purchase has completed, the capital is
+   committed, and nothing is in front of a buyer. propStatus() already spots
+   it (see needsListing) — this turns it into something you can't scroll past,
+   with the fix one click away rather than two tabs deep.
+
+   It escalates on its own: a deal a week past closing with still no link
+   turns red rather than staying amber, so a card that's been ignored looks
+   different from one that closed yesterday. */
+function renderListingAlert(p){
+  if(!needsListing(p)) return '';
+  const n = daysSinceClosing(p);
+  const urgent = n != null && n >= 7;
+  const when = n == null ? '' : n === 0 ? 'Closed today'
+    : `Closed ${n} day${n===1?'':'s'} ago`;
+  return `<div class="prop-alert ${urgent?'is-urgent':''}">
+    <i class="ti ti-alert-triangle"></i>
+    <div class="prop-alert-body">
+      <strong>Needs listing${urgent?` — ${n} days and counting`:''}</strong>
+      <span>${when} and no Zillow link saved yet. Add the link under Listing
+        details and this deal moves to Listed on its own.</span>
+    </div>
+    <button type="button" class="btn btn-sm" data-action="open-listing" data-id="${p.id}">
+      <i class="ti ti-link"></i> Add listing
+    </button>
+  </div>`;
+}
+
 /* Two tabs sit under the timeline: click one to edit this property's funding
    tiers or its listing details in place, without opening the whole property
    form. Open/closed lives in state.fundingOpen / state.listingOpen so a
@@ -6037,7 +6198,7 @@ function renderFundingPanel(p, bands){
       <div class="funding-panel-head">
         <span>Band</span><span>Ends day</span><span>% to us</span><span>% to funder</span><span></span>
       </div>
-      <div id="fund-rows-${p.id}"></div>
+      <div id="fund-rows-${p.id}" data-preserve-children="1"></div>
       <div class="funding-foot">
         <button type="button" class="btn btn-sm" onclick="addFundingRow(null,'${p.id}')">
           <i class="ti ti-plus"></i> Add tier
@@ -6063,17 +6224,30 @@ function closeFundingPanel(){
   state.fundingOpen = null;
   app.render();
 }
-// Called after render() so the rows land in a container that exists. An empty
-// schedule opens with one blank row — the point of the tab is to add tiers, so
-// making you click "Add tier" first would be a wasted step.
+// Called after every render, so the rows land in a container that exists. An
+// empty schedule opens with one blank row — the point of the tab is to add
+// tiers, so making you click "Add tier" first would be a wasted step.
+//
+// This must be safe to call repeatedly (2026-09-10). It used to append
+// unconditionally, so a second call while the panel was open stacked a
+// duplicate copy of every tier underneath the first — the editor appeared to
+// double its rows for no reason. The container is now stamped with the
+// property it was filled for: already filled for this property, nothing
+// happens; filled for a different one (or left over from a closed panel),
+// it is emptied first.
 function hydrateFundingPanel(){
   const id = state.fundingOpen;
-  if(!id || !document.getElementById(`fund-rows-${id}`)) return;
+  if(!id) return;
+  const wrap = document.getElementById(`fund-rows-${id}`);
+  if(!wrap) return;
+  if(wrap.dataset.hydratedFor === id && wrap.querySelector('.funding-row')) return;
   const p = state.props.find(x=>x.id===id);
   if(!p) return;
+  wrap.innerHTML = '';
+  wrap.dataset.hydratedFor = id;
   const tiers = normalizeFunding(p.funding, p);
-  if(tiers.length) tiers.forEach(t => addFundingRow(t, id));
-  else addFundingRow(null, id);
+  if(tiers.length) tiers.forEach(t => addFundingRow(t, id, false));
+  else addFundingRow(null, id, false);
   updateFundingTotal(id);
 }
 async function saveFundingTiers(id){
@@ -6135,6 +6309,16 @@ function toggleListingPanel(id){
   state.listingOpen = state.listingOpen === id ? null : id;
   app.render();
 }
+// The "Add listing" button on the needs-listing alert. Deliberately not a
+// toggle: it's a call to action, so clicking it must always end with the
+// panel open and the URL field ready, never shut it because it happened to
+// be open already.
+function openListingPanel(id){
+  state.listingOpen = id;
+  app.render();
+  const input = document.getElementById(`lst-url-${id}`);
+  if(input){ input.focus(); input.scrollIntoView({block:'nearest'}); }
+}
 function closeListingPanel(){
   state.listingOpen = null;
   app.render();
@@ -6180,16 +6364,28 @@ async function deleteListingEntry(id, date){
 }
 function renderListingPanel(p, stats){
   stats = stats || normalizeListingStats(p.listingStats);
-  const rows = [...stats].reverse().slice(0, 21).map(e => `
-    <tr>
-      <td class="ft-name">${fmt(e.date)}</td>
+  // Deltas are keyed by date so the table can show each row's own movement
+  // next to the rolling figure it was derived from.
+  const byDate = new Map(listingDeltas(stats).map(d => [d.date, d]));
+  const rows = [...stats].reverse().slice(0, 21).map(e => {
+    const d = byDate.get(e.date);
+    const note = !d ? 'First reading — nothing before it to compare against'
+      : d.agedSaves ? `Zillow's 30-day saves fell by ${Math.abs(d.changeSaves)} — older saves aged out of the window, counted as 0 new`
+      : d.gap > 1 ? `${d.gap} days since the previous entry — shown as a daily average`
+      : '';
+    return `
+    <tr${note?` title="${escape(note)}"`:''}>
+      <td class="ft-name">${fmt(e.date)}${d && d.gap>1?` <span class="ft-dim">+${d.gap}d</span>`:''}</td>
       <td class="ft-num">${e.views!=null?e.views.toLocaleString():'—'}</td>
       <td class="ft-num">${e.saves!=null?e.saves.toLocaleString():'—'}</td>
+      <td class="ft-num">${d?perDay(d.newViews):'<span class="ft-dim">baseline</span>'}</td>
+      <td class="ft-num">${d?`${perDay(d.newSaves)}${d.agedSaves?' <span class="ft-dim" title="older saves aged out">▾</span>':''}`:'<span class="ft-dim">baseline</span>'}</td>
       <td class="ft-status">
         <button type="button" class="icon-btn" title="Remove entry"
                 onclick="deleteListingEntry('${p.id}','${e.date}')"><i class="ti ti-x"></i></button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   return `<div class="funding-panel">
     <div class="listing-url-row">
@@ -6203,28 +6399,130 @@ function renderListingPanel(p, stats){
         <i class="ti ti-external-link"></i> Open</a>` : ''}
     </div>
 
-    <p class="form-hint">Log today's saves and views by hand. One entry per day —
-      logging the same date again updates it instead of adding a duplicate.</p>
+    <p class="form-hint">Copy the two numbers Zillow shows on the listing — they are
+      its <strong>last-30-days</strong> totals, not that day's activity. One entry per
+      day; logging the same date again updates it instead of adding a duplicate. New
+      saves per day is worked out from the change between entries.</p>
     <div class="listing-entry-row">
       <input class="form-input" type="date" id="lst-date-${p.id}" value="${today()}">
-      <input class="form-input" type="number" min="0" step="1" id="lst-views-${p.id}" placeholder="Views today">
-      <input class="form-input" type="number" min="0" step="1" id="lst-saves-${p.id}" placeholder="Saves today">
+      <input class="form-input" type="number" min="0" step="1" id="lst-views-${p.id}" placeholder="Views (last 30 days)">
+      <input class="form-input" type="number" min="0" step="1" id="lst-saves-${p.id}" placeholder="Saves (last 30 days)">
       <button type="button" class="btn btn-sm btn-primary" onclick="logListingEntry('${p.id}')">
         <i class="ti ti-plus"></i> Log
       </button>
     </div>
 
+    ${renderListingDailyChart(stats)}
     ${renderListingChart(stats)}
 
     ${stats.length ? `<table class="funding-table" style="margin-top:4px">
-      <thead><tr><th>Date</th><th class="ft-num">Views</th><th class="ft-num">Saves</th><th></th></tr></thead>
+      <thead><tr>
+        <th>Date</th>
+        <th class="ft-num">Views 30d</th><th class="ft-num">Saves 30d</th>
+        <th class="ft-num">New views</th><th class="ft-num">New saves</th>
+        <th></th>
+      </tr></thead>
       <tbody>${rows}</tbody>
     </table>` : ''}
   </div>`;
 }
-// Small dual-line trend of views vs. saves, same construction as the
-// Activity trends chart (renderTrendChart) so it reads consistently with
-// the rest of the app's charts.
+/* The chart this tab is actually for: how many NEW saves the listing picked
+   up on each day, derived from the movement in Zillow's rolling 30-day figure
+   (see listingDeltas). Saves are the bars, because saves are the number that
+   predicts a showing; new views ride along as a line on its own right-hand
+   axis, since views run an order of magnitude larger and would flatten the
+   bars to nothing on a shared scale. */
+function renderListingDailyChart(stats){
+  const days = listingDeltas(stats).filter(d => d.newSaves != null || d.newViews != null);
+  if(!days.length){
+    return `<div class="prop-timeline-empty" style="margin:6px 0 14px">
+      <i class="ti ti-chart-bar" style="font-size:13px"></i>
+      Log a second day to see new saves per day — the graph is the change between readings.
+    </div>`;
+  }
+
+  const W = 560, H = 176, padL = 30, padR = 34, padT = 14, padB = 22;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = days.length;
+  const maxS = Math.max(1, ...days.map(d => d.newSaves || 0));
+  const maxV = Math.max(1, ...days.map(d => d.newViews || 0));
+  // One slot per day; the bar sits centred in its slot so the views line can
+  // run through the middle of each bar rather than along the slot edges.
+  const slot = plotW / n;
+  const barW = Math.max(3, Math.min(28, slot * 0.6));
+  const cx   = i => padL + slot * i + slot / 2;
+  const yS   = v => padT + plotH - ((v || 0) / maxS) * plotH;
+  const yV   = v => padT + plotH - ((v || 0) / maxV) * plotH;
+
+  const grid = [0, 0.5, 1].map(f => {
+    const y = padT + plotH - f * plotH;
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
+      <text x="${padL-6}" y="${(y+3).toFixed(1)}" font-size="9" fill="var(--ink-3)" text-anchor="end">${Math.round(maxS*f*10)/10}</text>
+      <text x="${W-padR+6}" y="${(y+3).toFixed(1)}" font-size="9" fill="var(--ink-3)" text-anchor="start">${Math.round(maxV*f)}</text>`;
+  }).join('');
+
+  const bars = days.map((d, i) => {
+    const v = d.newSaves || 0;
+    const y = yS(v), h = Math.max(v > 0 ? 1.5 : 0, padT + plotH - y);
+    const tip = `${fmtLong(d.date)} · ${perDay(d.newSaves)} new save${d.newSaves===1?'':'s'}`
+      + (d.gap > 1 ? ` per day (${d.gap} days since the last entry)` : '')
+      + (d.agedSaves ? ` · Zillow's 30-day count fell by ${Math.abs(d.changeSaves)}, so older saves aged out` : '')
+      + (d.newViews != null ? ` · ${perDay(d.newViews)} new views` : '');
+    return `<g><title>${escape(tip)}</title>
+      <rect x="${(cx(i)-barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}"
+            rx="2" fill="var(--accent)" ${d.agedSaves?'fill-opacity="0.35"':''}></rect>
+      <rect x="${(cx(i)-slot/2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${plotH}" fill="transparent"></rect>
+    </g>`;
+  }).join('');
+
+  const viewPts = days.filter(d => d.newViews != null);
+  const viewLine = viewPts.length > 1
+    ? `<path d="${days.map((d,i)=> d.newViews==null?null:`${i===0||days[i-1].newViews==null?'M':'L'}${cx(i).toFixed(1)},${yV(d.newViews).toFixed(1)}`).filter(Boolean).join(' ')}"
+        fill="none" stroke="var(--ink-3)" stroke-width="1.75" stroke-dasharray="4,3" stroke-linejoin="round"/>`
+    : '';
+
+  const labelCount = Math.min(5, n);
+  const xLabels = [];
+  for(let k = 0; k < labelCount; k++){
+    const idx = n <= 1 ? 0 : Math.round(k * (n-1) / ((labelCount-1) || 1));
+    xLabels.push(`<text x="${cx(idx).toFixed(1)}" y="${H-5}" font-size="9" fill="var(--ink-3)" text-anchor="middle">${fmt(days[idx].date)}</text>`);
+  }
+
+  // Summary strip. "Tracked" is the span the deltas actually cover — from the
+  // baseline reading to the latest one — not the number of entries, so a week
+  // logged twice reads as 7 days rather than 2.
+  const span    = days.reduce((a, d) => a + d.gap, 0);
+  const totalS  = days.reduce((a, d) => a + (d.newSaves != null ? d.newSaves * d.gap : 0), 0);
+  const totalV  = days.reduce((a, d) => a + (d.newViews != null ? d.newViews * d.gap : 0), 0);
+  const best    = days.reduce((a, d) => (d.newSaves||0) > (a && a.newSaves||0) ? d : a, null);
+  const aged    = days.filter(d => d.agedSaves).length;
+
+  return `<div style="margin:2px 0 16px">
+    <div class="listing-stat-strip">
+      <div><b>${Math.round(totalS).toLocaleString()}</b>new saves · ${span} day${span===1?'':'s'}</div>
+      <div><b>${perDay(totalS/Math.max(1,span))}</b>saves per day</div>
+      <div><b>${perDay(totalV/Math.max(1,span))}</b>views per day</div>
+      ${best && best.newSaves ? `<div><b>${perDay(best.newSaves)}</b>best day · ${fmt(best.date)}</div>` : ''}
+    </div>
+    <div class="listing-chart-legend">
+      <span><span class="listing-swatch" style="background:var(--accent)"></span>New saves per day</span>
+      <span><span class="listing-swatch" style="background:var(--ink-3)"></span>New views per day (right axis)</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible">
+      ${grid}
+      ${bars}
+      ${viewLine}
+      ${xLabels.join('')}
+    </svg>
+    ${aged ? `<p class="form-hint" style="margin:4px 0 0">${aged} day${aged===1?'':'s'} where Zillow's
+      30-day saves total went down — saves made over 30 days ago dropped out of its window faster than new
+      ones came in. Counted as zero new saves, not negative.</p>` : ''}
+  </div>`;
+}
+
+// The raw readings behind the chart above: Zillow's rolling 30-day totals as
+// logged, views and saves. Useful as context — a flat rolling line with bars
+// still showing means new saves are only replacing ones aging out.
 function renderListingChart(stats){
   if(stats.length < 2){
     return `<div class="prop-timeline-empty" style="margin:6px 0 14px">
@@ -6251,10 +6549,13 @@ function renderListingChart(stats){
   }
   const totalViews = stats.reduce((s,e)=>s+(e.views||0),0);
   const totalSaves = stats.reduce((s,e)=>s+(e.saves||0),0);
+  const lastS = [...stats].reverse().find(e=>e.saves!=null);
+  const lastV = [...stats].reverse().find(e=>e.views!=null);
   return `<div style="margin:2px 0 14px">
+    <div style="font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">As Zillow reports it · rolling 30-day totals</div>
     <div style="display:flex;gap:16px;margin-bottom:8px;font-size:11.5px;flex-wrap:wrap">
-      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);display:inline-block"></span>Views · ${totalViews.toLocaleString()} total</span>
-      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--danger);display:inline-block;border:1px dashed var(--danger)"></span>Saves · ${totalSaves.toLocaleString()} total</span>
+      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);display:inline-block"></span>Views · ${lastV?lastV.views.toLocaleString():'—'} latest</span>
+      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--danger);display:inline-block;border:1px dashed var(--danger)"></span>Saves · ${lastS?lastS.saves.toLocaleString():'—'} latest</span>
     </div>
     <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible">
       ${gridLines}
@@ -6351,8 +6652,22 @@ function renderProperties(){
 
   const unplaced = filtered.filter(p=>!sorter.key(p)).length;
 
+  // Counted across ALL properties, not the filtered view — a deal that needs
+  // listing shouldn't be able to hide behind a search box or a status tab.
+  const unlisted = state.props.filter(needsListing);
+  const banner = unlisted.length ? `<div class="page-alert">
+    <i class="ti ti-alert-triangle"></i>
+    <div class="page-alert-body">
+      <strong>${unlisted.length} closed deal${unlisted.length===1?'':'s'} not listed yet</strong> —
+      ${unlisted.slice(0,3).map(p=>escape(p.propertyId||'Untitled')).join(', ')}${unlisted.length>3?` and ${unlisted.length-3} more`:''}.
+      Each one has closed with no Zillow link saved.
+    </div>
+    <button class="btn btn-sm" onclick="setPropStatusFilter('closed')">Show them</button>
+  </div>` : '';
+
   return pageHeader('Deals', 'Properties', 'Every parcel, offer, and ARV.',
     `<button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button>`) + `
+    ${banner}
     <div class="seg-control" role="tablist" style="margin-bottom:12px">
       <button class="seg-btn ${!statusFilter?'active':''}" role="tab" aria-selected="${!statusFilter}" onclick="setPropStatusFilter('')">
         All <span class="seg-count">${state.props.length}</span>
@@ -6380,7 +6695,7 @@ function renderProperties(){
       const equity = equityOf(p);
       const equityPct = (equity!==null && parseFloat(p.buyPrice)) ? Math.round((equity/parseFloat(p.buyPrice))*100) : null;
       const status = propStatus(p);
-      return `<div class="item-row" style="flex-wrap:wrap">
+      return `<div class="item-row" data-id="${p.id}" style="flex-wrap:wrap">
         <div style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-map-2" style="font-size:20px"></i></div>
         <div class="item-main">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
@@ -6404,7 +6719,7 @@ function renderProperties(){
           <button class="icon-btn" data-action="edit-prop" data-id="${p.id}" title="Edit">${ICON_EDIT}</button>
           <button class="icon-btn" data-action="delete-prop" data-id="${p.id}" title="Delete">${ICON_DELETE}</button>
         </div>
-        <div style="flex-basis:100%">${renderClosingTimeline(p)}</div>
+        <div style="flex-basis:100%">${renderListingAlert(p)}${renderClosingTimeline(p)}</div>
       </div>`;
     }).join('') || `<div class="empty"><i class="ti ti-home"></i><h3>No properties${statusFilter?` — ${PROP_STATUS_LABEL[statusFilter].toLowerCase()}`:''}</h3><p>${q?'Try a different search.':statusFilter?'Nothing in this status yet.':'Track your first deal.'}</p><button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button></div>`}
     </div>`;
@@ -7532,6 +7847,7 @@ function bindViewEvents(){
         case 'reset-data': resetData(); break;
         case 'toggle-funding': toggleFundingPanel(id); break;
         case 'toggle-listing': toggleListingPanel(id); break;
+        case 'open-listing': openListingPanel(id); break;
       }
     });
   });
@@ -7858,7 +8174,12 @@ function fundingCtx(scope){
     closing: ()=>p.closingDate || ''
   };
 }
-function addFundingRow(entry, scope){
+// focus defaults to true: clicking "Add tier" should drop the cursor in the
+// new row. Hydration passes false — refilling an existing schedule used to
+// yank focus (and the scroll position) down to the last tier every time the
+// page repainted, which is what made the panel feel like it was jumping
+// around on its own.
+function addFundingRow(entry, scope, focus){
   const wrap = document.getElementById(fundingCtx(scope).rows);
   if(!wrap) return;
   const e = entry && typeof entry === 'object' ? entry : {};
@@ -7877,7 +8198,7 @@ function addFundingRow(entry, scope){
             onclick="this.parentNode.remove();updateFundingTotal('${s}')"><i class="ti ti-x"></i></button>`;
   wrap.appendChild(row);
   updateFundingTotal(scope);
-  if(s !== 'form') row.querySelector('.funding-days').focus();
+  if(s !== 'form' && focus !== false) row.querySelector('.funding-days').focus();
 }
 // The two shares are two halves of one number, always exactly 100 between
 // them — there's no such thing as an intentional 73/24 split. Editing
