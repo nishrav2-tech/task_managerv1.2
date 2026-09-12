@@ -1232,6 +1232,24 @@ input,select,textarea{font:inherit;color:inherit}
 .proj-card-cat{font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
 .proj-card-meta{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
 
+/* ---- "Link to" type picker (task form) ---- */
+.link-type{display:inline-flex;border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden}
+.link-type-btn{
+  font-family:inherit;font-size:11.5px;font-weight:600;padding:6px 14px;
+  background:transparent;color:var(--ink-2);border:none;cursor:pointer;
+}
+.link-type-btn:hover:not(.active){background:var(--surface-2);color:var(--accent)}
+.link-type-btn.active{background:var(--accent);color:var(--accent-ink)}
+
+/* ---- dragging a calendar item to reschedule it ---- */
+.month-item[draggable="true"],.week-item[draggable="true"]{cursor:grab}
+.month-item[draggable="true"]:active,.week-item[draggable="true"]:active{cursor:grabbing}
+.month-cell.drag-over,.week-day-col.drag-over{
+  border-color:var(--accent);
+  background:var(--accent-soft);
+  box-shadow:inset 0 0 0 1px var(--accent);
+}
+
 /* ---- open tasks on an in-progress project card ----
    The board columns are narrow, so each task is one truncated line: what it
    is, and when it's due. Anything more and the card stops being scannable. */
@@ -6193,7 +6211,8 @@ function renderMonthCalendarCard(){
         <div class="page-eyebrow" style="margin-bottom:2px">Calendar · ${relLabel}</div>
         <div class="card-title">${monthLabel}</div>
         <div class="card-sub">${totalItems} item${totalItems!==1?'s':''} this month${
-          totalItems ? ` · ${openItems} still open` : ''} · showing ${escape(calUserLabel)}</div>
+          totalItems ? ` · ${openItems} still open` : ''} · showing ${escape(calUserLabel)}${
+          totalItems ? ' · drag any item to reschedule it' : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${renderCalModeSwitch()}
@@ -6214,7 +6233,9 @@ function renderMonthCalendarCard(){
         if(!d) return `<div class="month-cell is-outside"></div>`;
         const dateStr = isoLocal(d);
         const items = (byDate[dateStr]||[]).slice().sort(calendarItemSort);
-        return `<div class="month-cell ${dateStr===todayStr?'is-today':''}">
+        return `<div class="month-cell ${dateStr===todayStr?'is-today':''}"
+             ondragover="dragOverDay(event)" ondragleave="dragLeaveDay(event)"
+             ondrop="dropOnDay(event,'${dateStr}')">
           <div class="month-cell-head">
             <span class="month-daynum">${d.getDate()}</span>
             ${items.length?`<span class="month-cell-count">${items.length}</span>`:''}
@@ -6226,7 +6247,10 @@ function renderMonthCalendarCard(){
             const clickFn = isProject ? `openProjectForm('${item.id}')` : `openTaskForm('${item.id}')`;
             const tip = `${item.title} · ${isProject?(item.category||'Project'):pri+' priority'}${done?' · done':''}`;
             return `<div class="month-item ${isProject?'month-item-project':'pri-'+pri} ${done?'is-done':''}"
-                         onclick="${clickFn}" title="${escape(tip)}">
+                         draggable="true"
+                         ondragstart="dragStartCalItem(event,'${item.id}','${isProject?'project':'task'}')"
+                         ondragend="dragEndCalItem(event)"
+                         onclick="${clickFn}" title="${escape(tip)} · drag to another day to reschedule">
               ${isProject?'<i class="ti ti-bulb" style="font-size:10px;flex-shrink:0"></i>':''}
               <span class="month-item-title">${escape(item.title)}</span>
             </div>`;
@@ -6274,7 +6298,8 @@ function renderWeekCalendarCard(){
       <div>
         <div class="page-eyebrow" style="margin-bottom:2px">Calendar · ${relLabel}</div>
         <div class="card-title">${rangeLabel}</div>
-        <div class="card-sub">${totalItems} item${totalItems!==1?'s':''} this week · showing ${escape(calUserLabel)}</div>
+        <div class="card-sub">${totalItems} item${totalItems!==1?'s':''} this week · showing ${escape(calUserLabel)}${
+          totalItems ? ' · drag any item to reschedule it' : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${renderCalModeSwitch()}
@@ -6294,7 +6319,9 @@ function renderWeekCalendarCard(){
         const dateStr = isoLocal(d);
         const isToday = dateStr === todayStr;
         const items = (byDate[dateStr]||[]).slice().sort(calendarItemSort);
-        return `<div class="week-day-col ${isToday?'week-day-today':''}">
+        return `<div class="week-day-col ${isToday?'week-day-today':''}"
+             ondragover="dragOverDay(event)" ondragleave="dragLeaveDay(event)"
+             ondrop="dropOnDay(event,'${dateStr}')">
           <div class="week-day-head">
             <div class="week-day-name">${d.toLocaleDateString('en-US',{weekday:'short'})}</div>
             <div class="week-day-num">${d.getDate()}</div>
@@ -6306,7 +6333,11 @@ function renderWeekCalendarCard(){
               const done = item.status==='done';
               const pri = item.priority||'medium';
               const clickFn = isProject ? `openProjectForm('${item.id}')` : `openTaskForm('${item.id}')`;
-              return `<div class="week-item ${isProject?'week-item-project':'pri-'+pri}" onclick="${clickFn}" title="${escape(item.title)}">
+              return `<div class="week-item ${isProject?'week-item-project':'pri-'+pri}"
+                   draggable="true"
+                   ondragstart="dragStartCalItem(event,'${item.id}','${isProject?'project':'task'}')"
+                   ondragend="dragEndCalItem(event)"
+                   onclick="${clickFn}" title="${escape(item.title)} · drag to another day to reschedule">
                 <div class="week-item-title" style="${done?'text-decoration:line-through;opacity:.55':''}">${isProject?'<i class="ti ti-bulb" style="font-size:11px"></i> ':''}${escape(item.title)}</div>
                 <div class="week-item-meta">
                   ${isProject?`<span>${escape(item.category)}</span>`:`<span class="badge b-${pri}">${pri}</span>`}
@@ -7412,6 +7443,55 @@ function renderProjectsSection(){
         </div>`;
       }).join('')}
     </div>`;
+}
+
+/* ---- Dragging a calendar item onto another day (2026-09-12) ---------------
+   Rescheduling used to mean opening the task, changing one date field and
+   saving. On a calendar the obvious gesture is to pick the thing up and put it
+   on the day you want, so that now works in both the month and week views, for
+   tasks and for projects alike.
+
+   The payload is "<kind>:<id>" rather than a bare id: the two collections are
+   stored and saved separately, so the drop has to know which one it is holding.
+   That also keeps it from colliding with the projects board, which puts a bare
+   id on the same text/plain channel.
+
+   Only real day cells take a drop — the blank padding cells before the 1st and
+   after the last of the month carry no handlers at all, so dragging onto one
+   does nothing rather than silently guessing a date. */
+function dragStartCalItem(e, id, kind){
+  e.dataTransfer.setData('text/plain', kind + ':' + id);
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('dragging');
+  e.stopPropagation();
+}
+function dragEndCalItem(e){
+  e.currentTarget.classList.remove('dragging');
+}
+function dragOverDay(e){
+  e.preventDefault();                       // without this the drop never fires
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+function dragLeaveDay(e){
+  e.currentTarget.classList.remove('drag-over');
+}
+async function dropOnDay(e, dateStr){
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const [kind, id] = (e.dataTransfer.getData('text/plain') || '').split(':');
+  if(!id || (kind !== 'task' && kind !== 'project')) return;
+
+  const isProject = kind === 'project';
+  const item = (isProject ? state.projects : state.tasks).find(x => x.id === id);
+  // Dropped back on the day it came from — nothing changed, so don't write a
+  // save or pop a toast for it.
+  if(!item || item.dueDate === dateStr) return;
+
+  item.dueDate = dateStr;
+  await saveOne(isProject ? 'projects' : 'tasks', item);
+  toast(`${item.title} → ${fmtLong(dateStr)}`);
+  app.render();
 }
 
 /* Open tasks belonging to an in-progress project, shown on its board card.
@@ -8904,30 +8984,69 @@ async function saveProp(id){
 }
 
 /* ===== TASK FORM ===== */
+/* The things a task of a given kind can be linked to, in the order the
+   dropdown should list them.
+
+   Projects are restricted to those IN PROGRESS: ideas and planned projects
+   aren't work anyone is doing yet, and finished ones shouldn't be collecting
+   new tasks. The one exception is `currentId` — a task already pointing at a
+   project that has since been finished or moved back keeps its own option, so
+   opening the task to change its due date can't silently unlink it on save. */
+function linkOptionsFor(type, currentId){
+  if(type === 'property'){
+    return [...state.props]
+      .sort((a,b)=>(a.propertyId||'').localeCompare(b.propertyId||''))
+      .map(p=>({id:p.id, label:p.propertyId||'Untitled property'}));
+  }
+  if(type === 'project'){
+    const out = state.projects
+      .filter(pr=>pr.status==='in-progress')
+      .sort((a,b)=>(a.title||'').localeCompare(b.title||''))
+      .map(pr=>({id:pr.id, label:pr.title||'Untitled project'}));
+    if(currentId && !out.some(o=>o.id===currentId)){
+      const pr = state.projects.find(x=>x.id===currentId);
+      if(pr) out.push({id:pr.id,
+        label:`${pr.title||'Untitled project'} (${(pr.status||'').replace('-',' ')})`});
+    }
+    return out;
+  }
+  return [];
+}
+// Switching the kind rebuilds the list below it. Returning to the kind the
+// task started on re-selects what it was already linked to, so flicking
+// through the tabs can't quietly lose the existing link.
+function setTaskLinkType(type){
+  const wrap = document.getElementById('ft-link-target');
+  const sel  = document.getElementById('ft-linked');
+  const hid  = document.getElementById('ft-link-type');
+  if(!wrap || !sel || !hid) return;
+  hid.value = type;
+  wrap.querySelectorAll('.link-type-btn').forEach(b=>{
+    const on = b.dataset.linkType === type;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on);
+  });
+  if(!type){ sel.hidden = true; sel.innerHTML = ''; return; }
+  const keep = wrap.dataset.origType === type ? (wrap.dataset.origId || '') : '';
+  const opts = linkOptionsFor(type, keep);
+  sel.hidden = false;
+  sel.innerHTML = opts.length
+    ? opts.map(o=>`<option value="${o.id}" ${o.id===keep?'selected':''}>${escape(o.label)}</option>`).join('')
+    : `<option value="">${type==='property'?'No properties yet':'No projects in progress'}</option>`;
+}
+
 // presetLink ("<id>|property") pre-selects the Link to field on a NEW task —
 // used by the Tasks tab on a property card. An existing task always keeps its
 // own link; the preset only fills a blank.
 function openTaskForm(id, presetDate, presetLink){
   const t = id ? state.tasks.find(x=>x.id===id) : {};
-  /* Link targets: every property, plus projects that are actually IN PROGRESS.
-     Ideas and planned projects aren't work anyone is doing yet, and finished
-     ones shouldn't be collecting new tasks — offering all four columns would
-     make this list long and mostly wrong. */
-  const allLinked = [
-    ...state.props.map(p=>({id:p.id,type:'property',label:'Property: '+(p.propertyId||'—')})),
-    ...state.projects.filter(pr=>pr.status==='in-progress')
-                     .map(pr=>({id:pr.id,type:'project',label:'Project: '+(pr.title||'—')}))
-  ];
-  /* One exception to "in progress only": a task already pointing at a project
-     that has since been finished or moved back to planned. Without its own
-     option the select would show "Nothing", and simply opening the task to
-     change its due date would silently unlink it on save. */
-  if(t.linkedType==='project' && t.linkedId && !allLinked.some(x=>x.id===t.linkedId)){
-    const pr = state.projects.find(x=>x.id===t.linkedId);
-    if(pr) allLinked.push({id:pr.id, type:'project',
-      label:`Project: ${pr.title||'—'} (${(pr.status||'').replace('-',' ')})`});
-  }
-  const currentLink = (t.linkedId&&t.linkedType) ? `${t.linkedId}|${t.linkedType}` : (presetLink || '');
+  /* The link is picked in two steps — WHAT KIND of thing, then which one —
+     rather than from a single list of every property and project run together.
+     With a few dozen deals on the books that combined list was long enough
+     that finding the right row was the slowest part of writing a task. */
+  const presetParts = (presetLink||'').split('|');
+  const initialId   = t.linkedId   || (id ? '' : (presetParts[0]||''));
+  const initialType = t.linkedType || (id ? '' : (presetParts[1]||''));
   showModal(`<div class="modal">
     <div class="modal-header">
       <h2 class="modal-title">${id?'Edit task':'New task'}</h2>
@@ -8955,9 +9074,17 @@ function openTaskForm(id, presetDate, presetLink){
           <button type="button" class="btn btn-sm" onclick="openQuickPropForm()"><i class="ti ti-plus"></i> Property</button>
         </span>
       </label>
-      <select class="form-select" id="ft-linked">
-        <option value="">Nothing</option>
-        ${allLinked.map(x=>`<option value="${x.id}|${x.type}" ${currentLink===x.id+'|'+x.type?'selected':''}>${escape(x.label)}</option>`).join('')}
+      <div class="link-type" id="ft-link-target" role="tablist"
+           data-orig-id="${escape(initialId)}" data-orig-type="${escape(initialType)}">
+        ${[['','Nothing'],['property','Property'],['project','Project']].map(([v,lbl])=>
+          `<button type="button" role="tab" class="link-type-btn ${initialType===v?'active':''}"
+                   aria-selected="${initialType===v}" data-link-type="${v}"
+                   onclick="setTaskLinkType('${v}')">${lbl}</button>`).join('')}
+      </div>
+      <input type="hidden" id="ft-link-type" value="${escape(initialType)}">
+      <select class="form-select" id="ft-linked" style="margin-top:8px" ${initialType?'':'hidden'}>
+        ${linkOptionsFor(initialType, initialId).map(o=>
+          `<option value="${o.id}" ${o.id===initialId?'selected':''}>${escape(o.label)}</option>`).join('')}
       </select>
     </div>
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="ft-notes">${escape(t.notes||'')}</textarea></div>
@@ -8970,7 +9097,11 @@ function openTaskForm(id, presetDate, presetLink){
 async function saveTask(id){
   const title = $('#ft-title').value.trim();
   if(!title) return toast('Title is required','err');
-  const linked = ($('#ft-linked').value||'').split('|');
+  // The kind comes from the toggle and the row from the select below it; an
+  // empty select (a kind with nothing in it yet) counts as no link at all.
+  const linkType = ($('#ft-link-type').value||'');
+  const linkId   = linkType ? (($('#ft-linked')||{}).value || '') : '';
+  const linked   = linkId ? [linkId, linkType] : ['',''];
   const prev = id ? state.tasks.find(x=>x.id===id) : null;
   const newStatus = $('#ft-status').value;
   let completedAt = prev ? (prev.completedAt||'') : '';
@@ -9037,13 +9168,15 @@ async function saveQuickProp(){
 // Adds the newly created property to the still-open task form's
 // "Link to" dropdown and selects it, then refreshes background counts.
 function linkNewEntity(id, type, label){
-  const sel = document.getElementById('ft-linked');
-  if(sel){
-    const opt = document.createElement('option');
-    opt.value = id + '|' + type;
-    opt.textContent = label;
-    sel.appendChild(opt);
-    sel.value = opt.value;
+  // Drop the brand-new property straight into the picker, switching it to the
+  // right kind first so the new row is the one showing.
+  const wrap = document.getElementById('ft-link-target');
+  if(wrap){
+    wrap.dataset.origType = type;
+    wrap.dataset.origId   = id;
+    setTaskLinkType(type);
+    const sel = document.getElementById('ft-linked');
+    if(sel) sel.value = id;
   }
   app.render();
 }
