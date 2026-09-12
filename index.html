@@ -837,6 +837,19 @@ input,select,textarea{font:inherit;color:inherit}
 .listing-chart-legend span{display:flex;align-items:center;gap:6px}
 .listing-swatch{width:10px;height:10px;border-radius:2px;display:inline-block}
 
+/* ---- tasks tab (property card) ---- */
+.funding-tab-count.is-overdue{background:var(--danger-soft);color:var(--danger)}
+.prop-tasks-head{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-bottom:10px;padding-bottom:10px;border-bottom:1px dashed var(--border);
+}
+.prop-tasks-head .form-hint{margin:0;flex:1;min-width:120px}
+.prop-tasks-done{
+  font-size:11.5px;color:var(--ink-3);margin:10px 0 0;
+  padding-top:10px;border-top:1px dashed var(--border);
+}
+.prop-tasks-empty{font-size:12px;color:var(--ink-3);text-align:center;padding:16px 0}
+
 /* ---- collapsible day-by-day log ---- */
 .listing-log{margin-top:2px}
 .listing-log-toggle{
@@ -1094,6 +1107,65 @@ input,select,textarea{font:inherit;color:inherit}
 .week-item.pri-low{border-left-color:var(--border-strong);background:var(--surface-2)}
 .week-item.week-item-project{border-left-color:var(--accent);background:var(--accent-soft)}
 
+/* ---- month grid (Dashboard calendar) ----
+   Seven equal columns, every week a full row. Cells are deliberately allowed
+   to be short — an empty day is just an empty box, not a box with "nothing
+   scheduled" written in it thirty times over. */
+.month-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.month-dow{
+  font-size:10.5px;font-weight:600;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.05em;text-align:center;padding:2px 0 4px;
+}
+.month-cell{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-sm);padding:6px;min-height:104px;min-width:0;
+  display:flex;flex-direction:column;gap:5px;
+}
+/* Padding cells before the 1st and after the last — same grid, no content. */
+.month-cell.is-outside{background:var(--surface-2);border-style:dashed;opacity:.5;min-height:0}
+.month-cell.is-today{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.month-cell-head{display:flex;align-items:baseline;gap:5px}
+.month-daynum{font-size:12.5px;font-weight:700;color:var(--ink)}
+.month-cell.is-today .month-daynum{color:var(--accent)}
+.month-cell-count{
+  margin-left:auto;font-size:9.5px;font-weight:600;color:var(--ink-3);
+  background:var(--surface-2);padding:0 6px;border-radius:20px;
+}
+/* One pathologically busy day shouldn't stretch its whole week to match it,
+   so a long list scrolls inside its own cell instead. */
+.month-cell-items{display:flex;flex-direction:column;gap:4px;overflow-y:auto;max-height:158px}
+.month-item{
+  display:flex;align-items:center;gap:5px;min-width:0;
+  background:var(--surface-2);border-left:3px solid var(--border-strong);
+  border-radius:4px;padding:4px 6px;cursor:pointer;
+  transition:box-shadow .15s var(--ease);
+}
+.month-item:hover{box-shadow:var(--shadow-sm)}
+.month-item-title{
+  font-size:11px;font-weight:600;color:var(--ink);line-height:1.3;
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.month-item.is-done .month-item-title{text-decoration:line-through;opacity:.5}
+.month-item.pri-high{border-left-color:var(--danger);background:var(--danger-soft)}
+.month-item.pri-medium{border-left-color:var(--gold);background:var(--warn-soft)}
+.month-item.pri-low{border-left-color:var(--border-strong);background:var(--surface-2)}
+.month-item.month-item-project{border-left-color:var(--accent);background:var(--accent-soft)}
+@media(max-width:860px){
+  .month-grid{grid-template-columns:repeat(7,minmax(92px,1fr));overflow-x:auto}
+  .month-cell{min-height:84px;padding:5px}
+  .month-cell-items{max-height:120px}
+  .month-item-title{font-size:10.5px}
+}
+
+/* ---- month / week switch ---- */
+.cal-mode{display:inline-flex;border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden}
+.cal-mode button{
+  font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 13px;
+  background:transparent;color:var(--ink-2);border:none;cursor:pointer;
+}
+.cal-mode button:hover:not(.active){background:var(--surface-2);color:var(--accent)}
+.cal-mode button.active{background:var(--accent);color:var(--accent-ink)}
+
 /* ============ RANKED PERFORMANCE ============ */
 .rank-list{display:flex;flex-direction:column;gap:12px}
 .rank-row{display:flex;align-items:center;gap:10px}
@@ -1159,6 +1231,37 @@ input,select,textarea{font:inherit;color:inherit}
 .proj-card-title{font-weight:600;font-size:13px;margin-bottom:6px}
 .proj-card-cat{font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
 .proj-card-meta{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+
+/* ---- open tasks on an in-progress project card ----
+   The board columns are narrow, so each task is one truncated line: what it
+   is, and when it's due. Anything more and the card stops being scannable. */
+.proj-tasks{margin-top:10px;padding-top:9px;border-top:1px dashed var(--border)}
+.proj-tasks-head{
+  display:flex;align-items:center;gap:6px;margin-bottom:6px;
+  font-size:10.5px;font-weight:600;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.05em;
+}
+.proj-tasks-add{
+  margin-left:auto;text-transform:none;letter-spacing:0;
+  font-size:10.5px;font-weight:600;font-family:inherit;
+  background:transparent;border:none;color:var(--accent);cursor:pointer;padding:0;
+}
+.proj-tasks-add:hover{text-decoration:underline}
+.proj-task{
+  display:flex;align-items:center;gap:6px;min-width:0;margin-bottom:4px;
+  padding:4px 6px;border-radius:4px;cursor:pointer;
+  background:var(--surface-2);border-left:2px solid var(--border-strong);
+}
+.proj-task:hover{background:var(--accent-soft)}
+.proj-task.is-overdue{background:var(--danger-soft);border-left-color:var(--danger)}
+.proj-task-title{
+  flex:1;min-width:0;font-size:11px;font-weight:600;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.proj-task-due{font-size:10px;color:var(--ink-3);flex-shrink:0}
+.proj-task.is-overdue .proj-task-due{color:var(--danger);font-weight:700}
+.proj-tasks-more{font-size:10.5px;color:var(--ink-3);padding-top:2px}
+.proj-tasks-none{font-size:11px;color:var(--ink-3)}
 
 /* ============ SETTINGS ============ */
 .settings-section{
@@ -1915,6 +2018,8 @@ const state = {
   // Listing details panel. Separate from listingOpen so collapsing the log
   // doesn't close the panel around it.
   listingLogOpen:null,
+  // Third tab on a property card: the deal's own task list.
+  tasksOpen:null,
   filters:{}
 };
 
@@ -2258,6 +2363,30 @@ function listingDeltas(stats){
 // Per-day figures are usually whole numbers; they only go fractional when a
 // day was skipped and the change is spread back across the gap.
 const perDay = v => v == null ? '—' : (Math.round(v * 10) / 10).toLocaleString();
+
+/* ---- Tasks attached to a deal or a project ---------------------------------
+   A task points at ONE thing through linkedId + linkedType — a property or,
+   since 2026-09-12, a project. Both halves are always checked: ids are unique
+   across tables in practice, but matching on the id alone would silently start
+   crossing the two the moment that stopped being true. */
+function tasksForLink(type, id){
+  return state.tasks.filter(t => t.linkedType === type && t.linkedId === id);
+}
+const tasksForProp        = id => tasksForLink('property', id);
+const openTasksForProp    = id => tasksForProp(id).filter(t => t.status !== 'done');
+const tasksForProject     = id => tasksForLink('project', id);
+const openTasksForProject = id => tasksForProject(id).filter(t => t.status !== 'done');
+// Due soonest first, with anything overdue naturally rising to the top because
+// its date is further back. Undated work sinks — it has no position in a
+// date-ordered list and would otherwise squat at the top on an empty string.
+function sortByDue(list){
+  return [...list].sort((a,b)=>{
+    if(!a.dueDate && !b.dueDate) return 0;
+    if(!a.dueDate) return 1;
+    if(!b.dueDate) return -1;
+    return a.dueDate.localeCompare(b.dueDate);
+  });
+}
 
 // A deal whose purchase has closed but which has no Zillow link saved yet —
 // money is out the door and nothing is in front of buyers. propStatus()
@@ -3342,16 +3471,46 @@ function renderDashboard(){
   const agendaUserId = getAgendaUserId();
   const agendaMine = item => !agendaUserId || (item.assignees||[]).includes(agendaUserId);
   const agendaLabel = agendaUserId ? userName(agendaUserId) : 'the whole team';
-  const agendaTasks = [...overdueTasks, ...dueTodayTasks].filter(agendaMine);
+
+  // ...and to one deal. Projects carry no property link, so selecting a real
+  // property correctly empties them out of the agenda rather than showing
+  // every project against every deal.
+  const agendaPropId = getAgendaPropId();
+  const agendaProjId = getAgendaProjId();
+  // Tasks carry the link, so they're matched on it directly.
+  const agendaLinkTask = t => {
+    if(agendaProjId) return t.linkedType === 'project' && t.linkedId === agendaProjId;
+    if(!agendaPropId) return true;
+    if(agendaPropId === 'none') return !t.linkedId;
+    return t.linkedType === 'property' && t.linkedId === agendaPropId;
+  };
+  /* Projects have no link of their own — they ARE one end of it. So a project
+     belongs on a filtered agenda when it's the project being filtered to, or
+     when the filter is "not linked to anything" (a project is attached to no
+     deal), or when nothing is narrowed at all. */
+  const agendaLinkProject = pr => {
+    if(agendaProjId) return pr.id === agendaProjId;
+    if(!agendaPropId) return true;
+    return agendaPropId === 'none';
+  };
+  const agendaScopeLabel = agendaProjId
+      ? ` · ${(state.projects.find(x=>x.id===agendaProjId)||{}).title || 'one project'} only`
+    : !agendaPropId ? ''
+    : agendaPropId === 'none' ? ' · not linked to anything'
+    : ` · ${(state.props.find(p=>p.id===agendaPropId)||{}).propertyId || 'one deal'} only`;
+  const agendaFilter     = t  => agendaMine(t)  && agendaLinkTask(t);
+  const agendaProjFilter = pr => agendaMine(pr) && agendaLinkProject(pr);
+
+  const agendaTasks = [...overdueTasks, ...dueTodayTasks].filter(agendaFilter);
   // ADDED 2026-08-18: everything still open with a due date after today, so
   // the agenda can be scrolled past "today" into what's coming rather than
   // dead-ending. Undated tasks are deliberately left out — they'd have no
   // position in a date-ordered list and would just pad it out.
   const upcomingTasks = state.tasks
     .filter(t => t.status !== 'done' && t.dueDate && t.dueDate > todayStr)
-    .filter(agendaMine)
+    .filter(agendaFilter)
     .sort((a2, b2) => (a2.dueDate || '').localeCompare(b2.dueDate || ''));
-  const projsToday = state.projects.filter(p=>p.status!=='done'&&p.dueDate===todayStr).filter(agendaMine);
+  const projsToday = state.projects.filter(p=>p.status!=='done'&&p.dueDate===todayStr).filter(agendaProjFilter);
   const agendaCount = agendaTasks.length + projsToday.length;
 
   const activeProj = state.projects.filter(p=>p.status==='in-progress').length;
@@ -3380,7 +3539,7 @@ function renderDashboard(){
         <div style="font-size:12px;color:var(--ink-2);margin-top:2px">Sets whose tasks show up here and who this browser sends notifications for.</div>
       </div>
       <select class="form-select" id="dash-user-select" style="max-width:220px" onchange="app.switchUser(this.value)">
-        <option value="">Choose user…</option>
+        <option value="" ${!state.activeUserId?'selected':''}>Choose user…</option>
         ${state.users.map(u=>`<option value="${u.id}" ${u.id===state.activeUserId?'selected':''}>${escape(u.name)}</option>`).join('')}
       </select>
     </div>
@@ -3414,12 +3573,33 @@ function renderDashboard(){
       <div>
         <div class="page-eyebrow" style="margin-bottom:2px">Today's agenda</div>
         <div class="card-title">${dayLabel}</div>
-        <div class="card-sub">${agendaCount} item${agendaCount!==1?'s':''} · showing ${escape(agendaLabel)}</div>
+        <div class="card-sub">${agendaCount} item${agendaCount!==1?'s':''} · showing ${escape(agendaLabel)}${escape(agendaScopeLabel)}</div>
       </div>
-      <select class="filter-select" style="min-width:170px" onchange="setAgendaUser(this.value)">
-        <option value="">Everyone</option>
-        ${state.users.map(u=>`<option value="${u.id}" ${u.id===agendaUserId?'selected':''}>${escape(u.name)}</option>`).join('')}
-      </select>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <select class="filter-select" style="min-width:170px" onchange="setAgendaUser(this.value)">
+          <option value="" ${!agendaUserId?'selected':''}>Everyone</option>
+          ${state.users.map(u=>`<option value="${u.id}" ${u.id===agendaUserId?'selected':''}>${escape(u.name)}</option>`).join('')}
+        </select>
+        <select class="filter-select" style="min-width:190px" onchange="setAgendaProp(this.value)" title="Narrow the agenda to one deal">
+          <option value="" ${!agendaPropId?'selected':''}>All properties</option>
+          <option value="none" ${agendaPropId==='none'?'selected':''}>Not linked to anything</option>
+          ${[...state.props]
+            .sort((x,y)=>(x.propertyId||'').localeCompare(y.propertyId||''))
+            .map(pr=>{
+              const n = openTasksForProp(pr.id).length;
+              return `<option value="${pr.id}" ${pr.id===agendaPropId?'selected':''}>${escape(pr.propertyId||'Untitled')}${n?` (${n})`:''}</option>`;
+            }).join('')}
+        </select>
+        <select class="filter-select" style="min-width:190px" onchange="setAgendaProj(this.value)" title="Narrow the agenda to one in-progress project">
+          <option value="" ${!agendaProjId?'selected':''}>All projects</option>
+          ${state.projects.filter(pr=>pr.status==='in-progress')
+            .sort((x,y)=>(x.title||'').localeCompare(y.title||''))
+            .map(pr=>{
+              const n = openTasksForProject(pr.id).length;
+              return `<option value="${pr.id}" ${pr.id===agendaProjId?'selected':''}>${escape(pr.title||'Untitled')}${n?` (${n})`:''}</option>`;
+            }).join('')}
+        </select>
+      </div>
     </div>
     <div class="item-list agenda-scroll">
       ${agendaTasks.map(t=>{
@@ -3475,7 +3655,7 @@ function renderDashboard(){
     </div>
   </div>
 
-  ${renderWeekCalendarCard()}
+  ${renderCalendarCard()}
 
   <div class="grid grid-3" style="margin-top:24px">
     ${renderTeamPerformanceCard(monthFilter, monthLabel)}
@@ -5756,9 +5936,9 @@ async function stampKpiUpdate(){
   await saveOne('kpiMeta', metaRow);
 }
 
-// The Dashboard uses renderWeekCalendarCard() now; the old month-grid dashboard
-// calendar was removed. shiftCalendar() stays because the Team performance and
-// On-time delivery cards still page by month with it.
+// The Dashboard calendar is renderCalendarCard() — a month grid by default,
+// with a Week switch. shiftCalendar() is unrelated to it: the Team performance
+// and On-time delivery cards page by month with their own offset.
 function shiftCalendar(delta){
   state.calendarOffset = delta===0 ? 0 : (state.calendarOffset||0)+delta;
   app.render();
@@ -5843,12 +6023,224 @@ function setAgendaUser(id){
   Prefs.set('agendaUser', id);
   app.render();
 }
+/* The agenda can also be narrowed to one deal — "what's outstanding on
+   BRZ-1423" is a question you ask far more often than you'd think, and
+   answering it meant scanning the whole list for the property name.
 
-// The week grid, as one self-contained card on the Dashboard. This is the only
-// calendar in the app now — the separate Calendar tab was removed — so it
-// carries the full navigation: prev/next week, a jump back to this week, a date
-// picker to leap to any arbitrary week, and the person filter. The week it's
-// showing and who it's scoped to are both remembered per-device.
+   Two special values sit alongside the real property ids:
+     ''      every task, linked or not (the default)
+     'none'  only work that isn't attached to any deal — the admin and
+             marketing tasks that would otherwise hide among the deal work
+   A property deleted while it was selected falls back to '' rather than
+   leaving the agenda mysteriously empty. */
+function getAgendaPropId(){
+  if(state.agendaPropId === undefined){
+    state.agendaPropId = Prefs.get('agendaProp', '') || '';
+  }
+  if(state.agendaPropId && state.agendaPropId !== 'none'
+     && !state.props.some(p=>p.id===state.agendaPropId)){
+    state.agendaPropId = '';
+  }
+  return state.agendaPropId;
+}
+function setAgendaProp(id){
+  state.agendaPropId = id;
+  Prefs.set('agendaProp', id);
+  // A task links to exactly one thing, so narrowing to a deal AND a project at
+  // once could only ever return nothing. Picking one clears the other rather
+  // than letting the agenda go mysteriously blank.
+  if(id) setAgendaProjRaw('');
+  app.render();
+}
+/* The same filter for projects. Only IN PROGRESS projects are offered — the
+   agenda is about live work, and a project sitting in Ideas has nothing due. */
+function getAgendaProjId(){
+  if(state.agendaProjId === undefined){
+    state.agendaProjId = Prefs.get('agendaProj', '') || '';
+  }
+  // Selected project finished or was deleted — fall back to showing everything
+  // rather than filtering against something that isn't there any more.
+  if(state.agendaProjId && !state.projects.some(pr=>pr.id===state.agendaProjId && pr.status==='in-progress')){
+    state.agendaProjId = '';
+  }
+  return state.agendaProjId;
+}
+function setAgendaProjRaw(id){
+  state.agendaProjId = id;
+  Prefs.set('agendaProj', id);
+}
+function setAgendaProj(id){
+  setAgendaProjRaw(id);
+  if(id){ state.agendaPropId = ''; Prefs.set('agendaProp', ''); }
+  app.render();
+}
+
+/* ---- Month view (2026-09-12) -----------------------------------------------
+   The Dashboard calendar can show a whole month as well as a single week. Both
+   views share their data, their person filter and their item styling; they
+   differ only in how much calendar is on screen and therefore how much room
+   each item gets. The month offset is counted in months from the current one,
+   the same way the week offset counts weeks, and is remembered per device. */
+function getMonthCalendarOffset(){
+  if(state.monthCalendarOffset === undefined){
+    state.monthCalendarOffset = parseInt(Prefs.get('monthCalOffset', 0), 10) || 0;
+  }
+  return state.monthCalendarOffset;
+}
+function setMonthCalendarOffset(v){
+  state.monthCalendarOffset = v;
+  Prefs.set('monthCalOffset', v);
+  app.render();
+}
+function shiftMonthCalendar(delta){
+  setMonthCalendarOffset(delta===0 ? 0 : getMonthCalendarOffset()+delta);
+}
+// Jump to whatever month contains `dateStr`. Measured in whole months from the
+// current one rather than by differencing timestamps, so month lengths and
+// daylight-saving shifts can't drift the answer by a day.
+function jumpToMonthOf(dateStr){
+  if(!dateStr) return;
+  const target = new Date(dateStr+'T00:00:00');
+  if(isNaN(target)) return;
+  const now = crmNow();
+  setMonthCalendarOffset((target.getFullYear()-now.getFullYear())*12 + (target.getMonth()-now.getMonth()));
+}
+// Month or week. Month is the default — the dashboard calendar is for seeing
+// what's coming, and a week rarely answers that on its own.
+function getCalMode(){
+  if(state.calMode === undefined) state.calMode = Prefs.get('calMode', 'month') || 'month';
+  return state.calMode === 'week' ? 'week' : 'month';
+}
+function setCalMode(mode){
+  state.calMode = mode === 'week' ? 'week' : 'month';
+  Prefs.set('calMode', state.calMode);
+  app.render();
+}
+function renderCalendarCard(){
+  return getCalMode() === 'week' ? renderWeekCalendarCard() : renderMonthCalendarCard();
+}
+
+// Everything with a due date, bucketed by that date. Tasks and projects live
+// in separate collections but hang on the same calendar, so they're tagged
+// with _kind on the way in and told apart by it downstream.
+function calendarItemsByDate(mine){
+  const byDate = {};
+  state.tasks.forEach(t=>{ if(!t.dueDate || !mine(t)) return; (byDate[t.dueDate]=byDate[t.dueDate]||[]).push({...t,_kind:'task'}); });
+  state.projects.forEach(p=>{ if(!p.dueDate || !mine(p)) return; (byDate[p.dueDate]=byDate[p.dueDate]||[]).push({...p,_kind:'project'}); });
+  return byDate;
+}
+// Within a day: still-open work first, then by priority. What's already done
+// sinks, since it no longer needs your attention.
+function calendarItemSort(a, b){
+  const doneDiff = (a.status==='done') - (b.status==='done');
+  if(doneDiff) return doneDiff;
+  const order = {high:0, medium:1, low:2};
+  return (order[a.priority]??1) - (order[b.priority]??1);
+}
+// The Month/Week switch, shared by both cards so it sits in the same place
+// whichever one you're looking at.
+function renderCalModeSwitch(){
+  const mode = getCalMode();
+  return `<div class="cal-mode" role="tablist">
+    <button type="button" role="tab" aria-selected="${mode==='month'}" class="${mode==='month'?'active':''}" onclick="setCalMode('month')">Month</button>
+    <button type="button" role="tab" aria-selected="${mode==='week'}" class="${mode==='week'?'active':''}" onclick="setCalMode('week')">Week</button>
+  </div>`;
+}
+
+/* The month grid. Every task and project sits on its own due date — nothing is
+   truncated to a "+3 more", because the point of looking at a month is seeing
+   the whole load, not a sample of it. A day with more than fits scrolls inside
+   its own cell so one heavy Friday can't stretch that entire week's row. */
+function renderMonthCalendarCard(){
+  const offset = getMonthCalendarOffset();
+  const base = crmNow();
+  base.setHours(0,0,0,0);
+  base.setDate(1);                         // before shifting, so a 31st can't
+  base.setMonth(base.getMonth() + offset); // skid into the following month
+  const year = base.getFullYear(), month = base.getMonth();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const startWeekday = new Date(year, month, 1).getDay();
+  const todayStr = today();
+
+  const calUserId = getCalendarUserId();
+  const mine = item => !calUserId || (item.assignees||[]).includes(calUserId);
+  const calUserLabel = calUserId ? userName(calUserId) : 'the whole team';
+  const byDate = calendarItemsByDate(mine);
+
+  // Leading blanks up to the 1st, the month's real days, then trailing blanks
+  // so the grid always ends on a full week.
+  const cells = [];
+  for(let i=0;i<startWeekday;i++) cells.push(null);
+  for(let d=1;d<=daysInMonth;d++) cells.push(new Date(year, month, d));
+  while(cells.length % 7) cells.push(null);
+
+  const monthDates = cells.filter(Boolean).map(isoLocal);
+  const totalItems = monthDates.reduce((s,ds)=>s+((byDate[ds]||[]).length), 0);
+  const openItems  = monthDates.reduce((s,ds)=>s+((byDate[ds]||[]).filter(i=>i.status!=='done').length), 0);
+
+  const monthLabel = new Date(year, month, 1).toLocaleDateString('en-US',{month:'long', year:'numeric'});
+  const relLabel = offset===0 ? 'This month'
+    : offset===1 ? 'Next month'
+    : offset===-1 ? 'Last month'
+    : offset>0 ? `${offset} months ahead`
+    : `${Math.abs(offset)} months back`;
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  return `
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header" style="flex-wrap:wrap;gap:10px">
+      <div>
+        <div class="page-eyebrow" style="margin-bottom:2px">Calendar · ${relLabel}</div>
+        <div class="card-title">${monthLabel}</div>
+        <div class="card-sub">${totalItems} item${totalItems!==1?'s':''} this month${
+          totalItems ? ` · ${openItems} still open` : ''} · showing ${escape(calUserLabel)}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${renderCalModeSwitch()}
+        <button class="btn btn-sm" onclick="shiftMonthCalendar(-1)" title="Previous month">${ICON_CHEVRON_LEFT} Prev</button>
+        <button class="btn btn-sm ${offset===0?'btn-primary':''}" onclick="shiftMonthCalendar(0)" title="Jump to this month"><i class="ti ti-calendar-event"></i> Today</button>
+        <button class="btn btn-sm" onclick="shiftMonthCalendar(1)" title="Next month">Next ${ICON_CHEVRON_RIGHT}</button>
+        <input type="date" class="filter-select" style="min-width:150px" value="${isoLocal(new Date(year, month, 1))}"
+               title="Jump to the month containing this date" onchange="jumpToMonthOf(this.value)">
+        <select class="filter-select" style="min-width:170px" onchange="setCalendarUser(this.value)">
+          <option value="" ${!calUserId?'selected':''}>Everyone</option>
+          ${state.users.map(u=>`<option value="${u.id}" ${u.id===calUserId?'selected':''}>${escape(u.name)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="month-grid">
+      ${DOW.map(n=>`<div class="month-dow">${n}</div>`).join('')}
+      ${cells.map(d=>{
+        if(!d) return `<div class="month-cell is-outside"></div>`;
+        const dateStr = isoLocal(d);
+        const items = (byDate[dateStr]||[]).slice().sort(calendarItemSort);
+        return `<div class="month-cell ${dateStr===todayStr?'is-today':''}">
+          <div class="month-cell-head">
+            <span class="month-daynum">${d.getDate()}</span>
+            ${items.length?`<span class="month-cell-count">${items.length}</span>`:''}
+          </div>
+          ${items.length?`<div class="month-cell-items">${items.map(item=>{
+            const isProject = item._kind==='project';
+            const done = item.status==='done';
+            const pri  = item.priority||'medium';
+            const clickFn = isProject ? `openProjectForm('${item.id}')` : `openTaskForm('${item.id}')`;
+            const tip = `${item.title} · ${isProject?(item.category||'Project'):pri+' priority'}${done?' · done':''}`;
+            return `<div class="month-item ${isProject?'month-item-project':'pri-'+pri} ${done?'is-done':''}"
+                         onclick="${clickFn}" title="${escape(tip)}">
+              ${isProject?'<i class="ti ti-bulb" style="font-size:10px;flex-shrink:0"></i>':''}
+              <span class="month-item-title">${escape(item.title)}</span>
+            </div>`;
+          }).join('')}</div>`:''}
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+// The week grid: the same data at seven-days' magnification, where each item
+// has room for its priority badge and assignees. Reached from the Month/Week
+// switch; the week it's showing and who it's scoped to are remembered
+// per-device, independently of the month view's own position.
 function renderWeekCalendarCard(){
   const offset = getWeekCalendarOffset();
   const weekStart = getWeekStart(offset);
@@ -5865,9 +6257,7 @@ function renderWeekCalendarCard(){
     ? `${weekStart.toLocaleDateString('en-US',{month:'long'})} ${weekStart.getDate()}–${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
     : `${weekStart.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${weekEnd.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
 
-  const byDate = {};
-  state.tasks.forEach(t=>{ if(!t.dueDate || !mine(t)) return; (byDate[t.dueDate]=byDate[t.dueDate]||[]).push({...t,_kind:'task'}); });
-  state.projects.forEach(p=>{ if(!p.dueDate || !mine(p)) return; (byDate[p.dueDate]=byDate[p.dueDate]||[]).push({...p,_kind:'project'}); });
+  const byDate = calendarItemsByDate(mine);
 
   const totalItems = days.reduce((s,d)=>s+((byDate[isoLocal(d)]||[]).length),0);
   const isThisWeek = offset===0;
@@ -5887,13 +6277,14 @@ function renderWeekCalendarCard(){
         <div class="card-sub">${totalItems} item${totalItems!==1?'s':''} this week · showing ${escape(calUserLabel)}</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${renderCalModeSwitch()}
         <button class="btn btn-sm" onclick="shiftWeekCalendar(-1)" title="Previous week">${ICON_CHEVRON_LEFT} Prev</button>
         <button class="btn btn-sm ${isThisWeek?'btn-primary':''}" onclick="shiftWeekCalendar(0)" title="Jump to this week"><i class="ti ti-calendar-event"></i> Today</button>
         <button class="btn btn-sm" onclick="shiftWeekCalendar(1)" title="Next week">Next ${ICON_CHEVRON_RIGHT}</button>
         <input type="date" class="filter-select" style="min-width:150px" value="${isoLocal(weekStart)}"
                title="Jump to the week containing this date" onchange="jumpToWeekOf(this.value)">
         <select class="filter-select" style="min-width:170px" onchange="setCalendarUser(this.value)">
-          <option value="">Everyone</option>
+          <option value="" ${!calUserId?'selected':''}>Everyone</option>
           ${state.users.map(u=>`<option value="${u.id}" ${u.id===calUserId?'selected':''}>${escape(u.name)}</option>`).join('')}
         </select>
       </div>
@@ -5902,12 +6293,7 @@ function renderWeekCalendarCard(){
       ${days.map(d=>{
         const dateStr = isoLocal(d);
         const isToday = dateStr === todayStr;
-        const items = (byDate[dateStr]||[]).slice().sort((a,b)=>{
-          const doneDiff = (a.status==='done') - (b.status==='done');
-          if(doneDiff) return doneDiff;
-          const order = {high:0, medium:1, low:2};
-          return (order[a.priority]??1) - (order[b.priority]??1);
-        });
+        const items = (byDate[dateStr]||[]).slice().sort(calendarItemSort);
         return `<div class="week-day-col ${isToday?'week-day-today':''}">
           <div class="week-day-head">
             <div class="week-day-name">${d.toLocaleDateString('en-US',{weekday:'short'})}</div>
@@ -5935,7 +6321,7 @@ function renderWeekCalendarCard(){
   </div>`;
 }
 
-// (The standalone Calendar page was removed — renderWeekCalendarCard() on the
+// (The standalone Calendar page was removed — renderCalendarCard() on the
 // Dashboard is the calendar now. normalizeView() redirects any #calendar link.)
 
 function renderTeamPerformanceCard(mf, monthLabel){
@@ -6176,7 +6562,10 @@ function renderPropPanels(p, bands){
   bands = bands || fundingBands(p);
   const fundingOpen = state.fundingOpen === p.id;
   const listingOpen = state.listingOpen === p.id;
+  const tasksOpen   = state.tasksOpen === p.id;
   const stats = normalizeListingStats(p.listingStats);
+  const openTasks = openTasksForProp(p.id);
+  const overdueTasks = openTasks.filter(t => isOverdue(t.dueDate));
 
   const fundingTab = `<button class="funding-tab ${fundingOpen?'is-open':''}" data-action="toggle-funding" data-id="${p.id}">
     <i class="ti ti-${fundingOpen?'chevron-down':'chevron-right'}"></i>
@@ -6186,6 +6575,13 @@ function renderPropPanels(p, bands){
   const listingTab = `<button class="funding-tab ${listingOpen?'is-open':''}" data-action="toggle-listing" data-id="${p.id}">
     <i class="ti ti-${listingOpen?'chevron-down':'chevron-right'}"></i>
     Listing details${stats.length?` <span class="funding-tab-count">${stats.length}</span>`:''}
+  </button>`;
+  // The count pill turns red when any of this deal's open work is overdue, so
+  // a card tells you that without being opened.
+  const tasksTab = `<button class="funding-tab ${tasksOpen?'is-open':''}" data-action="toggle-tasks" data-id="${p.id}"
+          title="${overdueTasks.length?`${overdueTasks.length} overdue`:`${openTasks.length} open task${openTasks.length===1?'':'s'}`} on this deal">
+    <i class="ti ti-${tasksOpen?'chevron-down':'chevron-right'}"></i>
+    Tasks${openTasks.length?` <span class="funding-tab-count ${overdueTasks.length?'is-overdue':''}">${openTasks.length}</span>`:''}
   </button>`;
 
   // Each panel sits in its own always-present slot div, never a bare
@@ -6197,9 +6593,56 @@ function renderPropPanels(p, bands){
   // mangled hybrid of the two, and the tabs stop opening/closing cleanly.
   // Fixed slots keep each panel's node at the same index every render, so a
   // toggle only ever touches its own slot's contents.
-  return `<div class="funding-tabs">${fundingTab}${listingTab}</div>
+  return `<div class="funding-tabs">${fundingTab}${listingTab}${tasksTab}</div>
     <div class="funding-panel-slot">${fundingOpen ? renderFundingPanel(p, bands) : ''}</div>
-    <div class="listing-panel-slot">${listingOpen ? renderListingPanel(p, stats) : ''}</div>`;
+    <div class="listing-panel-slot">${listingOpen ? renderListingPanel(p, stats) : ''}</div>
+    <div class="tasks-panel-slot">${tasksOpen ? renderPropTasksPanel(p) : ''}</div>`;
+}
+
+/* ---- Tasks panel (inline, per-property) ------------------------------------
+   Every open task attached to this deal, soonest due first, with the same
+   controls as the agenda: tick it off, click it open, edit it. Completed work
+   is counted but not listed — the tab is for what's left to do, and a deal
+   that has run a while would otherwise bury its live tasks under its history.
+   "New task" pre-links the deal, so logging follow-up from here is one step. */
+function renderPropTasksPanel(p){
+  const all  = tasksForProp(p.id);
+  const open = sortByDue(all.filter(t => t.status !== 'done'));
+  const done = all.length - open.length;
+
+  const rows = open.map(t => {
+    const od = isOverdue(t.dueDate);
+    return `<div class="item-row is-clickable ${od?'overdue':''}" data-action="open-task" data-id="${t.id}" title="Open this task">
+      <input type="checkbox" class="task-check" data-action="toggle-task" data-id="${t.id}">
+      <div class="item-main">
+        <div class="item-title">${escape(t.title)}</div>
+        <div class="item-meta">
+          <span class="badge b-${t.priority||'medium'}">${t.priority||'medium'}</span>
+          ${!t.dueDate ? `<span>no due date</span>`
+            : od ? `<span style="color:var(--danger);font-weight:600">was due ${fmtLong(t.dueDate)}</span>`
+            : `<span>due ${fmtLong(t.dueDate)}</span>`}
+        </div>
+      </div>
+      ${assigneeStack(t.assignees,'sm')}
+      <div class="item-actions">
+        ${od?`<button class="btn btn-sm" onclick="rescheduleToToday('${t.id}')" title="Move to today"><i class="ti ti-calendar-plus"></i> Today</button>`:''}
+        <button class="icon-btn" data-action="edit-task" data-id="${t.id}" title="Edit">${ICON_EDIT}</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="funding-panel">
+    <div class="prop-tasks-head">
+      <p class="form-hint">${open.length ? `${open.length} open task${open.length===1?'':'s'} on this deal`
+                                         : 'Nothing open on this deal'}</p>
+      <button type="button" class="btn btn-sm btn-primary" onclick="newTaskForProp('${p.id}')">
+        <i class="ti ti-plus"></i> New task
+      </button>
+    </div>
+    ${open.length ? `<div class="item-list">${rows}</div>`
+                  : `<div class="prop-tasks-empty">No open tasks. Add one and it stays linked to this property.</div>`}
+    ${done ? `<p class="prop-tasks-done">${done} completed task${done===1?'':'s'} on this deal — see the Tasks tab for the full history.</p>` : ''}
+  </div>`;
 }
 
 /* ---- Funding tier panel (inline, per-property) ---- */
@@ -6258,6 +6701,7 @@ function toggleFundingPanel(id){
   const alreadyOpen = state.fundingOpen === id;
   state.fundingOpen = alreadyOpen ? null : id;
   state.listingOpen = null;
+  state.tasksOpen = null;
   app.render();
 }
 function closeFundingPanel(){
@@ -6349,8 +6793,27 @@ function toggleListingPanel(id){
   const alreadyOpen = state.listingOpen === id;
   state.listingOpen = alreadyOpen ? null : id;
   state.fundingOpen = null;
+  state.tasksOpen = null;
   if(!alreadyOpen) state.listingLogOpen = null;   // reopen collapsed, not mid-scroll
   app.render();
+}
+// The deal's task list, third of the three tabs and exclusive with them.
+function toggleTasksPanel(id){
+  const alreadyOpen = state.tasksOpen === id;
+  state.tasksOpen = alreadyOpen ? null : id;
+  state.fundingOpen = null;
+  state.listingOpen = null;
+  app.render();
+}
+// "New task" from inside a deal's panel — opens the normal task form with the
+// Link to field already pointing at this property, so the one field that is
+// obvious from context doesn't have to be picked by hand.
+function newTaskForProp(id){
+  openTaskForm(null, null, id + '|property');
+}
+// Same idea from a project card on the board.
+function newTaskForProject(id){
+  openTaskForm(null, null, id + '|project');
 }
 // The day-by-day log inside an open Listing details panel. Collapsed by
 // default: the summary and the per-day chart are what the tab is for, and the
@@ -6366,6 +6829,7 @@ function toggleListingLog(id){
 function openListingPanel(id){
   state.listingOpen = id;
   state.fundingOpen = null;
+  state.tasksOpen = null;
   app.render();
   const input = document.getElementById(`lst-url-${id}`);
   if(input){ input.focus(); input.scrollIntoView({block:'nearest'}); }
@@ -6875,13 +7339,13 @@ function renderTasksSection(){
         <input class="search-input" placeholder="Search tasks…" data-filter="taskSearch" value="${escape(q)}">
       </div>
       <select class="filter-select" data-filter="taskPri">
-        <option value="">All priorities</option>
+        <option value="" ${!pri?'selected':''}>All priorities</option>
         <option value="high" ${pri==='high'?'selected':''}>High</option>
         <option value="medium" ${pri==='medium'?'selected':''}>Medium</option>
         <option value="low" ${pri==='low'?'selected':''}>Low</option>
       </select>
       <select class="filter-select" data-filter="taskAssign">
-        <option value="">All assignees</option>
+        <option value="" ${!assign?'selected':''}>All assignees</option>
         ${state.users.map(u=>`<option value="${u.id}" ${u.id===assign?'selected':''}>${escape(u.name)}</option>`).join('')}
       </select>
       ${state.activeUserId?`<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2);cursor:pointer;padding:0 8px"><input type="checkbox" ${mine?'checked':''} data-filter="taskMine" style="accent-color:var(--accent)"> My tasks only</label>`:''}
@@ -6913,7 +7377,7 @@ function renderProjectsSection(){
         <input class="search-input" placeholder="Search projects…" data-filter="projSearch" value="${escape(q)}">
       </div>
       <select class="filter-select" data-filter="projCat">
-        <option value="">All categories</option>
+        <option value="" ${!cat?'selected':''}>All categories</option>
         ${PROJECT_CATEGORIES.map(c=>`<option ${c===cat?'selected':''}>${c}</option>`).join('')}
       </select>
     </div>
@@ -6942,11 +7406,44 @@ function renderProjectsSection(){
                 ${assigneeStack(p.assignees,'sm')}
               </div>
               ${p.dueDate?`<div style="font-size:11px;color:var(--ink-3);margin-top:6px"><i class="ti ti-calendar" style="font-size:12px"></i> ${fmtLong(p.dueDate)}</div>`:''}
+              ${s==='in-progress' ? renderProjectTaskStrip(p) : ''}
             </div>
           `).join('') || '<div style="font-size:12px;color:var(--ink-3);text-align:center;padding:16px 0">—</div>'}
         </div>`;
       }).join('')}
     </div>`;
+}
+
+/* Open tasks belonging to an in-progress project, shown on its board card.
+   Only the first few are listed — a card is a summary, and the full list is a
+   click away in the task's own editor or via the agenda's project filter.
+
+   Clicks are stopped here: the whole card carries data-action="edit-project",
+   so without stopPropagation opening a task would also throw the project's
+   editor open behind it. */
+function renderProjectTaskStrip(pr){
+  const open = sortByDue(openTasksForProject(pr.id));
+  const SHOWN = 4;
+  const overdue = open.filter(t => isOverdue(t.dueDate)).length;
+
+  return `<div class="proj-tasks">
+    <div class="proj-tasks-head">
+      <span>${open.length ? `${open.length} open task${open.length===1?'':'s'}` : 'No open tasks'}</span>
+      ${overdue?`<span style="color:var(--danger)">· ${overdue} overdue</span>`:''}
+      <button type="button" class="proj-tasks-add" title="Add a task linked to this project"
+              onclick="event.stopPropagation();newTaskForProject('${pr.id}')">+ Task</button>
+    </div>
+    ${open.slice(0, SHOWN).map(t=>{
+      const od = isOverdue(t.dueDate);
+      return `<div class="proj-task ${od?'is-overdue':''}"
+                   onclick="event.stopPropagation();openTaskForm('${t.id}')"
+                   title="${escape(t.title)}${t.dueDate?` · due ${fmtLong(t.dueDate)}`:' · no due date'}">
+        <span class="proj-task-title">${escape(t.title)}</span>
+        <span class="proj-task-due">${t.dueDate?fmt(t.dueDate):'—'}</span>
+      </div>`;
+    }).join('')}
+    ${open.length > SHOWN ? `<div class="proj-tasks-more">+${open.length-SHOWN} more</div>` : ''}
+  </div>`;
 }
 
 /* =========================================================
@@ -7936,6 +8433,7 @@ function bindViewEvents(){
         case 'toggle-listing': toggleListingPanel(id); break;
         case 'open-listing': openListingPanel(id); break;
         case 'toggle-listing-log': toggleListingLog(id); break;
+        case 'toggle-tasks': toggleTasksPanel(id); break;
       }
     });
   });
@@ -7951,6 +8449,7 @@ function debounce(fn, ms){
 
 function getLinkedName(id, type){
   if(type==='property'){ const p=state.props.find(x=>x.id===id); return p?'↳ '+(p.propertyId||'Property'):''; }
+  if(type==='project'){ const pr=state.projects.find(x=>x.id===id); return pr?'↳ '+(pr.title||'Project'):''; }
   return '';
 }
 
@@ -8405,12 +8904,30 @@ async function saveProp(id){
 }
 
 /* ===== TASK FORM ===== */
-function openTaskForm(id, presetDate){
+// presetLink ("<id>|property") pre-selects the Link to field on a NEW task —
+// used by the Tasks tab on a property card. An existing task always keeps its
+// own link; the preset only fills a blank.
+function openTaskForm(id, presetDate, presetLink){
   const t = id ? state.tasks.find(x=>x.id===id) : {};
+  /* Link targets: every property, plus projects that are actually IN PROGRESS.
+     Ideas and planned projects aren't work anyone is doing yet, and finished
+     ones shouldn't be collecting new tasks — offering all four columns would
+     make this list long and mostly wrong. */
   const allLinked = [
-    ...state.props.map(p=>({id:p.id,type:'property',label:'Property: '+(p.propertyId||'—')}))
+    ...state.props.map(p=>({id:p.id,type:'property',label:'Property: '+(p.propertyId||'—')})),
+    ...state.projects.filter(pr=>pr.status==='in-progress')
+                     .map(pr=>({id:pr.id,type:'project',label:'Project: '+(pr.title||'—')}))
   ];
-  const currentLink = (t.linkedId&&t.linkedType) ? `${t.linkedId}|${t.linkedType}` : '';
+  /* One exception to "in progress only": a task already pointing at a project
+     that has since been finished or moved back to planned. Without its own
+     option the select would show "Nothing", and simply opening the task to
+     change its due date would silently unlink it on save. */
+  if(t.linkedType==='project' && t.linkedId && !allLinked.some(x=>x.id===t.linkedId)){
+    const pr = state.projects.find(x=>x.id===t.linkedId);
+    if(pr) allLinked.push({id:pr.id, type:'project',
+      label:`Project: ${pr.title||'—'} (${(pr.status||'').replace('-',' ')})`});
+  }
+  const currentLink = (t.linkedId&&t.linkedType) ? `${t.linkedId}|${t.linkedType}` : (presetLink || '');
   showModal(`<div class="modal">
     <div class="modal-header">
       <h2 class="modal-title">${id?'Edit task':'New task'}</h2>

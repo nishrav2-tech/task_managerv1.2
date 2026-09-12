@@ -588,13 +588,17 @@ end $$;
 -- rewrite only the out-of-range values; every other field is untouched.
 -- ---------------------------------------------------------
 
--- Links to anything other than a property (e.g. old 'lead' links) are
+-- Links to anything the app can't produce (e.g. old 'lead' links) are
 -- unlinked. The task itself, its title, notes and assignees are kept.
+-- 2026-09-12: 'project' joined 'property' as a valid link target. Re-running
+-- an older copy of this file against a current database WOULD WIPE every
+-- task-to-project link, so keep this list and the CHECK constraint below in
+-- step with each other.
 update tasks
    set linked_type = null,
        linked_id   = null
  where linked_type is not null
-   and linked_type <> 'property';
+   and linked_type not in ('property','project');
 
 -- A link type of 'property' pointing at a row that no longer exists
 -- would render as a broken link — clear those too.
@@ -603,6 +607,13 @@ update tasks
        linked_id   = null
  where linked_type = 'property'
    and (linked_id is null or not exists (select 1 from properties p where p.id = tasks.linked_id));
+
+-- Same for a project link whose project has been deleted.
+update tasks
+   set linked_type = null,
+       linked_id   = null
+ where linked_type = 'project'
+   and (linked_id is null or not exists (select 1 from projects pr where pr.id = tasks.linked_id));
 
 -- Orphan linked_id with no linked_type is meaningless to the app.
 update tasks set linked_id = null where linked_type is null and linked_id is not null;
@@ -638,7 +649,7 @@ begin
     select * from (values
       ('tasks',    'tasks_priority_check',    $q$check (priority in ('high','medium','low'))$q$),
       ('tasks',    'tasks_status_check',      $q$check (status in ('todo','in-progress','done','blocked'))$q$),
-      ('tasks',    'tasks_linked_type_check', $q$check (linked_type in ('property') or linked_type is null)$q$),
+      ('tasks',    'tasks_linked_type_check', $q$check (linked_type in ('property','project') or linked_type is null)$q$),
       ('projects', 'projects_status_check',   $q$check (status in ('ideas','planned','in-progress','done'))$q$),
       ('projects', 'projects_priority_check', $q$check (priority in ('high','medium','low'))$q$),
       ('properties', 'properties_status_check', $q$check (status in ('pre-closing','closed','listed'))$q$)
