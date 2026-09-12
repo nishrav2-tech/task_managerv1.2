@@ -59,6 +59,8 @@ create table if not exists properties (
   -- e.g. [{"date":"2026-08-24","views":12,"saves":3}, ...]. One entry per
   -- calendar date; the app upserts by date rather than appending duplicates.
   listing_url   text,
+  ghl_url       text,
+  land_portal_url text,
   listing_stats jsonb not null default '[]'::jsonb,
   created_at   timestamptz not null default now()
 );
@@ -73,6 +75,8 @@ alter table properties add column if not exists notes        text;
 alter table properties add column if not exists funding_schedule jsonb not null default '[]'::jsonb;
 alter table properties add column if not exists status        text default 'pre-closing';
 alter table properties add column if not exists listing_url   text;
+alter table properties add column if not exists ghl_url       text;
+alter table properties add column if not exists land_portal_url text;
 alter table properties add column if not exists listing_stats jsonb not null default '[]'::jsonb;
 alter table properties add column if not exists created_at   timestamptz not null default now();
 
@@ -522,7 +526,7 @@ begin
   for t in
     select * from (values
       ('users',         array['id','name','role','color_idx','created_at']),
-      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_stats','created_at']),
+      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_stats','ghl_url','land_portal_url','created_at']),
       ('funding_templates', array['id','name','tiers','created_at']),
       ('tasks',         array['id','title','linked_id','linked_type','due_date','priority','status','notes','assignees','completed_at','created_at']),
       ('projects',      array['id','title','category','status','priority','description','due_date','assignees','created_at']),
