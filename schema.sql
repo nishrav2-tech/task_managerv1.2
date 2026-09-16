@@ -106,6 +106,46 @@ alter table funding_templates add column if not exists created_at timestamptz no
 --   update properties set property_id = address where property_id is null;
 
 -- ---------------------------------------------------------
+-- activity_entries / call_sessions  (2026-09-15)
+-- The acquisitions manager's day-by-day log: every conversation and every
+-- contract sent, plus clocked call sessions. Deliberately NOT a source for the
+-- Lead Conversion KPI tiles — those come from GoHighLevel, and a second
+-- hand-kept source for the same counts would double-count.
+--
+-- occurred_at carries the real time of day; log_date is the Central calendar
+-- day it belongs to, kept as its own column so a late-evening entry can't
+-- drift onto tomorrow the way a timestamp cast in the wrong zone would.
+-- ---------------------------------------------------------
+create table if not exists activity_entries (
+  id           uuid primary key default gen_random_uuid(),
+  log_date     date not null,
+  occurred_at  timestamptz not null default now(),
+  contact_name text not null,
+  kind         text not null default 'conversation',
+  notes        text,
+  user_id      uuid,
+  created_at   timestamptz not null default now()
+);
+alter table activity_entries drop constraint if exists activity_entries_kind_check;
+alter table activity_entries add constraint activity_entries_kind_check
+  check (kind in ('conversation','contract'));
+create index if not exists activity_entries_date_idx on activity_entries(log_date desc);
+create index if not exists activity_entries_name_idx on activity_entries(lower(contact_name));
+
+-- Clock in / clock out. Any number of sessions a day; ended_at null means one
+-- is running right now, which is also what stops a second clock-in.
+create table if not exists call_sessions (
+  id          uuid primary key default gen_random_uuid(),
+  log_date    date not null,
+  started_at  timestamptz not null default now(),
+  ended_at    timestamptz,
+  user_id     uuid,
+  created_at  timestamptz not null default now()
+);
+create index if not exists call_sessions_date_idx on call_sessions(log_date desc);
+create index if not exists call_sessions_open_idx on call_sessions(user_id) where ended_at is null;
+
+-- ---------------------------------------------------------
 -- tasks (assigned to multiple users, optionally linked to a property)
 -- ---------------------------------------------------------
 create table if not exists tasks (
@@ -688,7 +728,8 @@ begin
   foreach tbl in array array[
     'users','properties','tasks','projects',
     'kpi_metrics','kpi_meta','kpi_entries','kpi_targets','call_logs','campaign_logs',
-    'user_prefs','funding_templates','audit_standards','audit_logs'
+    'user_prefs','funding_templates','audit_standards','audit_logs',
+    'activity_entries','call_sessions'
   ]
   loop
     execute format('alter table public.%I enable row level security', tbl);

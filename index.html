@@ -837,6 +837,78 @@ input,select,textarea{font:inherit;color:inherit}
 .listing-chart-legend span{display:flex;align-items:center;gap:6px}
 .listing-swatch{width:10px;height:10px;border-radius:2px;display:inline-block}
 
+/* ---- activity log (KPIs & Tracking -> Activity log) ---- */
+.alog-bar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;
+}
+.alog-clock{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:14px 16px;border-radius:var(--r-md);margin-bottom:14px;
+  border:1px solid var(--border);background:var(--surface);
+}
+.alog-clock.is-running{border-color:var(--accent);background:var(--accent-soft)}
+.alog-clock-main{flex:1;min-width:190px}
+.alog-clock-elapsed{
+  font-family:var(--serif);font-size:26px;font-weight:500;line-height:1.1;
+  font-variant-numeric:tabular-nums;color:var(--ink);
+}
+.alog-clock.is-running .alog-clock-elapsed{color:var(--accent)}
+.alog-clock-sub{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.alog-sessions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.alog-session{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11px;font-variant-numeric:tabular-nums;
+  padding:2px 9px;border-radius:20px;
+  background:var(--surface-2);color:var(--ink-2);border:1px solid var(--border);
+}
+.alog-session.is-open{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.alog-session button{
+  background:none;border:none;padding:0;margin-left:2px;cursor:pointer;
+  color:inherit;opacity:.6;font-size:11px;line-height:1;font-family:inherit;
+}
+.alog-session button:hover{opacity:1}
+
+.alog-form{
+  display:grid;grid-template-columns:1.2fr 120px 150px 2fr auto;gap:8px;align-items:end;
+  padding:14px 16px;border:1px solid var(--border);border-radius:var(--r-md);
+  background:var(--surface);margin-bottom:16px;
+}
+.alog-form .form-group{margin-bottom:0}
+@media(max-width:900px){
+  .alog-form{grid-template-columns:1fr 1fr}
+  .alog-form .alog-form-notes{grid-column:1/-1}
+  .alog-form button{grid-column:1/-1}
+}
+.alog-group{
+  border:1px solid var(--border);border-radius:var(--r-md);
+  background:var(--surface);margin-bottom:10px;overflow:hidden;
+}
+.alog-group-head{
+  display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
+  padding:10px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);
+}
+.alog-name{font-size:13px;font-weight:700;color:var(--ink)}
+.alog-group-meta{font-size:11px;color:var(--ink-3);margin-left:auto}
+.alog-entry{
+  display:flex;align-items:flex-start;gap:12px;
+  padding:9px 14px;border-bottom:1px solid var(--border);
+}
+.alog-entry:last-child{border-bottom:none}
+.alog-time{
+  font-size:11.5px;font-weight:600;color:var(--ink-3);
+  font-variant-numeric:tabular-nums;white-space:nowrap;min-width:74px;
+}
+.alog-kind{
+  display:inline-flex;align-items:center;gap:4px;flex-shrink:0;
+  font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;
+  text-transform:uppercase;letter-spacing:.04em;
+}
+.alog-kind.k-conversation{background:var(--surface-2);color:var(--ink-2)}
+.alog-kind.k-contract{background:var(--accent-soft);color:var(--accent)}
+.alog-note{flex:1;min-width:0;font-size:12.5px;color:var(--ink-2);line-height:1.45}
+.alog-note.is-empty{color:var(--ink-3);font-style:italic}
+.alog-who{font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+
 /* ---- tasks tab (property card) ---- */
 .funding-tab-count.is-overdue{background:var(--danger-soft);color:var(--danger)}
 .prop-tasks-head{
@@ -1475,6 +1547,7 @@ const StorageAdapter = {
     tasks:'tasks', projects:'projects', kpis:'kpi_metrics', kpiMeta:'kpi_meta',
     kpiEntries:'kpi_entries', kpiTargets:'kpi_targets',
     callLogs:'call_logs', campaignLogs:'campaign_logs',
+    activityEntries:'activity_entries', callSessions:'call_sessions',
     fundingTemplates:'funding_templates',
     auditStandards:'audit_standards', auditLogs:'audit_logs'
   },
@@ -1524,6 +1597,11 @@ const StorageAdapter = {
       counties_hit:c.countiesHit||null,
       leads_generated:c.leadsGenerated!==''&&c.leadsGenerated!=null?parseInt(c.leadsGenerated):null,
       notes:c.notes||null}),
+    activityEntries: a => ({id:a.id, log_date:a.date, occurred_at:a.occurredAt,
+      contact_name:a.contactName||'', kind:a.kind||'conversation',
+      notes:a.notes||null, user_id:a.userId||null}),
+    callSessions: cs => ({id:cs.id, log_date:cs.date, started_at:cs.startedAt,
+      ended_at:cs.endedAt||null, user_id:cs.userId||null}),
     auditStandards: s => ({id:s.id, section:s.section,
       standard_text:s.standardText||null,
       updated_at:new Date().toISOString()}),
@@ -1575,6 +1653,11 @@ const StorageAdapter = {
       channel:c.channel||'', countiesHit:c.counties_hit||'',
       leadsGenerated:c.leads_generated!=null?String(c.leads_generated):'',
       notes:c.notes||''}),
+    activityEntries: a => ({id:a.id, date:a.log_date, occurredAt:a.occurred_at,
+      contactName:a.contact_name||'', kind:a.kind||'conversation',
+      notes:a.notes||'', userId:a.user_id||''}),
+    callSessions: cs => ({id:cs.id, date:cs.log_date, startedAt:cs.started_at,
+      endedAt:cs.ended_at||'', userId:cs.user_id||''}),
     fundingTemplates: t => ({id:t.id, name:t.name,
       tiers:normalizeFunding(t.tiers, {}),
       created:t.created_at?t.created_at.split('T')[0]:''}),
@@ -1737,7 +1820,7 @@ const StorageAdapter = {
   async loadCore(){
     this.assertConnected();
     {
-      const [u, p, t, pr, k, km, kt, cl, cal, ft, aus, aul] = await Promise.all([
+      const [u, p, t, pr, k, km, kt, cl, cal, ft, aus, aul, ae, cs] = await Promise.all([
         this.supabase.from('users').select('*').order('created_at'),
         this.supabase.from('properties').select('*').order('created_at',{ascending:false}),
         this.supabase.from('tasks').select('*').order('created_at',{ascending:false}),
@@ -1750,6 +1833,8 @@ const StorageAdapter = {
         this.supabase.from('funding_templates').select('*').order('created_at'),
         this.supabase.from('audit_standards').select('*'),
         this.supabase.from('audit_logs').select('*').order('week_start',{ascending:false}),
+        this.supabase.from('activity_entries').select('*').order('occurred_at',{ascending:false}).limit(4000),
+        this.supabase.from('call_sessions').select('*').order('started_at',{ascending:false}).limit(2000),
       ]);
       if(ft.error) console.warn('funding_templates table not found yet — saved splits will be empty.', ft.error.message);
       if(aus.error) console.warn('audit_standards table not found yet — run the updated schema.sql to enable the Audit log.', aus.error.message);
@@ -1760,6 +1845,8 @@ const StorageAdapter = {
       if(kt.error) console.warn('kpi_targets table not found yet — run the updated schema.sql to enable shared KPI goals.', kt.error.message);
       if(cl.error) console.warn('call_logs table not found yet — run the updated schema.sql to enable the Activity Log.', cl.error.message);
       if(cal.error) console.warn('campaign_logs table not found yet — run the updated schema.sql to enable the Activity Log.', cal.error.message);
+      if(ae.error) console.warn('activity_entries table not found yet — run the updated schema.sql to enable the Activity log tab.', ae.error.message);
+      if(cs.error) console.warn('call_sessions table not found yet — run the updated schema.sql to enable call session timing.', cs.error.message);
       /* fetchOk distinguishes "this table is empty" from "this read failed".
          Both used to arrive as an empty array, and the caller treated empty
          as "brand new install, seed it" — so a single transient error on the
@@ -1793,6 +1880,8 @@ const StorageAdapter = {
         fundingTemplates: (ft.data||[]).map(this.fromDb.fundingTemplates),
         auditStandards: (aus.data||[]).map(this.fromDb.auditStandards),
         auditLogs: (aul.data||[]).map(this.fromDb.auditLogs),
+        activityEntries: (ae.data||[]).map(this.fromDb.activityEntries),
+        callSessions: (cs.data||[]).map(this.fromDb.callSessions),
         // Which teammate this browser is signed in as stays on the device —
         // it's the key used to look everything else up, so it can't itself
         // live behind that lookup.
@@ -1938,7 +2027,7 @@ const StorageAdapter = {
     try{
       this.assertConnected();
       // Order matters: users first (foreign key references)
-      const order = ['users','props','tasks','projects','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs'];
+      const order = ['users','props','tasks','projects','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions'];
       for(const col of order){
         if(data[col]?.length){
           const rows = data[col].map(this.toDb[col]);
@@ -1957,7 +2046,7 @@ const StorageAdapter = {
   async wipeAll(){
     this.assertConnected();
     // Delete in reverse dep order
-    const order = ['tasks','projects','props','users','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs'];
+    const order = ['tasks','projects','props','users','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions'];
     for(const col of order){
       await this.supabase.from(this.tables[col]).delete().neq('id','00000000-0000-0000-0000-000000000000');
     }
@@ -2055,6 +2144,14 @@ const state = {
   // KPI screens distinguish "still loading" from "genuinely nothing logged".
   kpiEntriesLoaded:false,
   callLogs:[], campaignLogs:[], fundingTemplates:[],
+  // These two were reachable as `undefined` before applyCore() ran: the Audit
+  // log tab reads state.auditLogs.length directly, so a render before the
+  // first load resolved (or after a failed one) threw rather than showing an
+  // empty tab. Declared here so every collection starts as an empty array.
+  auditStandards:[], auditLogs:[],
+  // Acquisitions activity log: one row per conversation/contract, plus
+  // clock-in/clock-out call sessions. See renderActivityLogView().
+  activityEntries:[], callSessions:[],
   activeUserId:'', activeView:'dashboard',
   // Which property has its funding-tier editor open on the Properties list.
   // Held in state rather than the DOM so a re-render doesn't snap it shut.
@@ -2068,6 +2165,8 @@ const state = {
   listingLogOpen:null,
   // Third tab on a property card: the deal's own task list.
   tasksOpen:null,
+  // Whether THIS device holds a web-push subscription (resolved async on boot).
+  pushOn:false,
   filters:{}
 };
 
@@ -2166,7 +2265,9 @@ const TP_TABS = ['tasks','projects'];
 /* ---- KPIs & Tracking sub-tab --------------------------------------------
    Same idea for the renamed Activity Log tab: two halves under one nav item.
    Opens on KPIs, then remembers whichever half you last looked at.        */
-const KT_TABS = ['kpis','activity'];
+// 'activity' is the Audit log's key, kept as-is so nobody's stored tab
+// preference breaks; 'log' is the day-by-day acquisitions log added 2026-09-15.
+const KT_TABS = ['kpis','log','activity'];
 function getKtTab(){
   if(state.ktTab === undefined){
     const stored = Prefs.get('ktTab');
@@ -2509,6 +2610,141 @@ function isStandalonePWA(){
   return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
     || window.navigator.standalone === true;
 }
+/* ---- Web push (2026-09-12) -------------------------------------------------
+   The old notification system only ever fired while the app was open in a
+   tab: the page itself checked the clock every five minutes and asked the
+   service worker to show something. That is useless for the case that
+   matters — a teammate who is NOT looking at the CRM needs telling.
+
+   Real push has three parts, and this file owns the first: asking the browser
+   for a push subscription and storing it in Supabase so the server can reach
+   this device later. The server half is supabase/functions/send-push, fed by a
+   queue that a database trigger and a nightly sweep write into.
+
+   VAPID is how a push service knows the notification really came from us. The
+   PUBLIC key ships in config.js (it is public by design — it only identifies
+   the sender); the private key lives in the Edge Function's secrets and never
+   reaches the browser.
+
+   The base64url → Uint8Array dance below is unavoidable: applicationServerKey
+   wants raw bytes, and VAPID keys are distributed as base64url text. */
+function urlBase64ToUint8Array(base64){
+  const padded = (base64 + '='.repeat((4 - base64.length % 4) % 4))
+    .replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(padded);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+function vapidPublicKey(){
+  return (window.CRM_CONFIG && window.CRM_CONFIG.vapidPublicKey) || '';
+}
+// Whether THIS device currently holds a push subscription.
+async function currentPushSub(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    return await reg.pushManager.getSubscription();
+  }catch(e){ return null; }
+}
+/* Subscribing is per DEVICE, but a notification is addressed to a PERSON, so
+   the row records whoever is signed in on this device at the time. Switching
+   user on a shared device re-points the subscription rather than creating a
+   second one — the endpoint is unique, so the upsert overwrites. */
+async function savePushSubscription(sub){
+  if(!sub || !state.activeUserId) return false;
+  const json = sub.toJSON();
+  const row = {
+    user_id: state.activeUserId,
+    endpoint: json.endpoint,
+    p256dh: json.keys && json.keys.p256dh,
+    auth: json.keys && json.keys.auth,
+    user_agent: (navigator.userAgent || '').slice(0, 300),
+    fail_count: 0
+  };
+  // Push is a Supabase-only feature — there is no server to push FROM when the
+  // app is running on local storage, so say so rather than failing silently.
+  const db = StorageAdapter.supabase;
+  if(!db){ console.log('Push needs the Supabase backend'); return false; }
+  try{
+    const { error } = await db.from('push_subscriptions').upsert(row, { onConflict: 'endpoint' });
+    if(error) throw error;
+    return true;
+  }catch(e){
+    console.log('Could not store push subscription:', e);
+    return false;
+  }
+}
+async function removePushSubscription(sub){
+  const db = StorageAdapter.supabase;
+  if(!sub || !db) return;
+  try{ await db.from('push_subscriptions').delete().eq('endpoint', sub.toJSON().endpoint); }
+  catch(e){ console.log('Could not remove push subscription:', e); }
+}
+async function togglePush(){
+  if(!window.isSecureContext) return toast('Push needs a secure (https) connection','err');
+  if(!state.activeUserId) return toast('Choose who is using this device first, on the Dashboard','err');
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)){
+    return toast(isIOS() && !isStandalonePWA()
+      ? 'On iPhone/iPad: tap Share → Add to Home Screen, then open the app from there'
+      : 'This browser does not support push notifications','err');
+  }
+  if(!vapidPublicKey()){
+    return toast('Push is not configured yet — VAPID_PUBLIC_KEY is missing from this deploy','err');
+  }
+  if(!StorageAdapter.supabase){
+    return toast('Push needs the Supabase backend — this device is running on local data','err');
+  }
+
+  const existing = await currentPushSub();
+  if(existing){
+    await removePushSubscription(existing);
+    await existing.unsubscribe();
+    state.pushOn = false;
+    toast('Push notifications off for this device');
+    return app.render();
+  }
+
+  if(Notification.permission === 'denied'){
+    return toast("Blocked — re-enable notifications for this site in your browser's settings",'err');
+  }
+  if(Notification.permission !== 'granted'){
+    const perm = await Notification.requestPermission();
+    if(perm !== 'granted'){ state.pushOn = false; toast('Notifications not enabled','err'); return app.render(); }
+  }
+
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,                                   // required by Chrome
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey())
+    });
+    const stored = await savePushSubscription(sub);
+    if(!stored){
+      // No point leaving a subscription the server doesn't know about — it
+      // would look enabled here and never deliver anything.
+      await sub.unsubscribe();
+      state.pushOn = false;
+      toast('Could not register this device with the server','err');
+      return app.render();
+    }
+    state.pushOn = true;
+    toast('Push on — you will be told when a task is assigned and when it is due');
+  }catch(e){
+    console.log('Push subscribe failed:', e);
+    state.pushOn = false;
+    toast('Could not enable push on this device','err');
+  }
+  app.render();
+}
+// Settings reads this; it is refreshed on boot and after any toggle.
+async function refreshPushState(){
+  const sub = await currentPushSub();
+  const on = !!sub;
+  if(state.pushOn !== on){ state.pushOn = on; app.render(); }
+  // Someone switched user on this device — re-point the existing subscription
+  // so notifications follow whoever is actually signed in.
+  if(sub && state.activeUserId) savePushSubscription(sub);
+}
+
 async function toggleNotifications(){
   if(!window.isSecureContext){
     toast('Notifications need a secure (https) connection to work','err');
@@ -2826,6 +3062,8 @@ function applyCore(data){
   state.kpiTargets = migrateKpiTargetKeys(data.kpiTargets || {});
   state.callLogs = data.callLogs || [];
   state.campaignLogs = data.campaignLogs || [];
+  state.activityEntries = data.activityEntries || [];
+  state.callSessions = data.callSessions || [];
   state.fundingTemplates = data.fundingTemplates || [];
   state.auditStandards = data.auditStandards || [];
   state.auditLogs = data.auditLogs || [];
@@ -3116,6 +3354,10 @@ const app = {
     state.activeUserId = id;
     StorageAdapter.saveActiveUser(id);
     await Prefs.load(id);
+    // A shared device has ONE push subscription; point it at whoever just
+    // signed in, so its notifications follow the person rather than staying
+    // stuck on whoever first enabled it.
+    refreshPushState();
     // Anything derived from prefs has to be re-read for the new user rather
     // than carrying the previous person's tab and calendar position over.
     state.tpTab = undefined;
@@ -7874,26 +8116,320 @@ function getActivityRange(){
    ========================================================= */
 function renderKpiTracking(){
   const tab = getKtTab();
-  const isKpis = tab === 'kpis';
   const loggedToday = activeKpiInputs().filter(m => getKpiEntry(m.key, today())).length;
   const auditEntryCount = state.auditLogs.length;
+  // The Activity log's badge counts the day being VIEWED, not today — the tab
+  // strip should agree with what's under it when you page back through the week.
+  const alogDate = getActivityLogDate();
+  const alogCount = state.activityEntries.filter(e => e.date === alogDate).length;
+
+  const SUBS = {
+    kpis: 'Pipeline numbers by stage, summed from your daily entries.',
+    log:  'Lead Conversion — every conversation and contract, logged as it happens.',
+    activity: 'Weekly audit notes against your own standards for scheduling, offers, and calls.'
+  };
+  const TABS = [
+    ['kpis','ti-chart-histogram','KPIs',        `${loggedToday}/${activeKpiInputs().length}`],
+    ['log','ti-notebook',        'Activity log', alogCount],
+    ['activity','ti-shield-check','Audit log',   auditEntryCount],
+  ];
 
   // No action button up here — the day's numbers are entered directly in the
   // Raw daily inputs form further down, which has its own date picker.
-  return pageHeader('Measurement', 'KPIs & Tracking',
-    isKpis ? 'Pipeline numbers by stage, summed from your daily entries.'
-           : 'Weekly audit notes against your own standards for scheduling, offers, and calls.',
-    ''
-  ) + `
+  return pageHeader('Measurement', 'KPIs & Tracking', SUBS[tab] || SUBS.kpis, '') + `
   <div class="seg-control" role="tablist">
-    <button class="seg-btn ${isKpis?'active':''}" role="tab" aria-selected="${isKpis}" onclick="setKtTab('kpis')">
-      <i class="ti ti-chart-histogram"></i> KPIs <span class="seg-count">${loggedToday}/${activeKpiInputs().length}</span>
-    </button>
-    <button class="seg-btn ${!isKpis?'active':''}" role="tab" aria-selected="${!isKpis}" onclick="setKtTab('activity')">
-      <i class="ti ti-shield-check"></i> Audit log <span class="seg-count">${auditEntryCount}</span>
-    </button>
+    ${TABS.map(([key,icon,label,count])=>`
+      <button class="seg-btn ${tab===key?'active':''}" role="tab" aria-selected="${tab===key}"
+              onclick="setKtTab('${key}')">
+        <i class="ti ${icon}"></i> ${label} <span class="seg-count">${count}</span>
+      </button>`).join('')}
   </div>
-  ${isKpis ? renderKpiTrackingView() : renderAuditView()}`;
+  ${tab === 'kpis' ? renderKpiTrackingView()
+   : tab === 'log' ? renderActivityLogView()
+   : renderAuditView()}`;
+}
+
+/* =========================================================
+   ACTIVITY LOG (2026-09-15) — the acquisitions manager's own
+   day-by-day record: every conversation and every contract
+   sent, plus clocked call sessions.
+
+   Deliberately NOT wired into the Lead Conversion KPI tiles.
+   Those come from GoHighLevel, and adding a second hand-kept
+   source for the same counts would double-count the days both
+   agree on and quietly disagree on the days they don't. This
+   sits under the same heading as a separate record of what
+   actually happened.
+   ========================================================= */
+
+// Which day the log is showing. Kept in state (not filters, which are wiped on
+// every tab change) and defaulting to today each session — yesterday's date
+// left over from last night is never what you want on opening it.
+function getActivityLogDate(){
+  if(!state.alogDate) state.alogDate = today();
+  return state.alogDate;
+}
+function setActivityLogDate(d){
+  if(!d) return;
+  state.alogDate = d;
+  app.render();
+}
+function shiftActivityLogDate(delta){
+  state.alogDate = delta === 0 ? today() : addDays(getActivityLogDate(), delta);
+  app.render();
+}
+// Person filter, remembered per device like the calendar's.
+function getActivityLogUser(){
+  if(state.alogUserId === undefined){
+    state.alogUserId = Prefs.get('alogUser', '') || '';
+  }
+  if(state.alogUserId && !state.users.some(u=>u.id===state.alogUserId)) state.alogUserId = '';
+  return state.alogUserId;
+}
+function setActivityLogUser(id){
+  state.alogUserId = id;
+  Prefs.set('alogUser', id);
+  app.render();
+}
+
+const ALOG_KINDS = {conversation:'Conversation', contract:'Contract sent'};
+
+// ---- Call sessions -------------------------------------------------------
+// A session with no ended_at is running. There is at most one per person:
+// clocking in while already clocked in would make the day's total meaningless,
+// so the button becomes Clock out instead.
+function openCallSession(userId){
+  return state.callSessions.find(s => !s.endedAt && s.userId === userId) || null;
+}
+function sessionMs(s){
+  if(!s.startedAt) return 0;
+  const end = s.endedAt ? new Date(s.endedAt).getTime() : Date.now();
+  return Math.max(0, end - new Date(s.startedAt).getTime());
+}
+// 1h 24m for a total, 0:42:09 while it's ticking — a running clock wants
+// seconds, a summed one doesn't.
+function fmtDuration(ms, withSeconds){
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+  if(withSeconds) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  if(!h && !m) return 'under a minute';
+  return (h ? `${h}h ` : '') + `${m}m`;
+}
+const fmtClock = iso => iso
+  ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric', minute:'2-digit'})
+  : '';
+
+async function clockIn(){
+  const who = state.activeUserId;
+  if(!who) return toast('Choose who is using this device first, on the Dashboard','err');
+  if(openCallSession(who)) return toast('You are already clocked in','err');
+  const row = {id:uid(), date:today(), startedAt:new Date().toISOString(), endedAt:'', userId:who};
+  state.callSessions.unshift(row);
+  await saveOne('callSessions', row);
+  toast('Clocked in');
+  app.render();
+}
+async function clockOut(){
+  const open = openCallSession(state.activeUserId);
+  if(!open) return toast('Not clocked in','err');
+  open.endedAt = new Date().toISOString();
+  await saveOne('callSessions', open);
+  toast(`Clocked out · ${fmtDuration(sessionMs(open))}`);
+  app.render();
+}
+async function deleteCallSession(id){
+  const i = state.callSessions.findIndex(s=>s.id===id);
+  if(i < 0) return;
+  state.callSessions.splice(i,1);
+  await deleteOne('callSessions', id);
+  app.render();
+}
+
+/* A running session's elapsed time has to move without a re-render: repainting
+   the whole view once a second would fight the DOM patcher and throw away
+   whatever is half-typed in the entry form. So the ticking text is written
+   straight into the node instead, and the next real render simply reprints the
+   same value. One interval for the page, started at boot, idle when no session
+   is running. */
+let alogTicker = null;
+function startActivityTicker(){
+  if(alogTicker) return;
+  alogTicker = setInterval(() => {
+    document.querySelectorAll('[data-ticking-since]').forEach(el => {
+      const started = new Date(el.dataset.tickingSince).getTime();
+      if(!isNaN(started)) el.textContent = fmtDuration(Date.now() - started, true);
+    });
+  }, 1000);
+}
+
+// ---- Entries -------------------------------------------------------------
+async function logActivityEntry(){
+  const name = ($('#alog-name').value || '').trim();
+  if(!name) return toast('Who did you speak to?','err');
+  const who = state.activeUserId;
+  if(!who) return toast('Choose who is using this device first, on the Dashboard','err');
+
+  const date = getActivityLogDate();
+  const timeVal = ($('#alog-time').value || '');
+  // The time field is a plain HH:MM against the day being viewed, so logging
+  // this morning's call at 4pm still lands it at the hour it happened.
+  const occurredAt = timeVal
+    ? new Date(`${date}T${timeVal}:00`).toISOString()
+    : new Date().toISOString();
+
+  const row = {
+    id: uid(), date, occurredAt,
+    contactName: name,
+    kind: $('#alog-kind').value === 'contract' ? 'contract' : 'conversation',
+    notes: ($('#alog-notes').value || '').trim(),
+    userId: who
+  };
+  state.activityEntries.unshift(row);
+  await saveOne('activityEntries', row);
+  toast(`Logged ${ALOG_KINDS[row.kind].toLowerCase()} with ${name}`);
+
+  // Keep the name so a run of calls to the same person is quick to log; clear
+  // what changes every time.
+  $('#alog-notes').value = '';
+  $('#alog-time').value = '';
+  app.render();
+  const n = document.getElementById('alog-notes');
+  if(n) n.focus();
+}
+async function deleteActivityEntry(id){
+  const i = state.activityEntries.findIndex(e=>e.id===id);
+  if(i < 0) return;
+  state.activityEntries.splice(i,1);
+  await deleteOne('activityEntries', id);
+  app.render();
+}
+
+function renderActivityLogView(){
+  const date = getActivityLogDate();
+  const viewUser = getActivityLogUser();
+  const mine = r => !viewUser || r.userId === viewUser;
+  const isToday = date === today();
+
+  const entries = state.activityEntries
+    .filter(e => e.date === date && mine(e))
+    .sort((a,b) => (a.occurredAt||'').localeCompare(b.occurredAt||''));
+  const sessions = state.callSessions
+    .filter(s => s.date === date && mine(s))
+    .sort((a,b) => (a.startedAt||'').localeCompare(b.startedAt||''));
+
+  const open = openCallSession(state.activeUserId);
+  const openToday = open && open.date === date;
+  const totalMs = sessions.reduce((t,s) => t + sessionMs(s), 0);
+  const convos = entries.filter(e => e.kind === 'conversation').length;
+  const contracts = entries.filter(e => e.kind === 'contract').length;
+
+  /* Grouped by contact, because "how did it go with the Hicks family today"
+     is the question this answers — a flat chronological list makes you
+     reassemble that by eye. Contacts are ordered by their FIRST touch of the
+     day, so the group order still reads as the shape of the day. */
+  const groups = [];
+  const byName = new Map();
+  entries.forEach(e => {
+    const key = e.contactName.trim().toLowerCase();
+    if(!byName.has(key)){ byName.set(key, {name:e.contactName.trim(), items:[]}); groups.push(byName.get(key)); }
+    byName.get(key).items.push(e);
+  });
+
+  const userName_ = id => (state.users.find(u=>u.id===id)||{}).name || '';
+
+  return `
+  <div class="alog-bar">
+    <button class="btn btn-sm" onclick="shiftActivityLogDate(-1)">${ICON_CHEVRON_LEFT} Prev</button>
+    <button class="btn btn-sm ${isToday?'btn-primary':''}" onclick="shiftActivityLogDate(0)">
+      <i class="ti ti-calendar-event"></i> Today</button>
+    <button class="btn btn-sm" onclick="shiftActivityLogDate(1)">Next ${ICON_CHEVRON_RIGHT}</button>
+    <input type="date" class="filter-select" style="min-width:150px" value="${date}"
+           onchange="setActivityLogDate(this.value)">
+    <select class="filter-select" style="min-width:170px" onchange="setActivityLogUser(this.value)">
+      <option value="" ${!viewUser?'selected':''}>Everyone</option>
+      ${state.users.map(u=>`<option value="${u.id}" ${u.id===viewUser?'selected':''}>${escape(u.name)}</option>`).join('')}
+    </select>
+    <span class="sort-hint" style="margin-left:auto">
+      ${fmtLong(date)} · ${convos} conversation${convos===1?'':'s'} · ${contracts} contract${contracts===1?'':'s'} sent
+    </span>
+  </div>
+
+  <div class="alog-clock ${openToday?'is-running':''}">
+    <div class="alog-clock-main">
+      <div class="alog-clock-elapsed" ${openToday?`data-ticking-since="${open.startedAt}"`:''}>
+        ${openToday ? fmtDuration(sessionMs(open), true) : (totalMs ? fmtDuration(totalMs) : '—')}
+      </div>
+      <div class="alog-clock-sub">
+        ${openToday
+          ? `On a call session since ${fmtClock(open.startedAt)} · ${fmtDuration(totalMs)} logged today`
+          : sessions.length
+            ? `${sessions.length} session${sessions.length===1?'':'s'} on the phones`
+            : 'No call sessions logged for this day'}
+      </div>
+      ${sessions.length ? `<div class="alog-sessions">
+        ${sessions.map(sn=>`<span class="alog-session ${!sn.endedAt?'is-open':''}">
+          ${fmtClock(sn.startedAt)}–${sn.endedAt?fmtClock(sn.endedAt):'now'}
+          · ${fmtDuration(sessionMs(sn))}
+          <button type="button" title="Remove this session" onclick="deleteCallSession('${sn.id}')">✕</button>
+        </span>`).join('')}
+      </div>` : ''}
+    </div>
+    ${openToday
+      ? `<button class="btn btn-primary" onclick="clockOut()"><i class="ti ti-player-stop"></i> Clock out</button>`
+      : `<button class="btn ${isToday?'btn-primary':''}" onclick="clockIn()" ${isToday?'':'disabled'}
+                 title="${isToday?'Start a call session':'You can only clock in on today'}">
+           <i class="ti ti-player-play"></i> Clock in</button>`}
+  </div>
+
+  <div class="alog-form">
+    <div class="form-group">
+      <label class="form-label">Who</label>
+      <input class="form-input" id="alog-name" list="alog-names" placeholder="Seller or lead name"
+             onkeydown="if(event.key==='Enter')logActivityEntry()">
+      <datalist id="alog-names">
+        ${[...new Set(state.activityEntries.map(e=>e.contactName).filter(Boolean))]
+          .slice(0,200).map(n=>`<option value="${escape(n)}"></option>`).join('')}
+      </datalist>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Time</label>
+      <input class="form-input" id="alog-time" type="time">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Type</label>
+      <select class="form-select" id="alog-kind">
+        ${Object.entries(ALOG_KINDS).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group alog-form-notes">
+      <label class="form-label">Notes</label>
+      <input class="form-input" id="alog-notes" placeholder="What was said"
+             onkeydown="if(event.key==='Enter')logActivityEntry()">
+    </div>
+    <button class="btn btn-primary" onclick="logActivityEntry()"><i class="ti ti-plus"></i> Log</button>
+  </div>
+
+  ${groups.length ? groups.map(g=>`
+    <div class="alog-group">
+      <div class="alog-group-head">
+        <span class="alog-name">${escape(g.name)}</span>
+        <span class="alog-group-meta">${g.items.length} entr${g.items.length===1?'y':'ies'} ·
+          ${fmtClock(g.items[0].occurredAt)}${g.items.length>1?`–${fmtClock(g.items[g.items.length-1].occurredAt)}`:''}</span>
+      </div>
+      ${g.items.map(e=>`
+        <div class="alog-entry">
+          <span class="alog-time">${fmtClock(e.occurredAt)}</span>
+          <span class="alog-kind k-${e.kind}">
+            <i class="ti ti-${e.kind==='contract'?'file-text':'message-circle'}" style="font-size:11px"></i>
+            ${ALOG_KINDS[e.kind]}
+          </span>
+          <span class="alog-note ${e.notes?'':'is-empty'}">${e.notes?escape(e.notes):'no notes'}</span>
+          ${!viewUser && userName_(e.userId) ? `<span class="alog-who">${escape(userName_(e.userId))}</span>` : ''}
+          <button class="icon-btn" title="Delete entry" onclick="deleteActivityEntry('${e.id}')">${ICON_DELETE}</button>
+        </div>`).join('')}
+    </div>`).join('')
+  : `<div class="empty"><i class="ti ti-notebook"></i><h3>Nothing logged for ${fmt(date)}</h3>
+      <p>Log each conversation and contract as you go — they group by name above.</p></div>`}`;
 }
 
 /* =========================================================
@@ -8544,6 +9080,7 @@ function renderSettings(){
   const notifPerm = ('Notification' in window) ? Notification.permission : 'unsupported';
   const notifOn = notifPerm==='granted' && localStorage.getItem('notif_enabled')==='1';
   const iosNeedsInstall = isIOS() && !isStandalonePWA();
+  const pushConfigured = !!vapidPublicKey();
   return pageHeader('Configure', 'Settings', 'Backend, backups, and data hygiene.', '') + `
   <div class="settings-section">
     <h3>Data backend</h3>
@@ -8573,8 +9110,16 @@ function renderSettings(){
   </div>
 
   <div class="settings-section">
-    <h3>Notifications</h3>
-    <p>Get a notification for whoever's signed in on this device: when a task or project is assigned to them, when one of their tasks is completed, and reminders 1 day before and on the day a task is due. This checks while the app is open, and immediately whenever you reopen it — there's no push server, so it can't wake up a fully closed browser.</p>
+    <h3>Push notifications</h3>
+    <p>Sent from the server, so they arrive whether or not the app is open — on the
+      phone of whoever is signed in on this device. Three of them, each naming the task:
+      <strong>when a task is assigned to them</strong>, <strong>the day before it's due</strong>,
+      and <strong>on the day</strong>. Turn this on once per device, per person.</p>
+    ${!pushConfigured ? `
+      <div style="background:var(--warn-soft);border-radius:var(--r-md);padding:12px 14px;font-size:12.5px;color:var(--warn-ink);margin-bottom:12px">
+        Push isn't configured on this deploy yet — the VAPID public key is missing.
+        See <strong>PUSH-SETUP.md</strong> in the repo.
+      </div>` : ''}
     ${iosNeedsInstall ? `
       <div style="background:var(--warn-soft);border-radius:var(--r-md);padding:12px 14px;font-size:12.5px;color:var(--warn-ink);display:flex;align-items:flex-start;gap:8px;margin-bottom:12px">
         <i class="ti ti-device-mobile" style="font-size:18px;flex-shrink:0"></i>
@@ -8585,11 +9130,20 @@ function renderSettings(){
       </div>
     ` : ''}
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <button class="btn ${notifOn?'btn-primary':''}" onclick="toggleNotifications()" ${iosNeedsInstall?'disabled':''}>
-        <i class="ti ti-bell"></i> ${notifPerm==='denied'?'Blocked in browser settings':notifOn?'Notifications on':'Enable notifications'}
+      <button class="btn ${state.pushOn?'btn-primary':''}" onclick="togglePush()"
+              ${(iosNeedsInstall || !pushConfigured)?'disabled':''}>
+        <i class="ti ti-bell"></i> ${notifPerm==='denied' ? 'Blocked in browser settings'
+          : state.pushOn ? 'Push is on for this device' : 'Turn on push for this device'}
       </button>
+      ${state.pushOn ? `<span style="font-size:12px;color:var(--ink-3)">Signed in as
+        ${escape(userName(state.activeUserId) || 'nobody')} — notifications go to them.</span>` : ''}
       ${notifPerm==='denied'?`<span style="font-size:12px;color:var(--ink-3)">Blocked — re-enable via your browser's site settings for this page.</span>`:''}
     </div>
+    <p class="form-hint" style="margin-top:12px;margin-bottom:0">
+      Each person turns this on themselves, on their own phone, while signed in as
+      themselves. Doing it on a shared device re-points that device's notifications
+      to whoever is currently selected.
+    </p>
   </div>
 
   <div class="settings-section">
@@ -9540,9 +10094,16 @@ async function resetData(){
    ========================================================= */
 window.addEventListener('DOMContentLoaded', ()=>app.init());
 
+// The running-call-session clock. Nothing to do with service workers, so it
+// must not sit behind that guard — a browser without one still has an
+// Activity log to tick.
+window.addEventListener('load', startActivityTicker);
+
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js').catch(err=>console.log('SW registration failed:', err));
+    navigator.serviceWorker.register('sw.js')
+      .then(()=>refreshPushState())
+      .catch(err=>console.log('SW registration failed:', err));
   });
 }
 </script>
