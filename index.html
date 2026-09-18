@@ -837,6 +837,21 @@ input,select,textarea{font:inherit;color:inherit}
 .listing-chart-legend span{display:flex;align-items:center;gap:6px}
 .listing-swatch{width:10px;height:10px;border-radius:2px;display:inline-block}
 
+/* Both listing graphs sit side by side (2026-09-17): the day-by-day change on
+   the left, Zillow's rolling 30-day totals on the right, so the "is it moving"
+   read and the "what does Zillow say" read are visible at once. Each SVG scales
+   to its column, so a half-width column is simply a smaller chart. Stacked
+   below 900px, where two columns would squash the x-axis labels together. */
+.listing-charts{
+  display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;margin:2px 0 14px;
+}
+.listing-charts > *{min-width:0}
+@media(max-width:900px){ .listing-charts{grid-template-columns:1fr;gap:10px} }
+.listing-chart-title{
+  font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;
+  letter-spacing:.05em;margin-bottom:6px;
+}
+
 /* ---- activity log (KPIs & Tracking -> Activity log) ---- */
 .alog-bar{
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;
@@ -940,6 +955,34 @@ input,select,textarea{font:inherit;color:inherit}
   display:flex;align-items:center;gap:5px;margin:0 0 10px;
 }
 .listing-stale i{font-size:13px}
+
+/* ---- agent check-in log (weekly, Listing details tab) ---- */
+.agent-log{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)}
+.agent-log-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.agent-log-head h4{font-family:var(--serif);font-size:13.5px;font-weight:500;margin:0}
+.agent-log-count{
+  font-size:10.5px;font-weight:600;color:var(--ink-3);
+  background:var(--surface-2);border-radius:20px;padding:1px 8px;
+}
+.agent-log-row{
+  display:grid;grid-template-columns:130px 150px 1fr auto;gap:8px;
+  align-items:start;margin-bottom:10px;
+}
+.agent-log-row textarea{min-height:38px;resize:vertical}
+@media(max-width:640px){
+  .agent-log-row{grid-template-columns:1fr 1fr}
+  .agent-log-row textarea,.agent-log-row button{grid-column:1/-1}
+}
+.agent-log-list{display:flex;flex-direction:column;gap:8px}
+.agent-log-entry{
+  display:flex;gap:10px;padding:8px 10px;border-radius:var(--r-sm);
+  background:var(--surface-2);border:1px solid var(--border);font-size:12px;
+}
+.agent-log-entry-body{flex:1;min-width:0}
+.agent-log-entry-date{font-weight:700;color:var(--ink)}
+.agent-log-entry-agent{color:var(--ink-3)}
+.agent-log-entry-note{margin-top:2px;color:var(--ink-2);line-height:1.4;white-space:pre-wrap}
+.agent-log-entry button{flex-shrink:0}
 
 /* ---- "closed but not listed" alert (property card + page banner) ---- */
 .prop-alert{
@@ -1569,7 +1612,8 @@ const StorageAdapter = {
       // to the column on every save so it stays queryable outside the app.
       status:propStatus(p),
       listing_url:p.listingUrl||null,
-      listing_stats:normalizeListingStats(p.listingStats)}),
+      listing_stats:normalizeListingStats(p.listingStats),
+      agent_log:normalizeAgentLog(p.agentLog)}),
     fundingTemplates: t => ({id:t.id, name:t.name, tiers:normalizeFunding(t.tiers, {})}),
     tasks: t => ({id:t.id, title:t.title, linked_id:t.linkedId||null,
       linked_type:t.linkedType||null, due_date:t.dueDate||null,
@@ -1627,6 +1671,7 @@ const StorageAdapter = {
       // that could go stale relative to those two.
       listingUrl:p.listing_url||'',
       listingStats:normalizeListingStats(p.listing_stats),
+      agentLog:normalizeAgentLog(p.agent_log),
       created:p.created_at?p.created_at.split('T')[0]:''}),
     tasks: t => ({id:t.id, title:t.title, linkedId:t.linked_id||'',
       linkedType:t.linked_type||'', dueDate:t.due_date||'',
@@ -2467,6 +2512,38 @@ function normalizeListingStats(raw){
     .forEach(e => byDate.set(String(e.date).slice(0,10),
       {date:String(e.date).slice(0,10), views:numOrNull(e.views), saves:numOrNull(e.saves)}));
   return [...byDate.values()].sort((a,b) => a.date.localeCompare(b.date));
+}
+
+/* ---- Agent check-in log ----------------------------------------------------
+   A weekly touchpoint log for the listing agent(s) working a deal — separate
+   from the Zillow numbers above, this is just a note that someone actually
+   talked to an agent. One entry per CALENDAR WEEK, the same Sunday-start week
+   auditWeekStart() already uses for the audit log: logging a second time
+   inside a week updates that week's entry instead of adding a duplicate, the
+   same upsert-by-key pattern normalizeListingStats uses per day.
+   Round-trips to properties.agent_log. */
+function normalizeAgentLog(raw){
+  let list = raw;
+  if(typeof list === 'string'){
+    try{ list = JSON.parse(list); }catch(e){ return []; }
+  }
+  if(!Array.isArray(list)) return [];
+  const byWeek = new Map();
+  list
+    .filter(e => e && typeof e === 'object' && e.date && String(e.note||'').trim())
+    .forEach(e => {
+      const date = String(e.date).slice(0,10);
+      const week = auditWeekStart(date);
+      byWeek.set(week, {week, date, agent:String(e.agent||'').trim(), note:String(e.note).trim()});
+    });
+  return [...byWeek.values()].sort((a,b) => a.week.localeCompare(b.week));
+}
+// Days since the most recent check-in with ANY agent — null with no history
+// yet. This is what decides whether the log gets highlighted.
+function daysSinceAgentCheckin(p){
+  const log = normalizeAgentLog(p.agentLog);
+  if(!log.length) return null;
+  return Math.round((dateMs(today()) - dateMs(log[log.length-1].date)) / 86400000);
 }
 
 /* ---- New saves and views per day ------------------------------------------
@@ -7201,6 +7278,30 @@ async function deleteListingEntry(id, date){
   await saveOne('props', p);
   app.render();
 }
+// One entry per week: logging inside a week that already has an entry
+// overwrites it (see normalizeAgentLog) rather than adding a second one.
+async function logAgentCheckin(id){
+  const p = state.props.find(x=>x.id===id);
+  if(!p) return;
+  const date  = (document.getElementById(`agent-date-${id}`)||{}).value || today();
+  const agent = (document.getElementById(`agent-name-${id}`)||{}).value || '';
+  const note  = (document.getElementById(`agent-note-${id}`)||{}).value || '';
+  if(!note.trim()) return toast('Enter a note first', 'err');
+  const week = auditWeekStart(date);
+  const log = normalizeAgentLog(p.agentLog);
+  const existing = log.find(e => e.week === week);
+  p.agentLog = normalizeAgentLog([...log.filter(e=>e.week!==week), {date, agent, note}]);
+  await saveOne('props', p);
+  toast(existing ? "Updated this week's check-in" : 'Check-in logged');
+  app.render();
+}
+async function deleteAgentCheckin(id, week){
+  const p = state.props.find(x=>x.id===id);
+  if(!p) return;
+  p.agentLog = normalizeAgentLog(p.agentLog).filter(e => e.week !== week);
+  await saveOne('props', p);
+  app.render();
+}
 function renderListingPanel(p, stats){
   stats = stats || normalizeListingStats(p.listingStats);
   const logOpen = state.listingLogOpen === p.id;
@@ -7253,7 +7354,7 @@ function renderListingPanel(p, stats){
       </button>
     </div>
 
-    ${renderListingDailyChart(stats)}
+    ${renderListingCharts(stats)}
 
     ${stats.length ? `<div class="listing-log">
       <button type="button" class="listing-log-toggle" data-action="toggle-listing-log" data-id="${p.id}">
@@ -7261,7 +7362,6 @@ function renderListingPanel(p, stats){
         Day-by-day log <span class="funding-tab-count">${stats.length}</span>
       </button>
       <div class="listing-log-slot">${logOpen ? `
-        ${renderListingChart(stats)}
         <table class="funding-table" style="margin-top:4px">
           <thead><tr>
             <th>Date</th>
@@ -7272,6 +7372,65 @@ function renderListingPanel(p, stats){
           <tbody>${rows}</tbody>
         </table>` : ''}</div>
     </div>` : ''}
+
+    ${renderAgentLog(p)}
+  </div>`;
+}
+/* Rendered at the bottom of the Listing details tab: a weekly log of when
+   someone actually talked to the listing agent(s), separate from the Zillow
+   analytics above it. Highlighted once more than 7 days have passed since the
+   latest entry — an on-market listing nobody has checked in on is exactly
+   the situation this log exists to catch. */
+function renderAgentLog(p){
+  const log   = normalizeAgentLog(p.agentLog);
+  const stale = daysSinceAgentCheckin(p);
+
+  const alert = stale === null
+    ? `<div class="prop-alert">
+        <i class="ti ti-alert-triangle"></i>
+        <div class="prop-alert-body">
+          <strong>No agent check-ins logged yet</strong>
+          <span>Log one below once you've spoken with the listing agent.</span>
+        </div>
+      </div>`
+    : stale > 7
+    ? `<div class="prop-alert ${stale>=14?'is-urgent':''}">
+        <i class="ti ti-alert-triangle"></i>
+        <div class="prop-alert-body">
+          <strong>${stale} days since the last agent check-in</strong>
+          <span>Last logged ${fmtLong(log[log.length-1].date)}. Worth a call.</span>
+        </div>
+      </div>`
+    : '';
+
+  const rows = [...log].reverse().map(e => `
+    <div class="agent-log-entry">
+      <div class="agent-log-entry-body">
+        <span class="agent-log-entry-date">${fmtLong(e.date)}</span>${e.agent ? `<span class="agent-log-entry-agent"> · ${escape(e.agent)}</span>` : ''}
+        <div class="agent-log-entry-note">${escape(e.note)}</div>
+      </div>
+      <button type="button" class="icon-btn" title="Remove entry"
+              onclick="deleteAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-x"></i></button>
+    </div>`).join('');
+
+  return `<div class="agent-log">
+    <div class="agent-log-head">
+      <h4>Agent check-ins</h4>
+      ${log.length ? `<span class="agent-log-count">${log.length}</span>` : ''}
+    </div>
+    ${alert}
+    <p class="form-hint">One entry per week — logging again inside the same
+      week updates that week's note instead of adding another.</p>
+    <div class="agent-log-row">
+      <input class="form-input" type="date" id="agent-date-${p.id}" value="${today()}">
+      <input class="form-input" id="agent-name-${p.id}" placeholder="Agent name (optional)">
+      <textarea class="form-textarea" id="agent-note-${p.id}" rows="2"
+                placeholder="What did they say? Showings, feedback, price talk…"></textarea>
+      <button type="button" class="btn btn-sm btn-primary" onclick="logAgentCheckin('${p.id}')">
+        <i class="ti ti-plus"></i> Log
+      </button>
+    </div>
+    ${log.length ? `<div class="agent-log-list">${rows}</div>` : ''}
   </div>`;
 }
 /* ---- Chart scrubber (2026-09-12) ------------------------------------------
@@ -7340,6 +7499,67 @@ function chartScrubReset(id){
 // attribute early.
 const chartAttr = o => escape(JSON.stringify(o));
 
+/* The two listing graphs, side by side (2026-09-17): day-by-day change on the
+   left, Zillow's rolling 30-day totals on the right. They answer different
+   questions and are read against each other — a flat totals line while the
+   bars keep coming means new saves are only replacing ones aging out — so
+   they belong on screen together rather than one behind a disclosure toggle.
+   The headline strip sits above both, full width, since it summarises the
+   whole listing rather than either chart. */
+function renderListingCharts(stats){
+  return `${renderListingSummary(stats)}
+    <div class="listing-charts">
+      ${renderListingDailyChart(stats)}
+      ${renderListingChart(stats)}
+    </div>`;
+}
+
+/* The headline the tab exists for, so the raw log can stay folded away.
+
+   "span" is the stretch of calendar the deltas actually cover, from the
+   baseline reading to the latest, NOT the number of entries: a fortnight
+   logged three times is 14 days of listing life, not 3.
+
+   The week-on-week pair is the number that answers "is this listing still
+   moving?". Each entry is counted in the bucket its own date falls in,
+   measured back from the latest reading. */
+function renderListingSummary(stats){
+  const days = listingDeltas(stats).filter(d => d.newSaves != null || d.newViews != null);
+  if(!days.length) return '';
+
+  const span   = days.reduce((a, d) => a + d.gap, 0);
+  const totalS = days.reduce((a, d) => a + (d.newSaves != null ? d.newSaves * d.gap : 0), 0);
+  const totalV = days.reduce((a, d) => a + (d.newViews != null ? d.newViews * d.gap : 0), 0);
+  const best   = days.reduce((a, d) => (d.newSaves||0) > (a && a.newSaves||0) ? d : a, null);
+
+  const latest = days[days.length-1].date;
+  const ageOf  = d => Math.round((dateMs(latest) - dateMs(d.date)) / 86400000);
+  const bucket = (from, to) => days
+    .filter(d => { const a = ageOf(d); return a >= from && a < to; })
+    .reduce((a, d) => a + (d.newSaves != null ? d.newSaves * d.gap : 0), 0);
+  const week = bucket(0, 7), prevWeek = bucket(7, 14);
+  const hasPrev = span > 7;
+  const dir = !hasPrev ? '' : week > prevWeek ? 'up' : week < prevWeek ? 'down' : 'flat';
+
+  // Days between the last reading and today — a listing tracker nobody has
+  // updated in a week is showing stale numbers, and should say so.
+  const stale = Math.round((dateMs(today()) - dateMs(latest)) / 86400000);
+
+  return `${stale >= 3 ? `<p class="listing-stale">
+      <i class="ti ti-clock-exclamation"></i>
+      Last logged ${fmtLong(latest)} — ${stale} days ago. Numbers below are as of then.
+    </p>` : ''}
+    <div class="listing-stat-strip">
+      <div><b>${Math.round(week).toLocaleString()}</b>new saves · last 7 days</div>
+      ${hasPrev ? `<div><b style="color:${dir==='up'?'var(--accent)':dir==='down'?'var(--danger)':'inherit'}">${
+        dir==='up'?'▲':dir==='down'?'▼':'='} ${Math.round(prevWeek).toLocaleString()}</b>the 7 before</div>` : ''}
+      <div><b>${perDay(totalS/Math.max(1,span))}</b>saves per day</div>
+      <div><b>${perDay(totalV/Math.max(1,span))}</b>views per day</div>
+      ${best && best.newSaves ? `<div><b>${perDay(best.newSaves)}</b>best day · ${fmt(best.date)}</div>` : ''}
+      <div><b>${Math.round(totalS).toLocaleString()}</b>all time · ${span} day${span===1?'':'s'}</div>
+    </div>`;
+}
+
 /* The chart this tab is actually for: how many NEW saves the listing picked
    up on each day, derived from the movement in Zillow's rolling 30-day figure
    (see listingDeltas). Saves are the bars, because saves are the number that
@@ -7355,7 +7575,7 @@ function renderListingDailyChart(stats){
     </div>`;
   }
 
-  const W = 560, H = 176, padL = 30, padR = 34, padT = 14, padB = 22;
+  const W = 460, H = 150, padL = 28, padR = 30, padT = 12, padB = 20;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const n = days.length;
   const maxS = Math.max(1, ...days.map(d => d.newSaves || 0));
@@ -7363,7 +7583,7 @@ function renderListingDailyChart(stats){
   // One slot per day; the bar sits centred in its slot so the views line can
   // run through the middle of each bar rather than along the slot edges.
   const slot = plotW / n;
-  const barW = Math.max(3, Math.min(28, slot * 0.6));
+  const barW = Math.max(3, Math.min(20, slot * 0.6));
   const cx   = i => padL + slot * i + slot / 2;
   const yS   = v => padT + plotH - ((v || 0) / maxS) * plotH;
   const yV   = v => padT + plotH - ((v || 0) / maxV) * plotH;
@@ -7395,41 +7615,14 @@ function renderListingDailyChart(stats){
         fill="none" stroke="var(--ink-3)" stroke-width="1.75" stroke-dasharray="4,3" stroke-linejoin="round"/>`
     : '';
 
-  const labelCount = Math.min(5, n);
+  const labelCount = Math.min(4, n);
   const xLabels = [];
   for(let k = 0; k < labelCount; k++){
     const idx = n <= 1 ? 0 : Math.round(k * (n-1) / ((labelCount-1) || 1));
     xLabels.push(`<text x="${cx(idx).toFixed(1)}" y="${H-5}" font-size="9" fill="var(--ink-3)" text-anchor="middle">${fmt(days[idx].date)}</text>`);
   }
 
-  /* Summary strip — the headline the tab exists for, so the raw log can stay
-     folded away underneath it.
-
-     "span" is the stretch of calendar the deltas actually cover, from the
-     baseline reading to the latest, NOT the number of entries: a fortnight
-     logged three times is 14 days of listing life, not 3.
-
-     The week-on-week pair is the number that answers "is this listing still
-     moving?". Each entry is counted in the bucket its own date falls in,
-     measured back from the latest reading. */
-  const span    = days.reduce((a, d) => a + d.gap, 0);
-  const totalS  = days.reduce((a, d) => a + (d.newSaves != null ? d.newSaves * d.gap : 0), 0);
-  const totalV  = days.reduce((a, d) => a + (d.newViews != null ? d.newViews * d.gap : 0), 0);
-  const best    = days.reduce((a, d) => (d.newSaves||0) > (a && a.newSaves||0) ? d : a, null);
-  const aged    = days.filter(d => d.agedSaves).length;
-
-  const latest  = days[days.length-1].date;
-  const ageOf   = d => Math.round((dateMs(latest) - dateMs(d.date)) / 86400000);
-  const bucket  = (from, to) => days
-    .filter(d => { const a = ageOf(d); return a >= from && a < to; })
-    .reduce((a, d) => a + (d.newSaves != null ? d.newSaves * d.gap : 0), 0);
-  const week    = bucket(0, 7), prevWeek = bucket(7, 14);
-  const hasPrev = span > 7;
-  const dir     = !hasPrev ? '' : week > prevWeek ? 'up' : week < prevWeek ? 'down' : 'flat';
-
-  // Days between the last reading and today — a listing tracker nobody has
-  // updated in a week is showing stale numbers, and should say so.
-  const stale = Math.round((dateMs(today()) - dateMs(latest)) / 86400000);
+  const aged = days.filter(d => d.agedSaves).length;
 
   // Scrubber geometry and per-reading readouts. `a` is the bar's top (new
   // saves), `b` the views line — the two dots the guideline lights up.
@@ -7447,20 +7640,8 @@ function renderListingDailyChart(stats){
   const geom = {W, padL, plotW, slot, mode:'bars'};
   const last = points[points.length-1];
 
-  return `<div style="margin:2px 0 16px">
-    ${stale >= 3 ? `<p class="listing-stale">
-      <i class="ti ti-clock-exclamation"></i>
-      Last logged ${fmtLong(latest)} — ${stale} days ago. Numbers below are as of then.
-    </p>` : ''}
-    <div class="listing-stat-strip">
-      <div><b>${Math.round(week).toLocaleString()}</b>new saves · last 7 days</div>
-      ${hasPrev ? `<div><b style="color:${dir==='up'?'var(--accent)':dir==='down'?'var(--danger)':'inherit'}">${
-        dir==='up'?'▲':dir==='down'?'▼':'='} ${Math.round(prevWeek).toLocaleString()}</b>the 7 before</div>` : ''}
-      <div><b>${perDay(totalS/Math.max(1,span))}</b>saves per day</div>
-      <div><b>${perDay(totalV/Math.max(1,span))}</b>views per day</div>
-      ${best && best.newSaves ? `<div><b>${perDay(best.newSaves)}</b>best day · ${fmt(best.date)}</div>` : ''}
-      <div><b>${Math.round(totalS).toLocaleString()}</b>all time · ${span} day${span===1?'':'s'}</div>
-    </div>
+  return `<div>
+    <div class="listing-chart-title">Day by day · new saves and views</div>
     <div class="listing-chart-legend">
       <span><span class="listing-swatch" style="background:var(--accent)"></span>New saves per day</span>
       <span><span class="listing-swatch" style="background:var(--ink-3)"></span>New views per day (right axis)</span>
@@ -7501,7 +7682,7 @@ function renderListingChart(stats){
       Log at least two days to see the trend.
     </div>`;
   }
-  const W=560, H=160, padL=30, padR=10, padT=12, padB=20;
+  const W=460, H=150, padL=28, padR=10, padT=12, padB=20;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const n = stats.length;
   const maxVal = Math.max(1, ...stats.map(e => Math.max(e.views||0, e.saves||0)));
@@ -7512,7 +7693,7 @@ function renderListingChart(stats){
     const y = padT + plotH - f*plotH;
     return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1"/><text x="${padL-6}" y="${(y+3).toFixed(1)}" font-size="9" fill="var(--ink-3)" text-anchor="end">${Math.round(maxVal*f)}</text>`;
   }).join('');
-  const labelCount = Math.min(5, n);
+  const labelCount = Math.min(4, n);
   const xLabels = [];
   for(let k=0;k<labelCount;k++){
     const idx = n<=1?0:Math.round(k*(n-1)/((labelCount-1)||1));
@@ -7534,11 +7715,11 @@ function renderListingChart(stats){
   const totalSaves = stats.reduce((s,e)=>s+(e.saves||0),0);
   const lastS = [...stats].reverse().find(e=>e.saves!=null);
   const lastV = [...stats].reverse().find(e=>e.views!=null);
-  return `<div style="margin:2px 0 14px">
-    <div style="font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">As Zillow reports it · rolling 30-day totals</div>
-    <div style="display:flex;gap:16px;margin-bottom:8px;font-size:11.5px;flex-wrap:wrap">
-      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);display:inline-block"></span>Views · ${lastV?lastV.views.toLocaleString():'—'} latest</span>
-      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:var(--danger);display:inline-block;border:1px dashed var(--danger)"></span>Saves · ${lastS?lastS.saves.toLocaleString():'—'} latest</span>
+  return `<div>
+    <div class="listing-chart-title">Totals · Zillow's rolling 30 days</div>
+    <div class="listing-chart-legend">
+      <span><span class="listing-swatch" style="background:var(--accent)"></span>Views · ${lastV?lastV.views.toLocaleString():'—'} latest</span>
+      <span><span class="listing-swatch" style="background:var(--danger)"></span>Saves · ${lastS?lastS.saves.toLocaleString():'—'} latest</span>
     </div>
     <div class="chart-scrub" id="${cid}" data-geom="${chartAttr(geom)}" data-points="${chartAttr(points)}">
       <div class="chart-readout">${lastPt.html}</div>
@@ -7612,6 +7793,11 @@ const PROP_SORTS = {
     label: 'Closing date',
     hint:  'Soonest closing first',
     key:   p => p.closingDate || ''
+  },
+  nextTaskDue: {
+    label: 'Next task due',
+    hint:  'Soonest open task on the deal first',
+    key:   p => (sortByDue(openTasksForProp(p.id))[0] || {}).dueDate || ''
   },
   finalTier: {
     label: 'Funding final tier',
@@ -9705,6 +9891,7 @@ async function saveProp(id){
     // carry them through untouched rather than letting an edit here wipe them.
     listingUrl: existing ? existing.listingUrl : '',
     listingStats: existing ? existing.listingStats : [],
+    agentLog: existing ? existing.agentLog : [],
     created: existing ? existing.created : today()
   };
   if(id){ const i=state.props.findIndex(p=>p.id===id); state.props[i]=data; }

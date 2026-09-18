@@ -62,6 +62,11 @@ create table if not exists properties (
   ghl_url       text,
   land_portal_url text,
   listing_stats jsonb not null default '[]'::jsonb,
+  -- Weekly agent check-in log: [{"date":"2026-09-14","agent":"Jane Doe",
+  -- "note":"Two showings this week, no offers yet"}, ...]. One entry per
+  -- calendar week (Sunday-start, same as audit_logs); the app upserts by
+  -- week rather than appending a second entry for the same week.
+  agent_log     jsonb not null default '[]'::jsonb,
   created_at   timestamptz not null default now()
 );
 alter table properties add column if not exists property_id  text;
@@ -78,6 +83,7 @@ alter table properties add column if not exists listing_url   text;
 alter table properties add column if not exists ghl_url       text;
 alter table properties add column if not exists land_portal_url text;
 alter table properties add column if not exists listing_stats jsonb not null default '[]'::jsonb;
+alter table properties add column if not exists agent_log     jsonb not null default '[]'::jsonb;
 alter table properties add column if not exists created_at   timestamptz not null default now();
 
 -- Existing rows predating the funding schedule get an empty list rather
@@ -85,6 +91,7 @@ alter table properties add column if not exists created_at   timestamptz not nul
 update properties set funding_schedule = '[]'::jsonb where funding_schedule is null;
 update properties set status = 'pre-closing' where status is null or status = 'new';
 update properties set listing_stats = '[]'::jsonb where listing_stats is null;
+update properties set agent_log = '[]'::jsonb where agent_log is null;
 
 -- ---------------------------------------------------------
 -- funding_templates (saved profit-split schedules, e.g. "Rooster Flow
@@ -566,7 +573,7 @@ begin
   for t in
     select * from (values
       ('users',         array['id','name','role','color_idx','created_at']),
-      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_stats','ghl_url','land_portal_url','created_at']),
+      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_stats','agent_log','ghl_url','land_portal_url','created_at']),
       ('funding_templates', array['id','name','tiers','created_at']),
       ('tasks',         array['id','title','linked_id','linked_type','due_date','priority','status','notes','assignees','completed_at','created_at']),
       ('projects',      array['id','title','category','status','priority','description','due_date','assignees','created_at']),
