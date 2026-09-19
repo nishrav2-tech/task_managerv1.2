@@ -812,6 +812,19 @@ input,select,textarea{font:inherit;color:inherit}
 .prop-status-pill.prop-status-listed{background-color:var(--info-soft,#E4EBF3);color:var(--info-ink,#1F3C5C)}
 .prop-status-pill.prop-status-closed{background-color:var(--accent-soft);color:var(--accent)}
 
+.prop-agent-stale{
+  display:inline-flex;align-items:center;gap:3px;
+  border-radius:20px;padding:2px 9px;
+  font-size:10px;font-weight:700;
+  background:var(--danger-soft,#fce8e8);color:var(--danger,#c0392b);
+  border:1px solid color-mix(in srgb, var(--danger,#c0392b) 20%, transparent);
+  animation:agent-stale-pulse 2s ease-in-out infinite;
+}
+.prop-agent-stale i{font-size:12px}
+@keyframes agent-stale-pulse{
+  0%,100%{opacity:1} 50%{opacity:.65}
+}
+
 /* ---- listing details panel (property card) ---- */
 .listing-url-row{display:flex;align-items:flex-end;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .listing-entry-row{
@@ -2566,6 +2579,15 @@ function daysSinceAgentCheckin(p){
   const log = normalizeAgentLog(p.agentLog);
   if(!log.length) return null;
   return Math.round((dateMs(today()) - dateMs(log[log.length-1].date)) / 86400000);
+}
+// Warning pill shown on the property card when the deal is listed and no
+// agent check-in has been logged within the last 6 days (or ever).
+function agentStalePill(p){
+  if(propStatus(p) !== 'listed') return '';
+  const days = daysSinceAgentCheckin(p);
+  if(days !== null && days < 6) return '';
+  const label = days === null ? 'No agent check-in' : `${days}d since check-in`;
+  return `<span class="prop-agent-stale" title="Log an agent check-in under Listing details"><i class="ti ti-alert-triangle"></i> ${label}</span>`;
 }
 
 /* ---- New saves and views per day ------------------------------------------
@@ -8001,6 +8023,7 @@ function renderProperties(){
                   title="${status==='listed'?'Has a Zillow link under Listing details':status==='closed'?'Closing date has passed':'No closing date yet, or it is still ahead'}">
               ${PROP_STATUS_LABEL[status]}
             </span>
+            ${agentStalePill(p)}
           </div>
           <div class="item-meta">
             <span>${escape(p.county)}, ${escape(p.state)}</span>
