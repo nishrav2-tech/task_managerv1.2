@@ -1008,6 +1008,10 @@ input,select,textarea{font:inherit;color:inherit}
 .agent-log-entry-nums span{display:flex;align-items:center;gap:3px}
 .agent-log-entry-nums .al-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
 .agent-log-entry-note{margin-top:3px;color:var(--ink-2);line-height:1.4;white-space:pre-wrap}
+.agent-log-entry-pricing{margin-top:4px;display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;border-radius:12px;padding:2px 8px}
+.pricing-hold{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7}
+.pricing-drop{background:#fce8e8;color:#c0392b;border:1px solid #ef9a9a}
+.pricing-adjust{background:#fff3e0;color:#e65100;border:1px solid #ffcc80}
 .agent-log-entry button{flex-shrink:0}
 
 /* ---- "closed but not listed" alert (property card + page banner) ---- */
@@ -2568,7 +2572,8 @@ function normalizeAgentLog(raw){
         calls: Math.max(0, parseInt(e.calls,10)||0),
         offers: Math.max(0, parseInt(e.offers,10)||0),
         walkthroughs: Math.max(0, parseInt(e.walkthroughs,10)||0),
-        note: String(e.note||'').trim()
+        note: String(e.note||'').trim(),
+        pricingDecision: String(e.pricingDecision||'').trim()
       });
     });
   return [...byWeek.values()].sort((a,b) => a.week.localeCompare(b.week));
@@ -7335,12 +7340,13 @@ async function logAgentCheckin(id){
   const offers = (document.getElementById(`agent-offers-${id}`)||{}).value || '0';
   const walkthroughs = (document.getElementById(`agent-walks-${id}`)||{}).value || '0';
   const note  = (document.getElementById(`agent-note-${id}`)||{}).value || '';
+  const pricingDecision = (document.getElementById(`agent-pricing-${id}`)||{}).value || '';
   if(!parseInt(calls)&&!parseInt(offers)&&!parseInt(walkthroughs)&&!note.trim())
     return toast('Enter at least one number or a note', 'err');
   const week = auditWeekStart(date);
   const log = normalizeAgentLog(p.agentLog);
   const existing = log.find(e => e.week === week);
-  p.agentLog = normalizeAgentLog([...log.filter(e=>e.week!==week), {date, agent, calls, offers, walkthroughs, note}]);
+  p.agentLog = normalizeAgentLog([...log.filter(e=>e.week!==week), {date, agent, calls, offers, walkthroughs, note, pricingDecision}]);
   await saveOne('props', p);
   toast(existing ? "Updated this week's check-in" : 'Check-in logged');
   app.render();
@@ -7527,6 +7533,7 @@ function renderAgentLog(p){
           <span><span class="al-dot" style="background:#4dc990"></span> ${e.walkthroughs} walk${e.walkthroughs!==1?'s':''}</span>
         </div>
         ${e.note ? `<div class="agent-log-entry-note">${escape(e.note)}</div>` : ''}
+        ${e.pricingDecision ? `<div class="agent-log-entry-pricing pricing-${e.pricingDecision}">${({hold:'Hold Price',drop:'Drop Price',adjust:'Adjust Listing'})[e.pricingDecision]||e.pricingDecision}</div>` : ''}
       </div>
       <button type="button" class="icon-btn" title="Remove entry"
               onclick="deleteAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-x"></i></button>
@@ -7562,6 +7569,13 @@ function renderAgentLog(p){
       <div></div>
       <textarea class="form-textarea" id="agent-note-${p.id}" rows="2"
                 placeholder="General notes — showing feedback, price talk, market conditions…"></textarea>
+      <label style="font-size:11px;font-weight:600;color:var(--ink-3);letter-spacing:.03em">PRICING DECISION</label>
+      <select class="form-input" id="agent-pricing-\${p.id}" style="max-width:200px">
+        <option value="">— none —</option>
+        <option value="hold">Hold Price</option>
+        <option value="drop">Drop Price</option>
+        <option value="adjust">Adjust Listing</option>
+      </select>
       <div></div>
       <div class="agent-log-form-actions">
         <button type="button" class="btn btn-sm btn-primary" onclick="logAgentCheckin('${p.id}')">
