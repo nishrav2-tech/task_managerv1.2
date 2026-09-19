@@ -1625,6 +1625,7 @@ const StorageAdapter = {
       // to the column on every save so it stays queryable outside the app.
       status:propStatus(p),
       listing_url:p.listingUrl||null,
+      listing_url_2:p.listingUrl2||null,
       listing_stats:normalizeListingStats(p.listingStats),
       agent_log:normalizeAgentLog(p.agentLog)}),
     fundingTemplates: t => ({id:t.id, name:t.name, tiers:normalizeFunding(t.tiers, {})}),
@@ -1683,6 +1684,7 @@ const StorageAdapter = {
       // closingDate/listingUrl wherever it's needed, so there's nothing here
       // that could go stale relative to those two.
       listingUrl:p.listing_url||'',
+      listingUrl2:p.listing_url_2||'',
       listingStats:normalizeListingStats(p.listing_stats),
       agentLog:normalizeAgentLog(p.agent_log),
       created:p.created_at?p.created_at.split('T')[0]:''}),
@@ -2672,7 +2674,7 @@ const needsListing = p => propStatus(p) === 'closed';
 // Listed wins over closed: once there's a listing, that's the more useful
 // thing to see, even on a deal whose closing date has also passed.
 function propStatus(p){
-  if((p.listingUrl||'').trim()) return 'listed';
+  if((p.listingUrl||'').trim() || (p.listingUrl2||'').trim()) return 'listed';
   if(p.closingDate && p.closingDate <= today()) return 'closed';
   return 'pre-closing';
 }
@@ -7262,10 +7264,12 @@ function closeListingPanel(){
 async function saveListingUrl(id){
   const p = state.props.find(x=>x.id===id);
   if(!p) return;
-  const input = document.getElementById(`lst-url-${id}`);
-  p.listingUrl = input ? input.value.trim() : p.listingUrl;
+  const input1 = document.getElementById(`lst-url-${id}`);
+  const input2 = document.getElementById(`lst-url2-${id}`);
+  p.listingUrl  = input1 ? input1.value.trim() : p.listingUrl;
+  p.listingUrl2 = input2 ? input2.value.trim() : (p.listingUrl2||'');
   await saveOne('props', p);
-  toast('Zillow listing saved');
+  toast('Zillow listing(s) saved');
   app.render();
 }
 // One entry per calendar date — logging today's numbers again overwrites
@@ -7354,21 +7358,35 @@ function renderListingPanel(p, stats){
   }).join('');
 
   return `<div class="funding-panel">
-    <div class="listing-url-row">
-      <div class="form-group" style="margin-bottom:0;flex:1">
-        <label class="form-label">Zillow listing</label>
-        <input class="form-input" id="lst-url-${p.id}" placeholder="https://www.zillow.com/…"
-               value="${escape(p.listingUrl||'')}">
+    <div class="listing-url-row" style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
+        <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px">
+          <label class="form-label">Zillow listing 1</label>
+          <input class="form-input" id="lst-url-${p.id}" placeholder="https://www.zillow.com/…"
+                 value="${escape(p.listingUrl||'')}">
+        </div>
+        ${p.listingUrl ? `<a class="btn btn-sm" href="${escape(p.listingUrl)}" target="_blank" rel="noopener">
+          <i class="ti ti-external-link"></i></a>` : ''}
       </div>
-      <button type="button" class="btn btn-sm" onclick="saveListingUrl('${p.id}')">Save link</button>
-      ${p.listingUrl ? `<a class="btn btn-sm" href="${escape(p.listingUrl)}" target="_blank" rel="noopener">
-        <i class="ti ti-external-link"></i> Open</a>` : ''}
+      <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-top:6px">
+        <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px">
+          <label class="form-label">Zillow listing 2 <span style="font-weight:400;color:var(--ink-3)">(optional)</span></label>
+          <input class="form-input" id="lst-url2-${p.id}" placeholder="https://www.zillow.com/…"
+                 value="${escape(p.listingUrl2||'')}">
+        </div>
+        ${p.listingUrl2 ? `<a class="btn btn-sm" href="${escape(p.listingUrl2)}" target="_blank" rel="noopener">
+          <i class="ti ti-external-link"></i></a>` : ''}
+      </div>
+      <div style="margin-top:8px">
+        <button type="button" class="btn btn-sm" onclick="saveListingUrl('${p.id}')">Save links</button>
+      </div>
     </div>
 
-    <p class="form-hint">Copy the two numbers Zillow shows on the listing — they are
-      its <strong>last-30-days</strong> totals, not that day's activity. One entry per
-      day; logging the same date again updates it instead of adding a duplicate. New
-      saves per day is worked out from the change between entries.</p>
+    <p class="form-hint">Copy the two numbers Zillow shows on either listing — they are
+      its <strong>last-30-days</strong> totals, not that day's activity. If you have two
+      listings, <strong>add both together</strong> before logging. One entry per day;
+      logging the same date again updates it. New saves per day is worked out from
+      the change between entries.</p>
     <div class="listing-entry-row">
       <input class="form-input" type="date" id="lst-date-${p.id}" value="${today()}">
       <input class="form-input" type="number" min="0" step="1" id="lst-views-${p.id}" placeholder="Views (last 30 days)">
@@ -9990,6 +10008,7 @@ async function saveProp(id){
     // Listing details live behind their own tab on the card, not this form —
     // carry them through untouched rather than letting an edit here wipe them.
     listingUrl: existing ? existing.listingUrl : '',
+    listingUrl2: existing ? existing.listingUrl2 : '',
     listingStats: existing ? existing.listingStats : [],
     agentLog: existing ? existing.agentLog : [],
     created: existing ? existing.created : today()
