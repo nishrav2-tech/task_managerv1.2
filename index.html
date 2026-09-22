@@ -1013,7 +1013,14 @@ input,select,textarea{font:inherit;color:inherit}
 .pricing-drop{background:#fce8e8;color:#c0392b;border:1px solid #ef9a9a}
 .pricing-adjust{background:#fff3e0;color:#e65100;border:1px solid #ffcc80}
 .agent-log-entry button{flex-shrink:0}
-.agent-log-entry-actions{display:flex;gap:2px;flex-shrink:0}
+.agent-log-entry-actions{display:flex;gap:4px;flex-shrink:0;align-items:flex-start;padding-top:2px}
+.agent-log-entry-actions .icon-btn{
+  width:26px;height:26px;border-radius:6px;
+  color:var(--ink-2);background:var(--surface-1,#fff);
+  border:1px solid var(--border);font-size:13px;
+}
+.agent-log-entry-actions .icon-btn:hover{color:var(--ink);background:var(--surface-1,#fff);border-color:var(--ink-3)}
+.agent-log-entry-actions .icon-btn.del-btn:hover{color:var(--danger,#c0392b);border-color:var(--danger,#c0392b)}
 .agent-log-edit-form{display:grid;grid-template-columns:1fr;gap:6px;margin-top:6px;padding:8px;background:var(--bg-2,#f5f5f5);border-radius:8px}
 .agent-log-edit-form .agent-log-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .agent-log-edit-form .agent-log-num-group{display:flex;flex-direction:column;gap:2px}
@@ -7608,8 +7615,8 @@ function renderAgentLog(p){
       <div class="agent-log-entry-actions">
         <button type="button" class="icon-btn" title="Edit entry"
                 onclick="editAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-pencil"></i></button>
-        <button type="button" class="icon-btn" title="Remove entry"
-                onclick="deleteAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-x"></i></button>
+        <button type="button" class="icon-btn del-btn" title="Remove entry"
+                onclick="if(confirm('Delete this check-in?'))deleteAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-trash"></i></button>
       </div>
     </div>`;
   }).join('');
