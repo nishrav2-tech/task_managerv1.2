@@ -1612,6 +1612,7 @@ async function ensureSupabaseLib(){
 
 const StorageAdapter = {
   backend: 'local',      // 'local' | 'supabase'
+  _pendingSaves: 0,     // guards loadAll() against clobbering in-flight writes
   supabase: null,
   syncing: false,
 
@@ -2014,6 +2015,7 @@ const StorageAdapter = {
   },
 
   async saveEntity(collection, entity){
+    this._pendingSaves++;
     this.setSyncing(true);
     try{
       this.assertConnected();
@@ -2024,11 +2026,13 @@ const StorageAdapter = {
       console.error(`Save ${collection} failed:`, e);
       toast('Save failed: '+ (e.message||'unknown error'),'err');
     }finally{
-      this.setSyncing(false);
+      this._pendingSaves--;
+      this.setSyncing(this._pendingSaves > 0);
     }
   },
 
   async deleteEntity(collection, id){
+    this._pendingSaves++;
     this.setSyncing(true);
     try{
       this.assertConnected();
@@ -2038,7 +2042,8 @@ const StorageAdapter = {
       console.error(`Delete ${collection} failed:`, e);
       toast('Delete failed: '+(e.message||'unknown error'),'err');
     }finally{
-      this.setSyncing(false);
+      this._pendingSaves--;
+      this.setSyncing(this._pendingSaves > 0);
     }
   },
 
@@ -2115,6 +2120,7 @@ const StorageAdapter = {
 
   // Bulk save — used by seed, import
   async saveBulk(data){
+    this._pendingSaves++;
     this.setSyncing(true);
     try{
       this.assertConnected();
@@ -2131,7 +2137,8 @@ const StorageAdapter = {
       console.error('Bulk save failed:', e);
       toast('Sync failed: '+(e.message||'unknown error'),'err');
     }finally{
-      this.setSyncing(false);
+      this._pendingSaves--;
+      this.setSyncing(this._pendingSaves > 0);
     }
   },
 
@@ -3102,7 +3109,15 @@ function updateBackendBadge(){
 // Everything except KPI history. Enough to draw every screen's structure and
 // the whole dashboard except its KPI numbers.
 async function loadCore(){
+  if(StorageAdapter._pendingSaves > 0){
+    console.log('loadCore() skipped — write in progress');
+    return;
+  }
   const data = await StorageAdapter.loadCore();
+  if(StorageAdapter._pendingSaves > 0){
+    console.log('loadCore() result discarded — write started during fetch');
+    return;
+  }
   applyCore(data);
   await maybeSeedEmptyDatabase();
 }
@@ -3211,7 +3226,20 @@ function applyCore(data){
   state.activeUserId = data.activeUserId;
 }
 async function loadAll(){
+  // Don't overwrite state while saves/deletes are in-flight — the write may
+  // not have reached Supabase yet, so the fetch would clobber the optimistic
+  // update the user just saw (the classic "task vanishes after save" bug).
+  if(StorageAdapter._pendingSaves > 0){
+    console.log('loadAll() skipped — write in progress (%d pending)', StorageAdapter._pendingSaves);
+    return;
+  }
   const data = await StorageAdapter.loadAll();
+  // Check again after the async fetch completed — a save might have started
+  // while we were waiting for the Supabase response.
+  if(StorageAdapter._pendingSaves > 0){
+    console.log('loadAll() result discarded — write started during fetch');
+    return;
+  }
   applyCore(data);
   await maybeSeedEmptyDatabase();
 }
@@ -3441,10 +3469,21 @@ const app = {
     // above can't be relied on to fire while the phone is locked or the
     // app is switched away from. Catch up the instant the user comes back
     // instead of waiting for the next scheduled tick.
+    //
+    // DEBOUNCED: visibility and focus events fire very frequently (closing
+    // a modal, switching tabs, confirm() dialogs). Without a cooldown they
+    // trigger loadAll() right after a save, before the upsert lands in
+    // Supabase, overwriting the just-saved data. 3 seconds is enough for
+    // the upsert round-trip to finish.
+    let _refreshTimer = null;
+    const debouncedRefresh = () => {
+      clearTimeout(_refreshTimer);
+      _refreshTimer = setTimeout(refreshAndCheck, 3000);
+    };
     document.addEventListener('visibilitychange', ()=>{
-      if(document.visibilityState === 'visible') refreshAndCheck();
+      if(document.visibilityState === 'visible') debouncedRefresh();
     });
-    window.addEventListener('focus', refreshAndCheck);
+    window.addEventListener('focus', debouncedRefresh);
   },
 
   bindNav(){
