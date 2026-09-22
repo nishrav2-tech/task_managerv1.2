@@ -7453,11 +7453,7 @@ function renderListingPanel(p, stats){
       </div>
     </div>
 
-    <p class="form-hint">Copy the two numbers Zillow shows on either listing — they are
-      its <strong>last-30-days</strong> totals, not that day's activity. If you have two
-      listings, <strong>add both together</strong> before logging. One entry per day;
-      logging the same date again updates it. New saves per day is worked out from
-      the change between entries.</p>
+    <p class="form-hint" style="margin:8px 0 4px">Log Zillow's 30-day totals. Two listings? Add both together.</p>
     <div class="listing-entry-row">
       <input class="form-input" type="date" id="lst-date-${p.id}" value="${today()}">
       <input class="form-input" type="number" min="0" step="1" id="lst-views-${p.id}" placeholder="Views (last 30 days)">
@@ -7784,7 +7780,7 @@ function renderListingSummary(stats){
 
   return `${stale >= 3 ? `<p class="listing-stale">
       <i class="ti ti-clock-exclamation"></i>
-      Last logged ${fmtLong(latest)} — ${stale} days ago. Numbers below are as of then.
+      Last logged ${fmtLong(latest)} (${stale}d ago)
     </p>` : ''}
     <div class="listing-stat-strip">
       <div><b>${Math.round(week).toLocaleString()}</b>new saves · last 7 days</div>
@@ -7808,7 +7804,7 @@ function renderListingDailyChart(stats){
   if(!days.length){
     return `<div class="prop-timeline-empty" style="margin:6px 0 14px">
       <i class="ti ti-chart-bar" style="font-size:13px"></i>
-      Log a second day to see new saves per day — the graph is the change between readings.
+      Log a second day to see the chart.
     </div>`;
   }
 
@@ -7898,9 +7894,7 @@ function renderListingDailyChart(stats){
         ${xLabels.join('')}
       </svg>
     </div>
-    ${aged ? `<p class="form-hint" style="margin:4px 0 0">${aged} day${aged===1?'':'s'} where Zillow's
-      30-day saves total went down — saves made over 30 days ago dropped out of its window faster than new
-      ones came in. Counted as zero new saves, not negative.</p>` : ''}
+
   </div>`;
 }
 
