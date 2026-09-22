@@ -1013,6 +1013,13 @@ input,select,textarea{font:inherit;color:inherit}
 .pricing-drop{background:#fce8e8;color:#c0392b;border:1px solid #ef9a9a}
 .pricing-adjust{background:#fff3e0;color:#e65100;border:1px solid #ffcc80}
 .agent-log-entry button{flex-shrink:0}
+.agent-log-entry-actions{display:flex;gap:2px;flex-shrink:0}
+.agent-log-edit-form{display:grid;grid-template-columns:1fr;gap:6px;margin-top:6px;padding:8px;background:var(--bg-2,#f5f5f5);border-radius:8px}
+.agent-log-edit-form .agent-log-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.agent-log-edit-form .agent-log-num-group{display:flex;flex-direction:column;gap:2px}
+.agent-log-edit-form .agent-log-num-group label{font-size:10px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
+.agent-log-edit-form .agent-log-num-group input[type=number]{width:100%;text-align:center;-moz-appearance:textfield}
+.agent-log-edit-actions{display:flex;gap:6px;justify-content:flex-end}
 
 /* ---- "closed but not listed" alert (property card + page banner) ---- */
 .prop-alert{
@@ -7358,6 +7365,34 @@ async function deleteAgentCheckin(id, week){
   await saveOne('props', p);
   app.render();
 }
+function editAgentCheckin(id, week){
+  state.editingAgentLog = {id, week};
+  app.render();
+}
+function cancelAgentEdit(){
+  delete state.editingAgentLog;
+  app.render();
+}
+async function saveAgentEdit(id, week){
+  const p = state.props.find(x=>x.id===id);
+  if(!p) return;
+  const calls = (document.getElementById('agent-edit-calls')||{}).value || '0';
+  const offers = (document.getElementById('agent-edit-offers')||{}).value || '0';
+  const walkthroughs = (document.getElementById('agent-edit-walks')||{}).value || '0';
+  const note = (document.getElementById('agent-edit-note')||{}).value || '';
+  const pricingDecision = (document.getElementById('agent-edit-pricing')||{}).value || '';
+  const log = normalizeAgentLog(p.agentLog);
+  const existing = log.find(e => e.week === week);
+  if(!existing) return;
+  p.agentLog = normalizeAgentLog([...log.filter(e=>e.week!==week), {
+    date: existing.date, agent: existing.agent,
+    calls, offers, walkthroughs, note, pricingDecision
+  }]);
+  await saveOne('props', p);
+  delete state.editingAgentLog;
+  toast('Check-in updated');
+  app.render();
+}
 function renderListingPanel(p, stats){
   stats = stats || normalizeListingStats(p.listingStats);
   const logOpen = state.listingLogOpen === p.id;
@@ -7523,7 +7558,42 @@ function renderAgentLog(p){
       </div>`
     : '';
 
-  const rows = [...log].reverse().map(e => `
+  const editing = state.editingAgentLog || {};
+  const rows = [...log].reverse().map(e => {
+    const isEditing = editing.id === p.id && editing.week === e.week;
+    if(isEditing) return `
+    <div class="agent-log-entry" style="flex-direction:column">
+      <div class="agent-log-edit-form">
+        <div class="agent-log-nums">
+          <div class="agent-log-num-group">
+            <label>Calls</label>
+            <input class="form-input" type="number" min="0" id="agent-edit-calls" value="${e.calls}">
+          </div>
+          <div class="agent-log-num-group">
+            <label>Offers rcvd</label>
+            <input class="form-input" type="number" min="0" id="agent-edit-offers" value="${e.offers}">
+          </div>
+          <div class="agent-log-num-group">
+            <label>Walkthroughs</label>
+            <input class="form-input" type="number" min="0" id="agent-edit-walks" value="${e.walkthroughs}">
+          </div>
+        </div>
+        <textarea class="form-textarea" id="agent-edit-note" rows="2" placeholder="General notes">${escape(e.note)}</textarea>
+        <select class="form-input" id="agent-edit-pricing" style="max-width:200px">
+          <option value="">— none —</option>
+          <option value="hold" ${e.pricingDecision==='hold'?'selected':''}>Hold Price</option>
+          <option value="drop" ${e.pricingDecision==='drop'?'selected':''}>Drop Price</option>
+          <option value="adjust" ${e.pricingDecision==='adjust'?'selected':''}>Adjust Listing</option>
+        </select>
+        <div class="agent-log-edit-actions">
+          <button type="button" class="btn btn-sm" onclick="cancelAgentEdit()">Cancel</button>
+          <button type="button" class="btn btn-sm btn-primary" onclick="saveAgentEdit('${p.id}','${e.week}')">
+            <i class="ti ti-check"></i> Save
+          </button>
+        </div>
+      </div>
+    </div>`;
+    return `
     <div class="agent-log-entry">
       <div class="agent-log-entry-body">
         <span class="agent-log-entry-date">${fmtLong(e.date)}</span>${e.agent ? `<span class="agent-log-entry-agent"> · ${escape(e.agent)}</span>` : ''}
@@ -7532,12 +7602,17 @@ function renderAgentLog(p){
           <span><span class="al-dot" style="background:#e5a63b"></span> ${e.offers} offer${e.offers!==1?'s':''}</span>
           <span><span class="al-dot" style="background:#4dc990"></span> ${e.walkthroughs} walk${e.walkthroughs!==1?'s':''}</span>
         </div>
-        ${e.note ? `<div class="agent-log-entry-note">${escape(e.note)}</div>` : ''}
         ${e.pricingDecision ? `<div class="agent-log-entry-pricing pricing-${e.pricingDecision}">${({hold:'Hold Price',drop:'Drop Price',adjust:'Adjust Listing'})[e.pricingDecision]||e.pricingDecision}</div>` : ''}
+        ${e.note ? `<div class="agent-log-entry-note">${escape(e.note)}</div>` : ''}
       </div>
-      <button type="button" class="icon-btn" title="Remove entry"
-              onclick="deleteAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-x"></i></button>
-    </div>`).join('');
+      <div class="agent-log-entry-actions">
+        <button type="button" class="icon-btn" title="Edit entry"
+                onclick="editAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-pencil"></i></button>
+        <button type="button" class="icon-btn" title="Remove entry"
+                onclick="deleteAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-x"></i></button>
+      </div>
+    </div>`;
+  }).join('');
 
   return `<div class="agent-log">
     <div class="agent-log-head">
@@ -7570,7 +7645,7 @@ function renderAgentLog(p){
       <textarea class="form-textarea" id="agent-note-${p.id}" rows="2"
                 placeholder="General notes — showing feedback, price talk, market conditions…"></textarea>
       <label style="font-size:11px;font-weight:600;color:var(--ink-3);letter-spacing:.03em">PRICING DECISION</label>
-      <select class="form-input" id="agent-pricing-\${p.id}" style="max-width:200px">
+      <select class="form-input" id="agent-pricing-${p.id}" style="max-width:200px">
         <option value="">— none —</option>
         <option value="hold">Hold Price</option>
         <option value="drop">Drop Price</option>
