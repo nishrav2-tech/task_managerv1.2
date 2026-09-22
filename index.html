@@ -10458,7 +10458,13 @@ async function saveProject(id){
   };
   if(id){ const i=state.projects.findIndex(p=>p.id===id); state.projects[i]=data; }
   else state.projects.unshift(data);
-  await saveOne('projects', data);
+  const ok = await saveOne('projects', data);
+  if(!ok){
+    if(id && prev){ const i=state.projects.findIndex(p=>p.id===id); if(i>=0) state.projects[i]=prev; }
+    else state.projects = state.projects.filter(p=>p.id!==data.id);
+    app.render();
+    return;
+  }
   closeModal();
   toast(id?'Project updated':'Project added');
   app.render();
@@ -10467,8 +10473,14 @@ async function saveProject(id){
 
 async function deleteProjectInline(id){
   if(!confirm('Delete this project?')) return;
+  const removed = state.projects.find(x=>x.id===id);
   state.projects = state.projects.filter(x=>x.id!==id);
-  await deleteOne('projects', id);
+  const ok = await deleteOne('projects', id);
+  if(!ok){
+    if(removed) state.projects.push(removed);
+    app.render();
+    return;
+  }
   closeModal();
   toast('Project deleted');
   app.render();
