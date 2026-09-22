@@ -2022,9 +2022,11 @@ const StorageAdapter = {
       const row = this.toDb[collection](entity);
       const {error} = await this.supabase.from(this.tables[collection]).upsert(row);
       if(error) throw error;
+      return true;
     }catch(e){
       console.error(`Save ${collection} failed:`, e);
       toast('Save failed: '+ (e.message||'unknown error'),'err');
+      return false;
     }finally{
       this._pendingSaves--;
       this.setSyncing(this._pendingSaves > 0);
@@ -2038,9 +2040,11 @@ const StorageAdapter = {
       this.assertConnected();
       const {error} = await this.supabase.from(this.tables[collection]).delete().eq('id', id);
       if(error) throw error;
+      return true;
     }catch(e){
       console.error(`Delete ${collection} failed:`, e);
       toast('Delete failed: '+(e.message||'unknown error'),'err');
+      return false;
     }finally{
       this._pendingSaves--;
       this.setSyncing(this._pendingSaves > 0);
@@ -3082,10 +3086,21 @@ function userTaskStats(userId, mf){
   return { completed: completed.length, onTimePct, avgDays, current };
 }
 
+let _toastTimer = null;
+let _toastIsErr = false;
 function toast(msg, type){
   const root = $('#toast-root');
+  // Don't let a success toast overwrite an error toast that's still showing
+  if(_toastIsErr && type !== 'err'){
+    // Wait for the error toast to finish before showing success
+    setTimeout(() => toast(msg, type), 2000);
+    return;
+  }
+  clearTimeout(_toastTimer);
+  _toastIsErr = type === 'err';
   root.innerHTML = `<div class="toast ${type==='err'?'err':''}"><i class="ti ti-${type==='err'?'alert-circle':'check'}"></i>${escape(msg)}</div>`;
-  setTimeout(()=>{root.innerHTML=''}, 2200);
+  const duration = type === 'err' ? 4000 : 2200;
+  _toastTimer = setTimeout(()=>{ root.innerHTML=''; _toastIsErr=false; }, duration);
 }
 
 function updateBackendBadge(){
@@ -3246,10 +3261,10 @@ async function loadAll(){
 
 // Save one entity to whichever backend is active
 async function saveOne(collection, entity){
-  await StorageAdapter.saveEntity(collection, entity);
+  return await StorageAdapter.saveEntity(collection, entity);
 }
 async function deleteOne(collection, id){
-  await StorageAdapter.deleteEntity(collection, id);
+  return await StorageAdapter.deleteEntity(collection, id);
 }
 
 async function seed(){
@@ -9847,12 +9862,19 @@ async function confirmDelete(kind, id){
     }
   }
   if(!confirm(msg)) return;
+  const removed = state[map[kind]].find(x=>x.id===id);
   state[map[kind]] = state[map[kind]].filter(x=>x.id!==id);
   if(kind==='user' && state.activeUserId===id){
     state.activeUserId='';
     await StorageAdapter.saveActiveUser('');
   }
-  await deleteOne(map[kind], id);
+  const ok = await deleteOne(map[kind], id);
+  if(!ok){
+    // Delete failed — put the item back
+    if(removed) state[map[kind]].push(removed);
+    app.render();
+    return; // error toast already shown
+  }
   toast(`${labels[kind].charAt(0).toUpperCase()+labels[kind].slice(1)} deleted`);
   app.render();
 }
@@ -10167,7 +10189,14 @@ async function saveProp(id){
   };
   if(id){ const i=state.props.findIndex(p=>p.id===id); state.props[i]=data; }
   else state.props.unshift(data);
-  await saveOne('props', data);
+  const ok = await saveOne('props', data);
+  if(!ok){
+    // Save failed — revert the optimistic update
+    if(id && existing){ const i=state.props.findIndex(p=>p.id===id); if(i>=0) state.props[i]=existing; }
+    else state.props = state.props.filter(p=>p.id!==data.id);
+    app.render();
+    return; // error toast already shown — keep modal open for retry
+  }
   closeModal();
   toast(id?'Property updated':'Property added');
   app.render();
@@ -10311,7 +10340,14 @@ async function saveTask(id){
   };
   if(id){ const i=state.tasks.findIndex(t=>t.id===id); state.tasks[i]=data; }
   else state.tasks.unshift(data);
-  await saveOne('tasks', data);
+  const ok = await saveOne('tasks', data);
+  if(!ok){
+    // Save failed — revert the optimistic update so the UI isn't lying
+    if(id){ const i=state.tasks.findIndex(t=>t.id===id); if(prev && i>=0) state.tasks[i]=prev; }
+    else state.tasks = state.tasks.filter(t=>t.id!==data.id);
+    app.render();
+    return; // error toast already shown by saveEntity — don't close modal
+  }
   closeModal();
   toast(id?'Task updated':'Task added');
   app.render();
