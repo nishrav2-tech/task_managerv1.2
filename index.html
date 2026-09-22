@@ -1021,7 +1021,7 @@ input,select,textarea{font:inherit;color:inherit}
   cursor:pointer;opacity:1 !important;visibility:visible !important;
 }
 .agent-log-entry-actions .icon-btn:hover{color:#111;background:#f0f0f0;border-color:#999}
-.agent-log-entry-actions .icon-btn.del-btn:hover{color:#c0392b;border-color:#c0392b;background:#fce8e8}
+.agent-log-entry-actions .icon-btn.del-btn:hover{color:#111;background:#f0f0f0;border-color:#999}
 .agent-log-edit-form{display:grid;grid-template-columns:1fr;gap:6px;margin-top:6px;padding:8px;background:var(--bg-2,#f5f5f5);border-radius:8px}
 .agent-log-edit-form .agent-log-nums{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .agent-log-edit-form .agent-log-num-group{display:flex;flex-direction:column;gap:2px}
@@ -7613,7 +7613,7 @@ function renderAgentLog(p){
         <button type="button" class="icon-btn" title="Edit entry"
                 onclick="editAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-pencil"></i></button>
         <button type="button" class="icon-btn del-btn" title="Remove entry"
-                onclick="if(confirm('Delete this check-in?'))deleteAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-trash"></i></button>
+                onclick="if(confirm('Delete this check-in?'))deleteAgentCheckin('${p.id}','${e.week}')"><i class="ti ti-x"></i></button>
       </div>
     </div>`;
   }).join('');
