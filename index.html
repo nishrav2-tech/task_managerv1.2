@@ -8371,8 +8371,11 @@ async function dropOnDay(e, dateStr){
   // save or pop a toast for it.
   if(!item || item.dueDate === dateStr) return;
 
+  const before = item.dueDate;
   item.dueDate = dateStr;
-  await saveOne(isProject ? 'projects' : 'tasks', item);
+  if(!await saveOne(isProject ? 'projects' : 'tasks', item)){
+    item.dueDate = before; app.render(); return;
+  }
   toast(`${item.title} → ${fmtLong(dateStr)}`);
   app.render();
 }
@@ -9731,9 +9734,11 @@ function getLinkedName(id, type){
 async function toggleTask(id, checked){
   const t = state.tasks.find(x=>x.id===id);
   if(!t) return;
+  const before = {status:t.status, completedAt:t.completedAt};
   t.status = checked ? 'done' : 'todo';
   t.completedAt = checked ? today() : '';
-  await saveOne('tasks', t);
+  const ok = await saveOne('tasks', t);
+  if(!ok){ Object.assign(t, before); app.render(); return; }
   app.render();
   // If THIS device just marked it done, don't also notify "task completed" — that's redundant.
   if(checked) markSeen('notif_task_done_seen', id);
@@ -9743,15 +9748,21 @@ async function toggleTask(id, checked){
 async function rescheduleToToday(id){
   const t = state.tasks.find(x=>x.id===id);
   if(!t) return;
+  const before = t.dueDate;
   t.dueDate = today();
-  await saveOne('tasks', t);
+  if(!await saveOne('tasks', t)){ t.dueDate = before; app.render(); return; }
   toast('Rescheduled to today');
   app.render();
 }
 async function rescheduleAllOverdue(){
   const list = state.tasks.filter(t=>t.status!=='done'&&isOverdue(t.dueDate));
-  for(const t of list){ t.dueDate = today(); await saveOne('tasks', t); }
-  toast(`${list.length} task${list.length>1?'s':''} moved to today`);
+  let moved = 0;
+  for(const t of list){
+    const before = t.dueDate;
+    t.dueDate = today();
+    if(await saveOne('tasks', t)) moved++; else t.dueDate = before;
+  }
+  if(moved) toast(`${moved} task${moved>1?'s':''} moved to today`);
   app.render();
 }
 
@@ -9842,9 +9853,11 @@ function toggleTaskInDay(id, dateStr){
   const t = state.tasks.find(x=>x.id===id);
   if(!t) return;
   const nowDone = t.status!=='done';
+  const before = {status:t.status, completedAt:t.completedAt};
   t.status = nowDone ? 'done' : 'todo';
   t.completedAt = nowDone ? today() : '';
-  saveOne('tasks', t).then(()=>{
+  saveOne('tasks', t).then(ok=>{
+    if(!ok) Object.assign(t, before);
     app.render();
     openDayModal(dateStr);
   });

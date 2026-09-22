@@ -57,15 +57,20 @@ create index if not exists notification_queue_pending_idx
 
 -- "Today" is Central, everywhere, matching the app.
 create or replace function crm_today()
-returns date language sql stable as $$
+returns date language sql stable set search_path = public, pg_temp as $$
   select (now() at time zone 'America/Chicago')::date;
 $$;
 
 -- A task gained an assignee -> queue one notification per NEW assignee.
 -- Only new ones: re-saving a task after editing its notes must not re-notify
 -- everybody already on it.
+-- SECURITY DEFINER is required (fixed 2026-09-22): the trigger fires as the
+-- browser's anon role, which has no rights on notification_queue. Without it,
+-- EVERY new task with an assignee, and every edit that adds an assignee,
+-- failed with "permission denied for table notification_queue" — the task
+-- simply never saved.
 create or replace function queue_task_assignment()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   newly uuid[];
   due_txt text;
