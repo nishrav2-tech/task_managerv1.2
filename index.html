@@ -937,6 +937,76 @@ input,select,textarea{font:inherit;color:inherit}
 .alog-note.is-empty{color:var(--ink-3);font-style:italic}
 .alog-who{font-size:10.5px;color:var(--ink-3);white-space:nowrap}
 
+/* ---- department switch + Lead Generation log (2026-09-23) ---- */
+.dept-switch{
+  display:flex;width:fit-content;gap:4px;padding:4px;margin-bottom:16px;max-width:100%;overflow-x:auto;
+  background:var(--surface);border:1px solid var(--border);border-radius:999px;
+}
+.dept-btn{
+  display:inline-flex;align-items:center;gap:7px;flex-shrink:0;
+  padding:7px 16px;border:none;border-radius:999px;cursor:pointer;background:transparent;
+  font-family:inherit;font-size:13px;font-weight:500;color:var(--ink-2);
+  transition:background .14s var(--ease),color .14s var(--ease);
+}
+.dept-btn i{font-size:15px}
+.dept-btn:hover{color:var(--ink)}
+.dept-btn.active{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.dept-count{
+  font-size:11px;font-weight:600;padding:1px 6px;border-radius:9px;
+  background:var(--surface-2);color:var(--ink-3);font-variant-numeric:tabular-nums;
+}
+.dept-btn.active .dept-count{background:rgba(255,255,255,.22);color:inherit}
+.alog-section-head{margin-bottom:12px}
+.alog-section-title{
+  display:flex;align-items:center;gap:8px;margin:0;
+  font-family:var(--serif);font-size:20px;font-weight:500;color:var(--ink);
+}
+.alog-section-title i{font-size:18px;color:var(--accent)}
+.alog-section-sub{margin:3px 0 0;font-size:12.5px;color:var(--ink-3)}
+
+.lg-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+@media(max-width:700px){.lg-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.lg-stat{padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface)}
+.lg-stat-num{font-family:var(--serif);font-size:24px;font-weight:500;line-height:1.1;color:var(--ink);font-variant-numeric:tabular-nums}
+.lg-stat-label{font-size:11px;color:var(--ink-3);margin-top:3px;text-transform:uppercase;letter-spacing:.04em}
+.alog-form.lg-form{grid-template-columns:120px 2fr 110px 1.4fr auto}
+@media(max-width:900px){
+  .alog-form.lg-form{grid-template-columns:1fr 1fr}
+  .alog-form.lg-form .lg-form-counties{grid-column:1/-1}
+}
+.lg-county-box{
+  display:flex;flex-wrap:wrap;align-items:center;gap:5px;min-height:38px;
+  padding:4px 8px;border:1px solid var(--border);border-radius:var(--r-sm, 8px);
+  background:var(--surface);cursor:text;
+}
+.lg-county-box:focus-within{border-color:var(--accent)}
+.lg-county-box input{flex:1;min-width:130px;border:none;outline:none;background:transparent;
+  font-family:inherit;font-size:13px;color:var(--ink);padding:4px 2px}
+.lg-chips{display:contents}
+.lg-chip{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:20px;
+  background:var(--accent-soft);color:var(--accent);white-space:nowrap;
+}
+.lg-chip button{background:none;border:none;padding:0;cursor:pointer;color:inherit;opacity:.6;font-size:10.5px;line-height:1;font-family:inherit}
+.lg-chip button:hover{opacity:1}
+.lg-chip.is-static{background:var(--surface-2);color:var(--ink-2);font-weight:500}
+.lg-entry{align-items:center}
+.lg-sms-pill{
+  display:inline-flex;align-items:center;gap:4px;flex-shrink:0;
+  font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;
+  background:var(--accent-soft);color:var(--accent);font-variant-numeric:tabular-nums;
+  min-width:92px;justify-content:center;
+}
+.lg-entry-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.lg-entry-counties{display:flex;flex-wrap:wrap;gap:4px}
+@media(max-width:600px){
+  .lg-entry{flex-wrap:wrap;row-gap:6px}
+  .lg-entry .alog-who{display:none}
+  .lg-entry .lg-sms-pill{margin-right:auto}
+  .lg-entry-body{order:5;flex-basis:100%}
+}
+
 /* ---- tasks tab (property card) ---- */
 .funding-tab-count.is-overdue{background:var(--danger-soft);color:var(--danger)}
 .prop-tasks-head{
@@ -1637,6 +1707,7 @@ const StorageAdapter = {
     kpiEntries:'kpi_entries', kpiTargets:'kpi_targets',
     callLogs:'call_logs', campaignLogs:'campaign_logs',
     activityEntries:'activity_entries', callSessions:'call_sessions',
+    campaignSends:'campaign_sends',
     fundingTemplates:'funding_templates',
     auditStandards:'audit_standards', auditLogs:'audit_logs'
   },
@@ -1693,6 +1764,10 @@ const StorageAdapter = {
       notes:a.notes||null, user_id:a.userId||null}),
     callSessions: cs => ({id:cs.id, log_date:cs.date, started_at:cs.startedAt,
       ended_at:cs.endedAt||null, user_id:cs.userId||null}),
+    campaignSends: c => ({id:c.id, log_date:c.date, sent_at:c.sentAt,
+      counties:(c.counties||[]).filter(Boolean),
+      sms_count:Math.max(0, parseInt(c.smsCount,10)||0),
+      notes:c.notes||null, user_id:c.userId||null}),
     auditStandards: s => ({id:s.id, section:s.section,
       standard_text:s.standardText||null,
       updated_at:new Date().toISOString()}),
@@ -1751,6 +1826,9 @@ const StorageAdapter = {
       notes:a.notes||'', userId:a.user_id||''}),
     callSessions: cs => ({id:cs.id, date:cs.log_date, startedAt:cs.started_at,
       endedAt:cs.ended_at||'', userId:cs.user_id||''}),
+    campaignSends: c => ({id:c.id, date:c.log_date, sentAt:c.sent_at,
+      counties:Array.isArray(c.counties) ? c.counties : [],
+      smsCount:Number(c.sms_count)||0, notes:c.notes||'', userId:c.user_id||''}),
     fundingTemplates: t => ({id:t.id, name:t.name,
       tiers:normalizeFunding(t.tiers, {}),
       created:t.created_at?t.created_at.split('T')[0]:''}),
@@ -1913,7 +1991,7 @@ const StorageAdapter = {
   async loadCore(){
     this.assertConnected();
     {
-      const [u, p, t, pr, k, km, kt, cl, cal, ft, aus, aul, ae, cs] = await Promise.all([
+      const [u, p, t, pr, k, km, kt, cl, cal, ft, aus, aul, ae, cs, csd] = await Promise.all([
         this.supabase.from('users').select('*').order('created_at'),
         this.supabase.from('properties').select('*').order('created_at',{ascending:false}),
         this.supabase.from('tasks').select('*').order('created_at',{ascending:false}),
@@ -1928,6 +2006,7 @@ const StorageAdapter = {
         this.supabase.from('audit_logs').select('*').order('week_start',{ascending:false}),
         this.supabase.from('activity_entries').select('*').order('occurred_at',{ascending:false}).limit(4000),
         this.supabase.from('call_sessions').select('*').order('started_at',{ascending:false}).limit(2000),
+        this.supabase.from('campaign_sends').select('*').order('sent_at',{ascending:false}).limit(4000),
       ]);
       if(ft.error) console.warn('funding_templates table not found yet — saved splits will be empty.', ft.error.message);
       if(aus.error) console.warn('audit_standards table not found yet — run the updated schema.sql to enable the Audit log.', aus.error.message);
@@ -1940,6 +2019,7 @@ const StorageAdapter = {
       if(cal.error) console.warn('campaign_logs table not found yet — run the updated schema.sql to enable the Activity Log.', cal.error.message);
       if(ae.error) console.warn('activity_entries table not found yet — run the updated schema.sql to enable the Activity log tab.', ae.error.message);
       if(cs.error) console.warn('call_sessions table not found yet — run the updated schema.sql to enable call session timing.', cs.error.message);
+      if(csd.error) console.warn('campaign_sends table not found yet — run the updated schema.sql to enable the Lead Generation log.', csd.error.message);
       /* fetchOk distinguishes "this table is empty" from "this read failed".
          Both used to arrive as an empty array, and the caller treated empty
          as "brand new install, seed it" — so a single transient error on the
@@ -1975,6 +2055,7 @@ const StorageAdapter = {
         auditLogs: (aul.data||[]).map(this.fromDb.auditLogs),
         activityEntries: (ae.data||[]).map(this.fromDb.activityEntries),
         callSessions: (cs.data||[]).map(this.fromDb.callSessions),
+        campaignSends: (csd.data||[]).map(this.fromDb.campaignSends),
         // Which teammate this browser is signed in as stays on the device —
         // it's the key used to look everything else up, so it can't itself
         // live behind that lookup.
@@ -2129,7 +2210,7 @@ const StorageAdapter = {
     try{
       this.assertConnected();
       // Order matters: users first (foreign key references)
-      const order = ['users','props','tasks','projects','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions'];
+      const order = ['users','props','tasks','projects','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions','campaignSends'];
       for(const col of order){
         if(data[col]?.length){
           const rows = data[col].map(this.toDb[col]);
@@ -2149,7 +2230,7 @@ const StorageAdapter = {
   async wipeAll(){
     this.assertConnected();
     // Delete in reverse dep order
-    const order = ['tasks','projects','props','users','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions'];
+    const order = ['tasks','projects','props','users','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions','campaignSends'];
     for(const col of order){
       await this.supabase.from(this.tables[col]).delete().neq('id','00000000-0000-0000-0000-000000000000');
     }
@@ -2255,6 +2336,8 @@ const state = {
   // Acquisitions activity log: one row per conversation/contract, plus
   // clock-in/clock-out call sessions. See renderActivityLogView().
   activityEntries:[], callSessions:[],
+  // Lead Generation log: one row per SMS campaign send. See renderLeadGenLog().
+  campaignSends:[],
   activeUserId:'', activeView:'dashboard',
   // Which property has its funding-tier editor open on the Properties list.
   // Held in state rather than the DOM so a re-render doesn't snap it shut.
@@ -3235,6 +3318,7 @@ function applyCore(data){
   state.campaignLogs = data.campaignLogs || [];
   state.activityEntries = data.activityEntries || [];
   state.callSessions = data.callSessions || [];
+  state.campaignSends = data.campaignSends || [];
   state.fundingTemplates = data.fundingTemplates || [];
   state.auditStandards = data.auditStandards || [];
   state.auditLogs = data.auditLogs || [];
@@ -3557,6 +3641,7 @@ const app = {
     // than carrying the previous person's tab and calendar position over.
     state.tpTab = undefined;
     state.ktTab = undefined;
+    state.alogDept = undefined;
     state.calendarUserId = undefined;
     state.agendaUserId = undefined;
     state.weekCalendarOffset = undefined;
@@ -8594,12 +8679,13 @@ function renderKpiTracking(){
   const auditEntryCount = state.auditLogs.length;
   // The Activity log's badge counts the day being VIEWED, not today — the tab
   // strip should agree with what's under it when you page back through the week.
+  // It also follows the department switch inside the tab.
   const alogDate = getActivityLogDate();
-  const alogCount = state.activityEntries.filter(e => e.date === alogDate).length;
+  const alogCount = alogDeptDef(getActivityLogDept()).count(alogDate, () => true);
 
   const SUBS = {
     kpis: 'Pipeline numbers by stage, summed from your daily entries.',
-    log:  'Lead Conversion — every conversation and contract, logged as it happens.',
+    log:  'Day-by-day records for each department — switch between them below.',
     activity: 'Weekly audit notes against your own standards for scheduling, offers, and calls.'
   };
   const TABS = [
@@ -8778,12 +8864,96 @@ async function deleteActivityEntry(id){
   app.render();
 }
 
+/* ---- Department switch (2026-09-23) ---------------------------------------
+   The Activity log holds one day-by-day record per department. Each entry
+   below is a whole department: its switch label, the badge count for a day,
+   the one-line summary in the date bar, and its body. The date and person
+   pickers above are shared, so flipping departments keeps you on the same day.
+
+   To add a department: write its render function and add a row here. Nothing
+   else needs to change — the switch, the badge on the tab and the saved
+   preference all read from this list. */
+const ALOG_DEPTS = [
+  {key:'leadgen', label:'Lead Generation', icon:'ti-speakerphone',
+   sub:'Every SMS campaign sent — which counties, how many texts, and when.',
+   count:(date, mine) => state.campaignSends.filter(c => c.date === date && mine(c)).length,
+   summary:(date, mine) => {
+     const rows = state.campaignSends.filter(c => c.date === date && mine(c));
+     const sms = rows.reduce((t,c) => t + (Number(c.smsCount)||0), 0);
+     return `${rows.length} campaign${rows.length===1?'':'s'} · ${sms.toLocaleString()} SMS sent`;
+   },
+   render:(...a) => renderLeadGenLog(...a)},
+  {key:'conversion', label:'Lead Conversion', icon:'ti-phone-call',
+   sub:'Every conversation and contract, logged as it happens, plus time on the phones.',
+   count:(date, mine) => state.activityEntries.filter(e => e.date === date && mine(e)).length,
+   summary:(date, mine) => {
+     const rows = state.activityEntries.filter(e => e.date === date && mine(e));
+     const convos = rows.filter(e => e.kind === 'conversation').length;
+     const contracts = rows.filter(e => e.kind === 'contract').length;
+     return `${convos} conversation${convos===1?'':'s'} · ${contracts} contract${contracts===1?'':'s'} sent`;
+   },
+   render:(...a) => renderLeadConversionLog(...a)},
+];
+const alogDeptDef = key => ALOG_DEPTS.find(d => d.key === key) || ALOG_DEPTS[0];
+// Remembered per person like the tab itself. Defaults to Lead Conversion so
+// the acquisitions manager lands where the log has always opened.
+function getActivityLogDept(){
+  if(state.alogDept === undefined){
+    const stored = Prefs.get('alogDept');
+    state.alogDept = ALOG_DEPTS.some(d => d.key === stored) ? stored : 'conversion';
+  }
+  return state.alogDept;
+}
+function setActivityLogDept(key){
+  if(!ALOG_DEPTS.some(d => d.key === key)) return;
+  state.alogDept = key;
+  Prefs.set('alogDept', key);
+  app.render();
+}
+
 function renderActivityLogView(){
+  const deptKey = getActivityLogDept();
+  const dept = alogDeptDef(deptKey);
   const date = getActivityLogDate();
   const viewUser = getActivityLogUser();
   const mine = r => !viewUser || r.userId === viewUser;
   const isToday = date === today();
 
+  return `
+  <div class="dept-switch" role="tablist" aria-label="Department log">
+    ${ALOG_DEPTS.map(d => `
+      <button type="button" class="dept-btn ${d.key===deptKey?'active':''}" role="tab"
+              aria-selected="${d.key===deptKey}" onclick="setActivityLogDept('${d.key}')">
+        <i class="ti ${d.icon}"></i> ${d.label}
+        <span class="dept-count">${d.count(date, mine)}</span>
+      </button>`).join('')}
+  </div>
+
+  <div class="alog-section-head">
+    <h3 class="alog-section-title"><i class="ti ${dept.icon}"></i> ${dept.label}</h3>
+    <p class="alog-section-sub">${dept.sub}</p>
+  </div>
+
+  <div class="alog-bar">
+    <button class="btn btn-sm" onclick="shiftActivityLogDate(-1)">${ICON_CHEVRON_LEFT} Prev</button>
+    <button class="btn btn-sm ${isToday?'btn-primary':''}" onclick="shiftActivityLogDate(0)">
+      <i class="ti ti-calendar-event"></i> Today</button>
+    <button class="btn btn-sm" onclick="shiftActivityLogDate(1)">Next ${ICON_CHEVRON_RIGHT}</button>
+    <input type="date" class="filter-select" style="min-width:150px" value="${date}"
+           onchange="setActivityLogDate(this.value)">
+    <select class="filter-select" style="min-width:170px" onchange="setActivityLogUser(this.value)">
+      <option value="" ${!viewUser?'selected':''}>Everyone</option>
+      ${state.users.map(u=>`<option value="${u.id}" ${u.id===viewUser?'selected':''}>${escape(u.name)}</option>`).join('')}
+    </select>
+    <span class="sort-hint" style="margin-left:auto">${fmtLong(date)} · ${dept.summary(date, mine)}</span>
+  </div>
+
+  ${dept.render(date, viewUser, mine, isToday)}`;
+}
+
+/* Lead Conversion — the original Activity log body, unchanged apart from
+   taking the day and person filter from the shared bar above. */
+function renderLeadConversionLog(date, viewUser, mine, isToday){
   const entries = state.activityEntries
     .filter(e => e.date === date && mine(e))
     .sort((a,b) => (a.occurredAt||'').localeCompare(b.occurredAt||''));
@@ -8794,8 +8964,6 @@ function renderActivityLogView(){
   const open = openCallSession(state.activeUserId);
   const openToday = open && open.date === date;
   const totalMs = sessions.reduce((t,s) => t + sessionMs(s), 0);
-  const convos = entries.filter(e => e.kind === 'conversation').length;
-  const contracts = entries.filter(e => e.kind === 'contract').length;
 
   /* Grouped by contact, because "how did it go with the Hicks family today"
      is the question this answers — a flat chronological list makes you
@@ -8812,22 +8980,6 @@ function renderActivityLogView(){
   const userName_ = id => (state.users.find(u=>u.id===id)||{}).name || '';
 
   return `
-  <div class="alog-bar">
-    <button class="btn btn-sm" onclick="shiftActivityLogDate(-1)">${ICON_CHEVRON_LEFT} Prev</button>
-    <button class="btn btn-sm ${isToday?'btn-primary':''}" onclick="shiftActivityLogDate(0)">
-      <i class="ti ti-calendar-event"></i> Today</button>
-    <button class="btn btn-sm" onclick="shiftActivityLogDate(1)">Next ${ICON_CHEVRON_RIGHT}</button>
-    <input type="date" class="filter-select" style="min-width:150px" value="${date}"
-           onchange="setActivityLogDate(this.value)">
-    <select class="filter-select" style="min-width:170px" onchange="setActivityLogUser(this.value)">
-      <option value="" ${!viewUser?'selected':''}>Everyone</option>
-      ${state.users.map(u=>`<option value="${u.id}" ${u.id===viewUser?'selected':''}>${escape(u.name)}</option>`).join('')}
-    </select>
-    <span class="sort-hint" style="margin-left:auto">
-      ${fmtLong(date)} · ${convos} conversation${convos===1?'':'s'} · ${contracts} contract${contracts===1?'':'s'} sent
-    </span>
-  </div>
-
   <div class="alog-clock ${openToday?'is-running':''}">
     <div class="alog-clock-main">
       <div class="alog-clock-elapsed" ${openToday?`data-ticking-since="${open.startedAt}"`:''}>
@@ -8904,6 +9056,243 @@ function renderActivityLogView(){
     </div>`).join('')
   : `<div class="empty"><i class="ti ti-notebook"></i><h3>Nothing logged for ${fmt(date)}</h3>
       <p>Log each conversation and contract as you go — they group by name above.</p></div>`}`;
+}
+
+/* =========================================================
+   LEAD GENERATION LOG (2026-09-23) — the daily campaign record:
+   one row per SMS campaign sent, with the counties it went to,
+   how many texts went out and the time it was sent. Grouped by
+   the day on the shared date bar, earliest send first.
+
+   Counties are a list, not free text, so "which counties did we
+   hit this week" can be answered later without parsing commas.
+   ========================================================= */
+// Counties queued in the form before Log is pressed. Held outside the render
+// (and drawn straight into the DOM) so adding one doesn't repaint the form and
+// throw away the half-typed SMS count next to it.
+state.lgDraftCounties = [];
+
+// Every county ever logged, most-used first — feeds the suggestion list.
+function knownCampaignCounties(){
+  const tally = new Map();
+  state.campaignSends.forEach(c => (c.counties||[]).forEach(n => {
+    const k = n.trim(); if(k) tally.set(k, (tally.get(k)||0) + 1);
+  }));
+  return [...tally.entries()].sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0])).map(e => e[0]);
+}
+// Splits "Brazoria TX, Fort Bend TX" into tidy names, de-duplicated
+// case-insensitively so "brazoria tx" typed twice doesn't count as two.
+function splitCounties(text){
+  const out = [];
+  (text||'').split(/[,;\n]/).map(x => x.trim()).filter(Boolean).forEach(n => {
+    if(!out.some(o => o.toLowerCase() === n.toLowerCase())) out.push(n);
+  });
+  return out;
+}
+function drawDraftCounties(){
+  const box = document.getElementById('lg-chips');
+  if(!box) return;
+  box.innerHTML = state.lgDraftCounties.map((n,i) => `
+    <span class="lg-chip">${escape(n)}
+      <button type="button" title="Remove" onclick="removeDraftCounty(${i})">✕</button></span>`).join('');
+}
+function addDraftCounties(){
+  const inp = document.getElementById('lg-county');
+  if(!inp) return;
+  splitCounties(inp.value).forEach(n => {
+    if(!state.lgDraftCounties.some(o => o.toLowerCase() === n.toLowerCase())) state.lgDraftCounties.push(n);
+  });
+  inp.value = '';
+  drawDraftCounties();
+  inp.focus();
+}
+function removeDraftCounty(i){
+  state.lgDraftCounties.splice(i, 1);
+  drawDraftCounties();
+}
+function lgCountyKey(e){
+  // Enter or comma commits the county; Backspace on an empty box takes the
+  // last chip back off, the way tag inputs usually behave.
+  if(e.key === 'Enter' || e.key === ','){ e.preventDefault(); addDraftCounties(); }
+  else if(e.key === 'Backspace' && !e.target.value && state.lgDraftCounties.length){
+    state.lgDraftCounties.pop(); drawDraftCounties();
+  }
+}
+
+// HH:MM on the viewed day -> ISO. Blank means "now", but only on today:
+// back-filling yesterday with no time would stamp it with this minute on the
+// wrong day, so a past day asks for the time instead.
+function lgSentAt(date, timeVal){
+  if(timeVal) return new Date(`${date}T${timeVal}:00`).toISOString();
+  return date === today() ? new Date().toISOString() : null;
+}
+const lgTimeValue = iso => {
+  if(!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+};
+
+async function logCampaignSend(){
+  const who = state.activeUserId;
+  if(!who) return toast('Choose who is using this device first, on the Dashboard','err');
+  // Anything still sitting in the county box counts — no need to press Enter first.
+  addDraftCounties();
+  const counties = [...state.lgDraftCounties];
+  if(!counties.length) return toast('Which counties did this campaign go to?','err');
+  const smsRaw = ($('#lg-sms').value || '').trim();
+  const smsCount = parseInt(smsRaw, 10);
+  if(!smsRaw || isNaN(smsCount) || smsCount < 0) return toast('How many SMS were sent?','err');
+
+  const date = getActivityLogDate();
+  const sentAt = lgSentAt(date, $('#lg-time').value || '');
+  if(!sentAt) return toast('Enter the time this campaign was sent','err');
+
+  const row = {id:uid(), date, sentAt, counties, smsCount,
+    notes: ($('#lg-notes').value || '').trim(), userId: who};
+  state.campaignSends.unshift(row);
+  if(!await saveOne('campaignSends', row)){
+    state.campaignSends = state.campaignSends.filter(c => c.id !== row.id);
+    app.render();
+    return;
+  }
+  toast(`Logged ${smsCount.toLocaleString()} SMS to ${counties.length} count${counties.length===1?'y':'ies'}`);
+  state.lgDraftCounties = [];
+  // Clear the fields that change every send before repainting, so the patcher
+  // doesn't carry the last campaign's numbers into the next one.
+  ['#lg-sms','#lg-notes','#lg-time'].forEach(sel => { const el = $(sel); if(el) el.value = ''; });
+  app.render();
+  const c = document.getElementById('lg-county');
+  if(c) c.focus();
+}
+
+function editCampaignSend(id){
+  const c = state.campaignSends.find(x => x.id === id);
+  if(!c) return;
+  showSubModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <h2 class="modal-title">Edit campaign — ${escape(fmtLong(c.date))}</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Time sent</label>
+        <input class="form-input" id="lge-time" type="time" value="${lgTimeValue(c.sentAt)}"></div>
+      <div class="form-group"><label class="form-label">SMS sent</label>
+        <input class="form-input" id="lge-sms" type="number" min="0" step="1" value="${Number(c.smsCount)||0}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Counties <span style="font-weight:400;color:var(--ink-3)">(comma-separated)</span></label>
+      <input class="form-input" id="lge-counties" value="${escape((c.counties||[]).join(', '))}"></div>
+    <div class="form-group"><label class="form-label">Notes</label>
+      <textarea class="form-textarea" id="lge-notes" rows="2">${escape(c.notes)}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCampaignSendEdit('${c.id}')">Save</button>
+    </div>
+  </div>`);
+}
+async function saveCampaignSendEdit(id){
+  const i = state.campaignSends.findIndex(x => x.id === id);
+  if(i < 0) return;
+  const before = state.campaignSends[i];
+  const counties = splitCounties($('#lge-counties').value);
+  if(!counties.length) return toast('Add at least one county','err');
+  const smsCount = parseInt($('#lge-sms').value, 10);
+  if(isNaN(smsCount) || smsCount < 0) return toast('Enter how many SMS were sent','err');
+  const timeVal = $('#lge-time').value || '';
+  const next = {...before, counties, smsCount,
+    sentAt: timeVal ? new Date(`${before.date}T${timeVal}:00`).toISOString() : before.sentAt,
+    notes: ($('#lge-notes').value || '').trim()};
+  state.campaignSends[i] = next;
+  if(!await saveOne('campaignSends', next)){
+    state.campaignSends[i] = before;
+    app.render();
+    return;
+  }
+  closeSubModal();
+  toast('Campaign updated');
+  app.render();
+}
+async function deleteCampaignSend(id){
+  const i = state.campaignSends.findIndex(x => x.id === id);
+  if(i < 0) return;
+  if(!confirm('Delete this campaign from the log?')) return;
+  const [removed] = state.campaignSends.splice(i, 1);
+  app.render();
+  if(!await deleteOne('campaignSends', id)){
+    state.campaignSends.splice(i, 0, removed);
+    app.render();
+  }
+}
+
+function renderLeadGenLog(date, viewUser, mine, isToday){
+  const rows = state.campaignSends
+    .filter(c => c.date === date && mine(c))
+    .sort((a,b) => (a.sentAt||'').localeCompare(b.sentAt||''));
+  const sms = rows.reduce((t,c) => t + (Number(c.smsCount)||0), 0);
+  const counties = new Set(rows.flatMap(c => (c.counties||[]).map(n => n.toLowerCase())));
+  // Trailing seven days ending on the viewed day, for a sense of pace.
+  const from = addDays(date, -6);
+  const week = state.campaignSends.filter(c => c.date >= from && c.date <= date && mine(c));
+  const weekSms = week.reduce((t,c) => t + (Number(c.smsCount)||0), 0);
+  const userName_ = id => (state.users.find(u=>u.id===id)||{}).name || '';
+
+  return `
+  <div class="lg-stats">
+    <div class="lg-stat"><div class="lg-stat-num">${sms.toLocaleString()}</div><div class="lg-stat-label">SMS sent</div></div>
+    <div class="lg-stat"><div class="lg-stat-num">${rows.length}</div><div class="lg-stat-label">Campaign${rows.length===1?'':'s'}</div></div>
+    <div class="lg-stat"><div class="lg-stat-num">${counties.size}</div><div class="lg-stat-label">Count${counties.size===1?'y':'ies'} hit</div></div>
+    <div class="lg-stat"><div class="lg-stat-num">${weekSms.toLocaleString()}</div><div class="lg-stat-label">SMS · last 7 days</div></div>
+  </div>
+
+  <div class="alog-form lg-form">
+    <div class="form-group">
+      <label class="form-label">Time sent</label>
+      <input class="form-input" id="lg-time" type="time" title="${isToday?'Leave blank for right now':'Required when back-filling a past day'}">
+    </div>
+    <div class="form-group lg-form-counties">
+      <label class="form-label">Counties</label>
+      <div class="lg-county-box" onclick="if(event.target===this)document.getElementById('lg-county').focus()">
+        <span id="lg-chips" class="lg-chips">${state.lgDraftCounties.map((n,i)=>`
+          <span class="lg-chip">${escape(n)}<button type="button" title="Remove" onclick="removeDraftCounty(${i})">✕</button></span>`).join('')}</span>
+        <input id="lg-county" list="lg-county-list" placeholder="Type a county, press Enter"
+               onkeydown="lgCountyKey(event)" onchange="if(this.value.includes(','))addDraftCounties()">
+      </div>
+      <datalist id="lg-county-list">
+        ${knownCampaignCounties().slice(0,300).map(n=>`<option value="${escape(n)}"></option>`).join('')}
+      </datalist>
+    </div>
+    <div class="form-group">
+      <label class="form-label">SMS sent</label>
+      <input class="form-input" id="lg-sms" type="number" min="0" step="1" placeholder="0"
+             onkeydown="if(event.key==='Enter')logCampaignSend()">
+    </div>
+    <div class="form-group alog-form-notes">
+      <label class="form-label">Notes</label>
+      <input class="form-input" id="lg-notes" placeholder="List, template, anything worth noting"
+             onkeydown="if(event.key==='Enter')logCampaignSend()">
+    </div>
+    <button class="btn btn-primary" onclick="logCampaignSend()"><i class="ti ti-plus"></i> Log</button>
+  </div>
+
+  ${rows.length ? `<div class="alog-group">
+    <div class="alog-group-head">
+      <span class="alog-name">Campaigns sent</span>
+      <span class="alog-group-meta">${fmtClock(rows[0].sentAt)}${rows.length>1?`–${fmtClock(rows[rows.length-1].sentAt)}`:''}</span>
+    </div>
+    ${rows.map(c=>`
+      <div class="alog-entry lg-entry">
+        <span class="alog-time">${fmtClock(c.sentAt)}</span>
+        <span class="lg-sms-pill"><i class="ti ti-message" style="font-size:11px"></i> ${(Number(c.smsCount)||0).toLocaleString()} SMS</span>
+        <span class="lg-entry-body">
+          <span class="lg-entry-counties">${(c.counties||[]).map(n=>`<span class="lg-chip is-static">${escape(n)}</span>`).join('')}</span>
+          ${c.notes?`<span class="alog-note">${escape(c.notes)}</span>`:''}
+        </span>
+        ${!viewUser && userName_(c.userId) ? `<span class="alog-who">${escape(userName_(c.userId))}</span>` : ''}
+        <button class="icon-btn" title="Edit" onclick="editCampaignSend('${c.id}')">${ICON_EDIT}</button>
+        <button class="icon-btn" title="Delete" onclick="deleteCampaignSend('${c.id}')">${ICON_DELETE}</button>
+      </div>`).join('')}
+  </div>`
+  : `<div class="empty"><i class="ti ti-speakerphone"></i><h3>No campaigns logged for ${fmt(date)}</h3>
+      <p>Log each SMS campaign when it goes out — counties, texts sent, and the time.</p></div>`}`;
 }
 
 /* =========================================================

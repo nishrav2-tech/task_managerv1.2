@@ -154,6 +154,22 @@ create table if not exists call_sessions (
 create index if not exists call_sessions_date_idx on call_sessions(log_date desc);
 create index if not exists call_sessions_open_idx on call_sessions(user_id) where ended_at is null;
 
+-- campaign_sends  (2026-09-23)
+-- Activity log -> Lead Generation: the daily campaign record. One row per SMS
+-- campaign sent — the counties it went to, how many texts, and when. Same
+-- log_date/sent_at split as activity_entries so a late send stays on its day.
+create table if not exists campaign_sends (
+  id          uuid primary key default gen_random_uuid(),
+  log_date    date not null,
+  sent_at     timestamptz not null default now(),
+  counties    text[] not null default '{}',
+  sms_count   integer not null default 0 check (sms_count >= 0),
+  notes       text,
+  user_id     uuid,
+  created_at  timestamptz not null default now()
+);
+create index if not exists campaign_sends_date_idx on campaign_sends(log_date desc);
+
 -- ---------------------------------------------------------
 -- tasks (assigned to multiple users, optionally linked to a property)
 -- ---------------------------------------------------------
@@ -738,7 +754,7 @@ begin
     'users','properties','tasks','projects',
     'kpi_metrics','kpi_meta','kpi_entries','kpi_targets','call_logs','campaign_logs',
     'user_prefs','funding_templates','audit_standards','audit_logs',
-    'activity_entries','call_sessions'
+    'activity_entries','call_sessions','campaign_sends'
   ]
   loop
     execute format('alter table public.%I enable row level security', tbl);
