@@ -170,6 +170,30 @@ create table if not exists campaign_sends (
 );
 create index if not exists campaign_sends_date_idx on campaign_sends(log_date desc);
 
+-- dept_log_entries  (2026-09-23)
+-- Activity log -> Transaction Coordination & Closing ('tc') and Disposition
+-- ('dispo'). One row per action, optionally tied to a property.
+-- property_id deliberately has NO foreign key: prop_ref / prop_desc are a
+-- snapshot of the Prop ID and county taken at logging time, so the history
+-- survives the property being deleted.
+create table if not exists dept_log_entries (
+  id           uuid primary key default gen_random_uuid(),
+  dept         text not null,
+  log_date     date not null,
+  occurred_at  timestamptz not null default now(),
+  kind         text not null,
+  detail       text,
+  qty          integer check (qty is null or qty >= 0),
+  property_id  text,
+  prop_ref     text,
+  prop_desc    text,
+  notes        text,
+  user_id      uuid,
+  created_at   timestamptz not null default now()
+);
+create index if not exists dept_log_entries_dept_date_idx on dept_log_entries(dept, log_date desc);
+create index if not exists dept_log_entries_prop_idx on dept_log_entries(property_id);
+
 -- ---------------------------------------------------------
 -- tasks (assigned to multiple users, optionally linked to a property)
 -- ---------------------------------------------------------
@@ -754,7 +778,7 @@ begin
     'users','properties','tasks','projects',
     'kpi_metrics','kpi_meta','kpi_entries','kpi_targets','call_logs','campaign_logs',
     'user_prefs','funding_templates','audit_standards','audit_logs',
-    'activity_entries','call_sessions','campaign_sends'
+    'activity_entries','call_sessions','campaign_sends','dept_log_entries'
   ]
   loop
     execute format('alter table public.%I enable row level security', tbl);

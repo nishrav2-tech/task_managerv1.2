@@ -1003,8 +1003,39 @@ input,select,textarea{font:inherit;color:inherit}
 @media(max-width:600px){
   .lg-entry{flex-wrap:wrap;row-gap:6px}
   .lg-entry .alog-who{display:none}
-  .lg-entry .lg-sms-pill{margin-right:auto}
+  .lg-entry > button.icon-btn:first-of-type{margin-left:auto}
   .lg-entry-body{order:5;flex-basis:100%}
+}
+
+/* ---- Transaction Coordination & Disposition logs (2026-09-23) ---- */
+/* Flex rather than grid: the Count field comes and goes with the action, and
+   a fixed grid would shunt every later field one column over when it hides. */
+.alog-form.dl-form{display:flex;flex-wrap:wrap}
+.alog-form.dl-form .form-group{flex:1 1 170px;min-width:0}
+.alog-form.dl-form #dl-qty-wrap{flex:0 0 84px}
+.alog-form.dl-form .dl-form-time{flex:0 1 120px}
+.alog-form.dl-form .dl-form-notes{flex:2 1 240px}
+.alog-form.dl-form > button{flex:0 0 auto}
+@media(max-width:600px){
+  .alog-form.dl-form .form-group{flex-basis:calc(50% - 4px)}
+  .alog-form.dl-form .dl-form-notes, .alog-form.dl-form > button{flex-basis:100%}
+}
+@media(max-width:700px){
+  .dept-switch{display:grid;grid-template-columns:1fr 1fr;width:100%;border-radius:var(--r-md)}
+  .dept-btn{justify-content:center;text-align:center;border-radius:calc(var(--r-md) - 4px);flex-shrink:1;white-space:normal}
+}
+.dl-opt{font-weight:400;color:var(--ink-3);font-size:10.5px;text-transform:none;letter-spacing:0}
+.dl-group-head{flex-direction:column;align-items:stretch;gap:6px}
+.dl-group-title{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.dl-gone{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  padding:1px 7px;border-radius:20px;background:var(--surface);color:var(--ink-3);border:1px solid var(--border)}
+.dl-milestones{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.dl-ms{font-size:11px;padding:2px 9px;border-radius:20px;border:1px dashed var(--border);color:var(--ink-3);background:var(--surface)}
+.dl-ms.is-done{border-style:solid;border-color:transparent;background:var(--accent-soft);color:var(--accent);font-weight:600}
+.dl-kind{background:var(--surface-2);color:var(--ink-2);max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dl-title{font-size:13px;font-weight:600;color:var(--ink)}
+@media(max-width:600px){
+  .alog-entry .dl-kind{display:none}
 }
 
 /* ---- tasks tab (property card) ---- */
@@ -1707,7 +1738,7 @@ const StorageAdapter = {
     kpiEntries:'kpi_entries', kpiTargets:'kpi_targets',
     callLogs:'call_logs', campaignLogs:'campaign_logs',
     activityEntries:'activity_entries', callSessions:'call_sessions',
-    campaignSends:'campaign_sends',
+    campaignSends:'campaign_sends', deptEntries:'dept_log_entries',
     fundingTemplates:'funding_templates',
     auditStandards:'audit_standards', auditLogs:'audit_logs'
   },
@@ -1768,6 +1799,11 @@ const StorageAdapter = {
       counties:(c.counties||[]).filter(Boolean),
       sms_count:Math.max(0, parseInt(c.smsCount,10)||0),
       notes:c.notes||null, user_id:c.userId||null}),
+    deptEntries: e => ({id:e.id, dept:e.dept, log_date:e.date, occurred_at:e.occurredAt,
+      kind:e.kind, detail:e.detail||null,
+      qty:e.qty===''||e.qty==null ? null : Math.max(0, parseInt(e.qty,10)||0),
+      property_id:e.propertyId||null, prop_ref:e.propRef||null, prop_desc:e.propDesc||null,
+      notes:e.notes||null, user_id:e.userId||null}),
     auditStandards: s => ({id:s.id, section:s.section,
       standard_text:s.standardText||null,
       updated_at:new Date().toISOString()}),
@@ -1829,6 +1865,10 @@ const StorageAdapter = {
     campaignSends: c => ({id:c.id, date:c.log_date, sentAt:c.sent_at,
       counties:Array.isArray(c.counties) ? c.counties : [],
       smsCount:Number(c.sms_count)||0, notes:c.notes||'', userId:c.user_id||''}),
+    deptEntries: e => ({id:e.id, dept:e.dept, date:e.log_date, occurredAt:e.occurred_at,
+      kind:e.kind, detail:e.detail||'', qty:e.qty==null ? '' : Number(e.qty),
+      propertyId:e.property_id||'', propRef:e.prop_ref||'', propDesc:e.prop_desc||'',
+      notes:e.notes||'', userId:e.user_id||''}),
     fundingTemplates: t => ({id:t.id, name:t.name,
       tiers:normalizeFunding(t.tiers, {}),
       created:t.created_at?t.created_at.split('T')[0]:''}),
@@ -1991,7 +2031,7 @@ const StorageAdapter = {
   async loadCore(){
     this.assertConnected();
     {
-      const [u, p, t, pr, k, km, kt, cl, cal, ft, aus, aul, ae, cs, csd] = await Promise.all([
+      const [u, p, t, pr, k, km, kt, cl, cal, ft, aus, aul, ae, cs, csd, dle] = await Promise.all([
         this.supabase.from('users').select('*').order('created_at'),
         this.supabase.from('properties').select('*').order('created_at',{ascending:false}),
         this.supabase.from('tasks').select('*').order('created_at',{ascending:false}),
@@ -2007,6 +2047,7 @@ const StorageAdapter = {
         this.supabase.from('activity_entries').select('*').order('occurred_at',{ascending:false}).limit(4000),
         this.supabase.from('call_sessions').select('*').order('started_at',{ascending:false}).limit(2000),
         this.supabase.from('campaign_sends').select('*').order('sent_at',{ascending:false}).limit(4000),
+        this.supabase.from('dept_log_entries').select('*').order('occurred_at',{ascending:false}).limit(6000),
       ]);
       if(ft.error) console.warn('funding_templates table not found yet — saved splits will be empty.', ft.error.message);
       if(aus.error) console.warn('audit_standards table not found yet — run the updated schema.sql to enable the Audit log.', aus.error.message);
@@ -2019,6 +2060,7 @@ const StorageAdapter = {
       if(cal.error) console.warn('campaign_logs table not found yet — run the updated schema.sql to enable the Activity Log.', cal.error.message);
       if(ae.error) console.warn('activity_entries table not found yet — run the updated schema.sql to enable the Activity log tab.', ae.error.message);
       if(cs.error) console.warn('call_sessions table not found yet — run the updated schema.sql to enable call session timing.', cs.error.message);
+      if(dle.error) console.warn('dept_log_entries table not found yet — run the updated schema.sql to enable the Transaction Coordination and Disposition logs.', dle.error.message);
       if(csd.error) console.warn('campaign_sends table not found yet — run the updated schema.sql to enable the Lead Generation log.', csd.error.message);
       /* fetchOk distinguishes "this table is empty" from "this read failed".
          Both used to arrive as an empty array, and the caller treated empty
@@ -2056,6 +2098,7 @@ const StorageAdapter = {
         activityEntries: (ae.data||[]).map(this.fromDb.activityEntries),
         callSessions: (cs.data||[]).map(this.fromDb.callSessions),
         campaignSends: (csd.data||[]).map(this.fromDb.campaignSends),
+        deptEntries: (dle.data||[]).map(this.fromDb.deptEntries),
         // Which teammate this browser is signed in as stays on the device —
         // it's the key used to look everything else up, so it can't itself
         // live behind that lookup.
@@ -2210,7 +2253,7 @@ const StorageAdapter = {
     try{
       this.assertConnected();
       // Order matters: users first (foreign key references)
-      const order = ['users','props','tasks','projects','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions','campaignSends'];
+      const order = ['users','props','tasks','projects','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions','campaignSends','deptEntries'];
       for(const col of order){
         if(data[col]?.length){
           const rows = data[col].map(this.toDb[col]);
@@ -2230,7 +2273,7 @@ const StorageAdapter = {
   async wipeAll(){
     this.assertConnected();
     // Delete in reverse dep order
-    const order = ['tasks','projects','props','users','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions','campaignSends'];
+    const order = ['tasks','projects','props','users','kpis','kpiMeta','kpiEntries','callLogs','campaignLogs','auditStandards','auditLogs','activityEntries','callSessions','campaignSends','deptEntries'];
     for(const col of order){
       await this.supabase.from(this.tables[col]).delete().neq('id','00000000-0000-0000-0000-000000000000');
     }
@@ -2338,6 +2381,9 @@ const state = {
   activityEntries:[], callSessions:[],
   // Lead Generation log: one row per SMS campaign send. See renderLeadGenLog().
   campaignSends:[],
+  // Transaction Coordination & Closing and Disposition logs share one table,
+  // told apart by dept. See renderDeptActionLog().
+  deptEntries:[],
   activeUserId:'', activeView:'dashboard',
   // Which property has its funding-tier editor open on the Properties list.
   // Held in state rather than the DOM so a re-render doesn't snap it shut.
@@ -3319,6 +3365,7 @@ function applyCore(data){
   state.activityEntries = data.activityEntries || [];
   state.callSessions = data.callSessions || [];
   state.campaignSends = data.campaignSends || [];
+  state.deptEntries = data.deptEntries || [];
   state.fundingTemplates = data.fundingTemplates || [];
   state.auditStandards = data.auditStandards || [];
   state.auditLogs = data.auditLogs || [];
@@ -8893,6 +8940,24 @@ const ALOG_DEPTS = [
      return `${convos} conversation${convos===1?'':'s'} · ${contracts} contract${contracts===1?'':'s'} sent`;
    },
    render:(...a) => renderLeadConversionLog(...a)},
+  {key:'tc', label:'Transaction Coordination & Closing', icon:'ti-file-certificate',
+   sub:'Title, EMD, funding, due diligence and closings — each tied to the deal it moved.',
+   count:(date, mine) => deptRows('tc', date, mine).length,
+   summary:(date, mine) => {
+     const rows = deptRows('tc', date, mine);
+     const deals = new Set(rows.map(deptPropKey)).size;
+     return `${rows.length} action${rows.length===1?'':'s'} · ${deals} deal${deals===1?'':'s'}`;
+   },
+   render:(...a) => renderDeptActionLog(DEPT_LOGS.tc, ...a)},
+  {key:'dispo', label:'Disposition', icon:'ti-building-store',
+   sub:'Agent outreach, check-ins and contractors, logged against each property.',
+   count:(date, mine) => deptRows('dispo', date, mine).length,
+   summary:(date, mine) => {
+     const rows = deptRows('dispo', date, mine);
+     const sum = k => rows.filter(r => r.kind === k).reduce((t,r) => t + (Number(r.qty)||0), 0);
+     return `${sum('agents_called')} agents called · ${sum('agent_checkins')} check-ins · ${sum('contractors_hired')} contractors hired`;
+   },
+   render:(...a) => renderDeptActionLog(DEPT_LOGS.dispo, ...a)},
 ];
 const alogDeptDef = key => ALOG_DEPTS.find(d => d.key === key) || ALOG_DEPTS[0];
 // Remembered per person like the tab itself. Defaults to Lead Conversion so
@@ -8908,6 +8973,12 @@ function setActivityLogDept(key){
   if(!ALOG_DEPTS.some(d => d.key === key)) return;
   state.alogDept = key;
   Prefs.set('alogDept', key);
+  // The DOM patcher reuses form controls by position and only resets values
+  // the new markup spells out, so a blank field in the next department's
+  // form would otherwise inherit whatever was typed or picked in this one.
+  document.querySelectorAll('.alog-form input, .alog-form select').forEach(el => {
+    if(el.tagName === 'SELECT') el.selectedIndex = 0; else el.value = '';
+  });
   app.render();
 }
 
@@ -9293,6 +9364,342 @@ function renderLeadGenLog(date, viewUser, mine, isToday){
   </div>`
   : `<div class="empty"><i class="ti ti-speakerphone"></i><h3>No campaigns logged for ${fmt(date)}</h3>
       <p>Log each SMS campaign when it goes out — counties, texts sent, and the time.</p></div>`}`;
+}
+
+/* =========================================================
+   PROPERTY-LINKED DEPARTMENT LOGS (2026-09-23) —
+   Transaction Coordination & Closing, and Disposition.
+
+   Both are "an action, on a deal, at a time" logs, so they share
+   one table (dept_log_entries, told apart by `dept`) and one
+   renderer driven by the DEPT_LOGS config below. A future
+   department of the same shape is a new DEPT_LOGS entry plus a
+   row in ALOG_DEPTS — no new table, no new screen code.
+
+   The property link is kept twice on purpose: property_id points
+   at the live record, and prop_ref / prop_desc are a snapshot of
+   its Prop ID and county taken when the entry is logged. Deleting
+   the property later leaves the history readable instead of a
+   row of orphaned UUIDs.
+   ========================================================= */
+const DD_ITEMS = ['Title search','Survey','Perc / soil test','Zoning','Flood zone','Road access / easement',
+  'Utilities','Wetlands','Environmental','Back taxes / liens','HOA / restrictions','Comps / valuation'];
+const DEPT_LOGS = {
+  tc: {
+    dept:'tc', propRequired:false, groupNoun:'deal',
+    // `title` turns (detail, prop ID) into the line shown in the log.
+    kinds:{
+      title_opened:     {label:'Opened title', detail:'Title company', ph:'e.g. First American Title', required:true,
+                         title:d => `Opened title at ${d}`},
+      emd_submitted:    {label:'Submitted EMD', detail:'Amount / method', ph:'e.g. $1,000 by wire',
+                         title:d => d ? `Submitted EMD — ${d}` : 'Submitted EMD'},
+      funding_submitted:{label:'Submitted for funding', detail:'Funder', ph:'e.g. lender or JV partner',
+                         title:d => d ? `Submitted for funding with ${d}` : 'Submitted for funding'},
+      dd_completed:     {label:'Completed due diligence item', detail:'Due diligence item', ph:'e.g. Survey', required:true,
+                         suggest:DD_ITEMS, title:d => `Completed ${d} due diligence`},
+      closed:           {label:'Closed', detail:'Closed on', ph:'e.g. purchase from seller, sale to buyer',
+                         title:(d, ref) => `Closed on ${d || ref || 'the deal'}`},
+    },
+    // The five milestones, shown as a checklist on each deal's header so you
+    // can see what's still open without scrolling back through past days.
+    milestones:['title_opened','emd_submitted','funding_submitted','dd_completed','closed'],
+  },
+  dispo: {
+    dept:'dispo', propRequired:true, groupNoun:'property',
+    kinds:{
+      agents_called:    {label:'Agents called', qty:true, detail:'Agents / brokerages', ph:'optional',
+                         title:(d, ref, q) => `Called ${q} agent${q==1?'':'s'}${d?` — ${d}`:''}`},
+      agent_checkins:   {label:'Agent check-ins completed', qty:true, detail:'Agent', ph:'optional',
+                         title:(d, ref, q) => `Completed ${q} agent check-in${q==1?'':'s'}${d?` — ${d}`:''}`},
+      contractors_hired:{label:'Contractors hired', qty:true, detail:'Contractor / trade', ph:'e.g. brush clearing, survey crew',
+                         title:(d, ref, q) => `Hired ${q} contractor${q==1?'':'s'}${d?` — ${d}`:''}`},
+      buyer_inquiries:  {label:'Buyer inquiries handled', qty:true, detail:'Source', ph:'e.g. Zillow, Facebook',
+                         title:(d, ref, q) => `Handled ${q} buyer inquir${q==1?'y':'ies'}${d?` — ${d}`:''}`},
+      offers_received:  {label:'Offers received', qty:true, detail:'Amount(s)', ph:'e.g. $22,500',
+                         title:(d, ref, q) => `Received ${q} offer${q==1?'':'s'}${d?` — ${d}`:''}`},
+      listing_updated:  {label:'Listing updated', detail:'What changed', ph:'e.g. price drop to $24,900', required:true,
+                         title:d => `Updated listing — ${d}`},
+      other:            {label:'Other', detail:'What happened', ph:'Describe the action', required:true,
+                         title:d => d},
+    },
+    // Running totals per property, across every day logged.
+    totals:['agents_called','agent_checkins','contractors_hired','offers_received'],
+  },
+};
+const deptRows = (dept, date, mine) =>
+  state.deptEntries.filter(e => e.dept === dept && e.date === date && mine(e));
+const deptPropKey = e => e.propertyId || (e.propRef ? 'ref:' + e.propRef.toLowerCase() : '');
+// Current Prop ID if the property still exists, the saved snapshot if not.
+function deptPropView(e){
+  const p = e.propertyId ? state.props.find(x => x.id === e.propertyId) : null;
+  if(p) return {ref:p.propertyId || e.propRef || 'Unnamed property',
+                desc:[p.county, p.state].filter(Boolean).join(', '), gone:false};
+  return {ref:e.propRef, desc:e.propDesc, gone:!!(e.propertyId || e.propRef)};
+}
+function deptPropOptions(selectedId, required){
+  const props = [...state.props].sort((a,b) => (a.propertyId||'').localeCompare(b.propertyId||''));
+  return `<option value="">${required ? 'Choose a property…' : 'No property'}</option>` +
+    props.map(p => `<option value="${p.id}" ${p.id===selectedId?'selected':''}>${escape(p.propertyId||'Unnamed')}${p.county?` · ${escape(p.county)}${p.state?`, ${escape(p.state)}`:''}`:''}</option>`).join('');
+}
+function deptDetailSuggestions(cfg, kind){
+  const k = cfg.kinds[kind] || {};
+  const seen = new Set();
+  const out = [];
+  [...(k.suggest||[]), ...state.deptEntries.filter(e => e.dept === cfg.dept && e.kind === kind).map(e => e.detail)]
+    .forEach(d => { const t = (d||'').trim(); if(t && !seen.has(t.toLowerCase())){ seen.add(t.toLowerCase()); out.push(t); } });
+  return out.slice(0, 200).map(d => `<option value="${escape(d)}"></option>`).join('');
+}
+// Changing the action swaps the detail label/placeholder and shows or hides
+// the count field in place — a full render would wipe what's been typed.
+function deptKindChanged(deptKey, prefix){
+  const cfg = DEPT_LOGS[deptKey];
+  const kind = document.getElementById(prefix + '-kind').value;
+  const k = cfg.kinds[kind] || {};
+  const lab = document.getElementById(prefix + '-detail-label');
+  const inp = document.getElementById(prefix + '-detail');
+  const qtyWrap = document.getElementById(prefix + '-qty-wrap');
+  const list = document.getElementById(prefix + '-detail-list');
+  if(lab) lab.innerHTML = escape(k.detail || 'Detail') + (k.required ? '' : ' <span class="dl-opt">optional</span>');
+  if(inp) inp.placeholder = k.ph || '';
+  if(qtyWrap) qtyWrap.style.display = k.qty ? '' : 'none';
+  if(list) list.innerHTML = deptDetailSuggestions(cfg, kind);
+}
+// Reads one of the two forms (the inline one, prefix 'dl'; the edit modal,
+// 'dle') into an entry, or returns null after saying what's missing.
+function readDeptForm(cfg, prefix, date){
+  const kind = document.getElementById(prefix + '-kind').value;
+  const k = cfg.kinds[kind];
+  if(!k){ toast('Choose an action','err'); return null; }
+  const detail = (document.getElementById(prefix + '-detail').value || '').trim();
+  if(k.required && !detail){ toast(`${k.detail} is required`,'err'); return null; }
+  let qty = '';
+  if(k.qty){
+    const raw = (document.getElementById(prefix + '-qty').value || '').trim();
+    qty = raw === '' ? 1 : parseInt(raw, 10);
+    if(isNaN(qty) || qty < 0){ toast('Enter a count of 0 or more','err'); return null; }
+  }
+  const propertyId = document.getElementById(prefix + '-prop').value || '';
+  if(cfg.propRequired && !propertyId){ toast('Choose which property this was for','err'); return null; }
+  const timeVal = document.getElementById(prefix + '-time').value || '';
+  const notes = (document.getElementById(prefix + '-notes').value || '').trim();
+  return {kind, detail, qty, propertyId, timeVal, notes};
+}
+// Snapshot of the property as it is right now, stored with the entry.
+function deptPropSnapshot(propertyId){
+  const p = propertyId ? state.props.find(x => x.id === propertyId) : null;
+  return p ? {propRef:p.propertyId || 'Unnamed property', propDesc:[p.county, p.state].filter(Boolean).join(', ')}
+           : {propRef:'', propDesc:''};
+}
+
+async function logDeptEntry(deptKey){
+  const cfg = DEPT_LOGS[deptKey];
+  const who = state.activeUserId;
+  if(!who) return toast('Choose who is using this device first, on the Dashboard','err');
+  const date = getActivityLogDate();
+  const f = readDeptForm(cfg, 'dl', date);
+  if(!f) return;
+  const occurredAt = f.timeVal ? new Date(`${date}T${f.timeVal}:00`).toISOString()
+                   : date === today() ? new Date().toISOString() : null;
+  if(!occurredAt) return toast('Enter the time — it can only default to now on today','err');
+  const row = {id:uid(), dept:cfg.dept, date, occurredAt, kind:f.kind, detail:f.detail, qty:f.qty,
+    propertyId:f.propertyId, ...deptPropSnapshot(f.propertyId), notes:f.notes, userId:who};
+  state.deptEntries.unshift(row);
+  if(!await saveOne('deptEntries', row)){
+    state.deptEntries = state.deptEntries.filter(e => e.id !== row.id);
+    app.render();
+    return;
+  }
+  toast('Logged: ' + cfg.kinds[row.kind].title(row.detail, row.propRef, row.qty));
+  // Keep the action and property (runs of the same thing on one deal are
+  // common); clear what changes every time.
+  ['dl-detail','dl-qty','dl-time','dl-notes'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  app.render();
+  // The render prints the first action's label; re-sync it to the one kept.
+  deptKindChanged(cfg.dept, 'dl');
+}
+
+function editDeptEntry(id){
+  const e = state.deptEntries.find(x => x.id === id);
+  if(!e) return;
+  const cfg = DEPT_LOGS[e.dept];
+  const k = cfg.kinds[e.kind] || {};
+  const pv = deptPropView(e);
+  // A deleted property can't be re-picked, so say which one it was.
+  const propNote = e.propertyId && pv.gone
+    ? `<div class="dl-opt" style="margin-top:4px">Was ${escape(pv.ref)} (since deleted) — pick another to re-link, or leave as is.</div>` : '';
+  showSubModal(`<div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <h2 class="modal-title">Edit entry — ${escape(fmtLong(e.date))}</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-group"><label class="form-label">Action</label>
+      <select class="form-select" id="dle-kind" onchange="deptKindChanged('${e.dept}','dle')">
+        ${Object.entries(cfg.kinds).map(([key,v]) => `<option value="${key}" ${key===e.kind?'selected':''}>${v.label}</option>`).join('')}
+      </select></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label" id="dle-detail-label">${escape(k.detail||'Detail')}${k.required?'':' <span class="dl-opt">optional</span>'}</label>
+        <input class="form-input" id="dle-detail" list="dle-detail-list" value="${escape(e.detail)}" placeholder="${escape(k.ph||'')}">
+        <datalist id="dle-detail-list">${deptDetailSuggestions(cfg, e.kind)}</datalist></div>
+      <div class="form-group" id="dle-qty-wrap" style="${k.qty?'':'display:none'}"><label class="form-label">Count</label>
+        <input class="form-input" id="dle-qty" type="number" min="0" step="1" value="${e.qty===''?'':e.qty}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Property</label>
+        <select class="form-select" id="dle-prop">${deptPropOptions(pv.gone ? '' : e.propertyId, cfg.propRequired && !pv.gone)}</select>${propNote}</div>
+      <div class="form-group"><label class="form-label">Time</label>
+        <input class="form-input" id="dle-time" type="time" value="${lgTimeValue(e.occurredAt)}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Notes</label>
+      <textarea class="form-textarea" id="dle-notes" rows="3">${escape(e.notes)}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDeptEntryEdit('${e.id}')">Save</button>
+    </div>
+  </div>`);
+}
+async function saveDeptEntryEdit(id){
+  const i = state.deptEntries.findIndex(x => x.id === id);
+  if(i < 0) return;
+  const before = state.deptEntries[i];
+  const cfg = DEPT_LOGS[before.dept];
+  const beforeGone = deptPropView(before).gone;
+  // Leaving the picker blank on an entry whose property was deleted keeps
+  // the saved snapshot rather than unlinking it.
+  const cfgLoose = beforeGone ? {...cfg, propRequired:false} : cfg;
+  const f = readDeptForm(cfgLoose, 'dle', before.date);
+  if(!f) return;
+  const keepOld = beforeGone && !f.propertyId;
+  const next = {...before, kind:f.kind, detail:f.detail, qty:f.qty, notes:f.notes,
+    occurredAt: f.timeVal ? new Date(`${before.date}T${f.timeVal}:00`).toISOString() : before.occurredAt,
+    ...(keepOld ? {} : {propertyId:f.propertyId, ...deptPropSnapshot(f.propertyId)})};
+  state.deptEntries[i] = next;
+  if(!await saveOne('deptEntries', next)){
+    state.deptEntries[i] = before;
+    app.render();
+    return;
+  }
+  closeSubModal();
+  toast('Entry updated');
+  app.render();
+}
+async function deleteDeptEntry(id){
+  const i = state.deptEntries.findIndex(x => x.id === id);
+  if(i < 0) return;
+  if(!confirm('Delete this entry from the log?')) return;
+  const [removed] = state.deptEntries.splice(i, 1);
+  app.render();
+  if(!await deleteOne('deptEntries', id)){
+    state.deptEntries.splice(i, 0, removed);
+    app.render();
+  }
+}
+
+function renderDeptActionLog(cfg, date, viewUser, mine, isToday){
+  const rows = deptRows(cfg.dept, date, mine)
+    .sort((a,b) => (a.occurredAt||'').localeCompare(b.occurredAt||''));
+  const userName_ = id => (state.users.find(u=>u.id===id)||{}).name || '';
+  const firstKind = Object.keys(cfg.kinds)[0];
+  const k0 = cfg.kinds[firstKind];
+
+  // Grouped by deal, in order of first action of the day; unlinked last.
+  const groups = [];
+  const byKey = new Map();
+  rows.forEach(e => {
+    const key = deptPropKey(e) || '~none';
+    if(!byKey.has(key)){ byKey.set(key, {key, sample:e, items:[]}); groups.push(byKey.get(key)); }
+    byKey.get(key).items.push(e);
+  });
+  groups.sort((a,b) => (a.key === '~none') - (b.key === '~none'));
+
+  const groupExtra = g => {
+    if(g.key === '~none') return '';
+    const all = state.deptEntries.filter(e => e.dept === cfg.dept && (deptPropKey(e) || '~none') === g.key);
+    if(cfg.milestones){
+      return `<div class="dl-milestones">${cfg.milestones.map(m => {
+        const hit = all.filter(e => e.kind === m);
+        const done = hit.length > 0;
+        const last = hit.sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+        return `<span class="dl-ms ${done?'is-done':''}" title="${done?`${escape(cfg.kinds[m].label)} — last on ${fmtLong(last.date)}`:'Not logged yet'}">
+          ${done?'✓':'○'} ${escape(cfg.kinds[m].label)}${m==='dd_completed'&&hit.length>1?` ×${hit.length}`:''}</span>`;
+      }).join('')}</div>`;
+    }
+    if(cfg.totals){
+      return `<div class="dl-milestones">${cfg.totals.map(t => {
+        const n = all.filter(e => e.kind === t).reduce((s,e) => s + (Number(e.qty)||0), 0);
+        return `<span class="dl-ms ${n?'is-done':''}">${escape(cfg.kinds[t].label)}: <b>${n}</b></span>`;
+      }).join('')}<span class="dl-opt">all-time for this ${cfg.groupNoun}</span></div>`;
+    }
+    return '';
+  };
+
+  return `
+  <div class="alog-form dl-form">
+    <div class="form-group">
+      <label class="form-label">Action</label>
+      <select class="form-select" id="dl-kind" onchange="deptKindChanged('${cfg.dept}','dl')">
+        ${Object.entries(cfg.kinds).map(([key,v]) => `<option value="${key}">${v.label}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label" id="dl-detail-label">${escape(k0.detail||'Detail')}${k0.required?'':' <span class="dl-opt">optional</span>'}</label>
+      <input class="form-input" id="dl-detail" list="dl-detail-list" placeholder="${escape(k0.ph||'')}"
+             onkeydown="if(event.key==='Enter')logDeptEntry('${cfg.dept}')">
+      <datalist id="dl-detail-list">${deptDetailSuggestions(cfg, firstKind)}</datalist>
+    </div>
+    <div class="form-group" id="dl-qty-wrap" style="${k0.qty?'':'display:none'}">
+      <label class="form-label">Count</label>
+      <input class="form-input" id="dl-qty" type="number" min="0" step="1" placeholder="1"
+             onkeydown="if(event.key==='Enter')logDeptEntry('${cfg.dept}')">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Property${cfg.propRequired?'':' <span class="dl-opt">optional</span>'}</label>
+      <select class="form-select" id="dl-prop">${deptPropOptions('', cfg.propRequired)}</select>
+    </div>
+    <div class="form-group dl-form-time">
+      <label class="form-label">Time</label>
+      <input class="form-input" id="dl-time" type="time" title="${isToday?'Leave blank for right now':'Required when back-filling a past day'}">
+    </div>
+    <div class="form-group dl-form-notes">
+      <label class="form-label">Notes</label>
+      <input class="form-input" id="dl-notes" placeholder="Anything worth remembering"
+             onkeydown="if(event.key==='Enter')logDeptEntry('${cfg.dept}')">
+    </div>
+    <button class="btn btn-primary" onclick="logDeptEntry('${cfg.dept}')"><i class="ti ti-plus"></i> Log</button>
+  </div>
+
+  ${groups.length ? groups.map(g => {
+    const pv = g.key === '~none' ? null : deptPropView(g.sample);
+    return `
+    <div class="alog-group">
+      <div class="alog-group-head dl-group-head">
+        <div class="dl-group-title">
+          ${pv ? `<span class="alog-name">${escape(pv.ref)}</span>
+                  ${pv.desc?`<span class="alog-group-meta" style="margin-left:0">${escape(pv.desc)}</span>`:''}
+                  ${pv.gone?`<span class="dl-gone" title="This property has been deleted — the Prop ID was saved with the entry">deleted</span>`:''}`
+               : `<span class="alog-name">No property linked</span>`}
+          <span class="alog-group-meta">${g.items.length} entr${g.items.length===1?'y':'ies'} ·
+            ${fmtClock(g.items[0].occurredAt)}${g.items.length>1?`–${fmtClock(g.items[g.items.length-1].occurredAt)}`:''}</span>
+        </div>
+        ${groupExtra(g)}
+      </div>
+      ${g.items.map(e => {
+        const k = cfg.kinds[e.kind] || {label:e.kind, title:d => d};
+        return `
+        <div class="alog-entry lg-entry">
+          <span class="alog-time">${fmtClock(e.occurredAt)}</span>
+          <span class="lg-entry-body">
+            <span class="dl-title">${escape(k.title(e.detail, pv ? pv.ref : '', e.qty))}</span>
+            ${e.notes ? `<span class="alog-note">${escape(e.notes)}</span>` : ''}
+          </span>
+          ${!viewUser && userName_(e.userId) ? `<span class="alog-who">${escape(userName_(e.userId))}</span>` : ''}
+          <button class="icon-btn" title="Edit" onclick="editDeptEntry('${e.id}')">${ICON_EDIT}</button>
+          <button class="icon-btn" title="Delete" onclick="deleteDeptEntry('${e.id}')">${ICON_DELETE}</button>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).join('')
+  : `<div class="empty"><i class="ti ${alogDeptDef(cfg.dept).icon}"></i><h3>Nothing logged for ${fmt(date)}</h3>
+      <p>Log each action as it happens — entries group by ${cfg.groupNoun}.</p></div>`}`;
 }
 
 /* =========================================================
