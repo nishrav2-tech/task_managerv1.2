@@ -956,7 +956,10 @@ input,select,textarea{font:inherit;color:inherit}
   background:var(--surface-2);color:var(--ink-3);font-variant-numeric:tabular-nums;
 }
 .dept-btn.active .dept-count{background:rgba(255,255,255,.22);color:inherit}
-.alog-section-head{margin-bottom:12px}
+.alog-section-head{margin-bottom:12px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.alog-export-depts{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.alog-export-depts label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink);cursor:pointer}
+.alog-export-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .alog-section-title{
   display:flex;align-items:center;gap:8px;margin:0;
   font-family:var(--serif);font-size:20px;font-weight:500;color:var(--ink);
@@ -8940,7 +8943,7 @@ const ALOG_DEPTS = [
      return `${convos} conversation${convos===1?'':'s'} · ${contracts} contract${contracts===1?'':'s'} sent`;
    },
    render:(...a) => renderLeadConversionLog(...a)},
-  {key:'tc', label:'Transaction Coordination & Closing', icon:'ti-file-certificate',
+  {key:'tc', label:'TC and Closing', icon:'ti-file-certificate',
    sub:'Title, EMD, funding, due diligence and closings — each tied to the deal it moved.',
    count:(date, mine) => deptRows('tc', date, mine).length,
    summary:(date, mine) => {
@@ -9001,8 +9004,12 @@ function renderActivityLogView(){
   </div>
 
   <div class="alog-section-head">
-    <h3 class="alog-section-title"><i class="ti ${dept.icon}"></i> ${dept.label}</h3>
-    <p class="alog-section-sub">${dept.sub}</p>
+    <div>
+      <h3 class="alog-section-title"><i class="ti ${dept.icon}"></i> ${dept.label}</h3>
+      <p class="alog-section-sub">${dept.sub}</p>
+    </div>
+    <button class="btn btn-sm" onclick="openAlogExport()" title="Download an Excel report for any departments and dates">
+      <i class="ti ti-file-spreadsheet"></i> Export to Excel</button>
   </div>
 
   <div class="alog-bar">
@@ -9395,8 +9402,9 @@ const DEPT_LOGS = {
                          title:d => d ? `Submitted EMD — ${d}` : 'Submitted EMD'},
       funding_submitted:{label:'Submitted for funding', detail:'Funder', ph:'e.g. lender or JV partner',
                          title:d => d ? `Submitted for funding with ${d}` : 'Submitted for funding'},
-      dd_completed:     {label:'Completed due diligence item', detail:'Due diligence item', ph:'e.g. Survey', required:true,
-                         suggest:DD_ITEMS, title:d => `Completed ${d} due diligence`},
+      // Plain text on purpose — no suggestion dropdown, just type the item.
+      dd_completed:     {label:'Completed due diligence item', detail:'Due diligence item', ph:'Type the item, e.g. Survey', required:true,
+                         freeText:true, title:d => `Completed ${d} due diligence`},
       closed:           {label:'Closed', detail:'Closed on', ph:'e.g. purchase from seller, sale to buyer',
                          title:(d, ref) => `Closed on ${d || ref || 'the deal'}`},
     },
@@ -9443,6 +9451,7 @@ function deptPropOptions(selectedId, required){
 }
 function deptDetailSuggestions(cfg, kind){
   const k = cfg.kinds[kind] || {};
+  if(k.freeText) return '';
   const seen = new Set();
   const out = [];
   [...(k.suggest||[]), ...state.deptEntries.filter(e => e.dept === cfg.dept && e.kind === kind).map(e => e.detail)]
@@ -9463,6 +9472,9 @@ function deptKindChanged(deptKey, prefix){
   if(inp) inp.placeholder = k.ph || '';
   if(qtyWrap) qtyWrap.style.display = k.qty ? '' : 'none';
   if(list) list.innerHTML = deptDetailSuggestions(cfg, kind);
+  // A free-text action drops the suggestion list, so the browser shows a
+  // plain text box instead of a dropdown arrow.
+  if(inp){ if(k.freeText) inp.removeAttribute('list'); else inp.setAttribute('list', prefix + '-detail-list'); }
 }
 // Reads one of the two forms (the inline one, prefix 'dl'; the edit modal,
 // 'dle') into an entry, or returns null after saying what's missing.
@@ -9538,7 +9550,7 @@ function editDeptEntry(id){
       </select></div>
     <div class="form-row">
       <div class="form-group"><label class="form-label" id="dle-detail-label">${escape(k.detail||'Detail')}${k.required?'':' <span class="dl-opt">optional</span>'}</label>
-        <input class="form-input" id="dle-detail" list="dle-detail-list" value="${escape(e.detail)}" placeholder="${escape(k.ph||'')}">
+        <input class="form-input" id="dle-detail" ${k.freeText?'':'list="dle-detail-list"'} value="${escape(e.detail)}" placeholder="${escape(k.ph||'')}">
         <datalist id="dle-detail-list">${deptDetailSuggestions(cfg, e.kind)}</datalist></div>
       <div class="form-group" id="dle-qty-wrap" style="${k.qty?'':'display:none'}"><label class="form-label">Count</label>
         <input class="form-input" id="dle-qty" type="number" min="0" step="1" value="${e.qty===''?'':e.qty}"></div>
@@ -9642,7 +9654,7 @@ function renderDeptActionLog(cfg, date, viewUser, mine, isToday){
     </div>
     <div class="form-group">
       <label class="form-label" id="dl-detail-label">${escape(k0.detail||'Detail')}${k0.required?'':' <span class="dl-opt">optional</span>'}</label>
-      <input class="form-input" id="dl-detail" list="dl-detail-list" placeholder="${escape(k0.ph||'')}"
+      <input class="form-input" id="dl-detail" ${k0.freeText?'':'list="dl-detail-list"'} placeholder="${escape(k0.ph||'')}"
              onkeydown="if(event.key==='Enter')logDeptEntry('${cfg.dept}')">
       <datalist id="dl-detail-list">${deptDetailSuggestions(cfg, firstKind)}</datalist>
     </div>
@@ -9700,6 +9712,352 @@ function renderDeptActionLog(cfg, date, viewUser, mine, isToday){
   }).join('')
   : `<div class="empty"><i class="ti ${alogDeptDef(cfg.dept).icon}"></i><h3>Nothing logged for ${fmt(date)}</h3>
       <p>Log each action as it happens — entries group by ${cfg.groupNoun}.</p></div>`}`;
+}
+
+/* =========================================================
+   ACTIVITY LOG EXPORT (2026-09-23) — ad hoc Excel report for any
+   mix of departments over any date range.
+
+   Rows are fetched fresh from Supabase for the chosen range rather
+   than taken from state: the boot load keeps only the most recent
+   few thousand rows per table, so a long range would otherwise
+   come out quietly short. Paged in 1,000s, which is the most one
+   PostgREST request returns.
+
+   ExcelJS (styled .xlsx) is loaded on first use only, so the app's
+   start-up doesn't pay for a library most visits never touch.
+
+   The workbook layout lives in ALOG_XLSX below — one sheet per
+   department plus a Summary. That's the "template": change columns,
+   order, widths or colours there.
+   ========================================================= */
+const EXCELJS_SRC = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+let _excelJsLoading = null;
+function loadExcelJs(){
+  if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if(_excelJsLoading) return _excelJsLoading;
+  _excelJsLoading = new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = EXCELJS_SRC;
+    sc.onload = () => window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('Excel library did not load'));
+    sc.onerror = () => { _excelJsLoading = null; reject(new Error('Could not download the Excel library — check your connection')); };
+    document.head.appendChild(sc);
+  });
+  return _excelJsLoading;
+}
+
+function openAlogExport(){
+  const date = getActivityLogDate();
+  const cur = getActivityLogDept();
+  const viewUser = getActivityLogUser();
+  showSubModal(`<div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <h2 class="modal-title">Export Activity log to Excel</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Departments</label>
+      <div class="alog-export-depts">
+        <label><input type="checkbox" id="axp-all" onchange="document.querySelectorAll('.axp-dept').forEach(c=>c.checked=this.checked)"> <b>All departments</b></label>
+        ${ALOG_DEPTS.map(d => `<label><input type="checkbox" class="axp-dept" value="${d.key}" ${d.key===cur?'checked':''}
+          onchange="document.getElementById('axp-all').checked=[...document.querySelectorAll('.axp-dept')].every(c=>c.checked)"> ${d.label}</label>`).join('')}
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date range</label>
+      <div class="alog-export-presets">
+        <button type="button" class="btn btn-sm" onclick="alogExportPreset('day')">Viewed day</button>
+        <button type="button" class="btn btn-sm" onclick="alogExportPreset('week')">This week</button>
+        <button type="button" class="btn btn-sm" onclick="alogExportPreset('month')">This month</button>
+        <button type="button" class="btn btn-sm" onclick="alogExportPreset('30')">Last 30 days</button>
+        <button type="button" class="btn btn-sm" onclick="alogExportPreset('ytd')">Year to date</button>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">From</label><input class="form-input" type="date" id="axp-from" value="${date}"></div>
+        <div class="form-group"><label class="form-label">To</label><input class="form-input" type="date" id="axp-to" value="${date}"></div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Person</label>
+      <select class="form-select" id="axp-user">
+        <option value="">Everyone</option>
+        ${state.users.map(u=>`<option value="${u.id}" ${u.id===viewUser?'selected':''}>${escape(u.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn btn-primary" id="axp-go" onclick="runAlogExport()"><i class="ti ti-download"></i> Download .xlsx</button>
+    </div>
+  </div>`);
+}
+function alogExportPreset(kind){
+  const t = today();
+  const d = asLocalDate(t);
+  let from = t, to = t;
+  if(kind === 'day'){ from = to = getActivityLogDate(); }
+  else if(kind === 'week'){ d.setDate(d.getDate() - d.getDay()); from = isoLocal(d); }   // Sunday start, like the rest of the app
+  else if(kind === 'month'){ from = t.slice(0,8) + '01'; }
+  else if(kind === '30'){ from = shiftDays(t, -29); }
+  else if(kind === 'ytd'){ from = t.slice(0,4) + '-01-01'; }
+  document.getElementById('axp-from').value = from;
+  document.getElementById('axp-to').value = to;
+}
+
+// Every row of `table` with log_date in [from, to], paged past the 1,000 cap.
+async function fetchLogRange(table, from, to, extra){
+  const sb = StorageAdapter.supabase;
+  const out = [];
+  for(let off = 0; ; off += 1000){
+    let q = sb.from(table).select('*').gte('log_date', from).lte('log_date', to)
+      .order('log_date').order('id').range(off, off + 999);
+    if(extra) q = extra(q);
+    const {data, error} = await q;
+    if(error) throw new Error(`${table}: ${error.message}`);
+    out.push(...(data||[]));
+    if(!data || data.length < 1000) break;
+  }
+  return out;
+}
+
+// Central-time pieces of a timestamp, as Excel wants them: a real date and a
+// time-of-day fraction, so both columns sort and filter properly in Excel.
+const _xlPartsFmt = new Intl.DateTimeFormat('en-US', {timeZone: CRM_TZ, hour:'numeric', minute:'numeric', hourCycle:'h23'});
+function xlTime(iso){
+  if(!iso) return null;
+  const parts = Object.fromEntries(_xlPartsFmt.formatToParts(new Date(iso)).map(p => [p.type, p.value]));
+  return ((Number(parts.hour)||0) * 60 + (Number(parts.minute)||0)) / 1440;
+}
+// A YYYY-MM-DD as a UTC-midnight Date, which ExcelJS turns into exactly that
+// calendar day — no timezone slide.
+const xlDate = ymd => ymd ? new Date(Date.UTC(+ymd.slice(0,4), +ymd.slice(5,7) - 1, +ymd.slice(8,10))) : null;
+
+/* ---- The template ----------------------------------------------------- */
+const ALOG_XLSX = {
+  headerFill:'FF2E5D3A', headerFont:'FFFFFFFF', bandFill:'FFF4F2EC', titleFont:'FF1A1918',
+  dateFmt:'mmm d, yyyy', timeFmt:'h:mm AM/PM',
+};
+
+function xlSheet(wb, name, columns, rows){
+  const ws = wb.addWorksheet(name, {views:[{state:'frozen', ySplit:1}]});
+  ws.columns = columns.map(c => ({header:c.header, key:c.key, width:c.width || 14,
+    style: c.fmt ? {numFmt:c.fmt} : (c.wrap ? {alignment:{wrapText:true, vertical:'top'}} : {})}));
+  rows.forEach(r => ws.addRow(r));
+  const head = ws.getRow(1);
+  head.font = {bold:true, color:{argb:ALOG_XLSX.headerFont}};
+  head.fill = {type:'pattern', pattern:'solid', fgColor:{argb:ALOG_XLSX.headerFill}};
+  head.alignment = {vertical:'middle'};
+  head.height = 20;
+  ws.eachRow((row, i) => {
+    if(i > 1 && i % 2 === 1) row.eachCell({includeEmpty:true}, cell => {
+      cell.fill = {type:'pattern', pattern:'solid', fgColor:{argb:ALOG_XLSX.bandFill}};
+    });
+  });
+  if(rows.length) ws.autoFilter = {from:{row:1, column:1}, to:{row:1, column:columns.length}};
+  return ws;
+}
+
+async function runAlogExport(){
+  const depts = [...document.querySelectorAll('.axp-dept')].filter(c => c.checked).map(c => c.value);
+  const from = document.getElementById('axp-from').value;
+  const to = document.getElementById('axp-to').value;
+  const userId = document.getElementById('axp-user').value;
+  if(!depts.length) return toast('Pick at least one department','err');
+  if(!from || !to) return toast('Pick a start and end date','err');
+  if(from > to) return toast('The start date is after the end date','err');
+
+  const btn = document.getElementById('axp-go');
+  const btnHtml = btn.innerHTML;
+  btn.disabled = true; btn.textContent = 'Building report…';
+  try{
+    const [ExcelJS] = await Promise.all([loadExcelJs()]);
+    const who = q => userId ? q.eq('user_id', userId) : q;
+    const has = k => depts.includes(k);
+    const deptKeys = depts.filter(k => k === 'tc' || k === 'dispo');
+    const [sends, entries, sessions, deptRowsAll] = await Promise.all([
+      has('leadgen') ? fetchLogRange('campaign_sends', from, to, who) : [],
+      has('conversion') ? fetchLogRange('activity_entries', from, to, who) : [],
+      has('conversion') ? fetchLogRange('call_sessions', from, to, who) : [],
+      deptKeys.length ? fetchLogRange('dept_log_entries', from, to, q => who(q.in('dept', deptKeys))) : [],
+    ]);
+    const cs = sends.map(StorageAdapter.fromDb.campaignSends);
+    const ae = entries.map(StorageAdapter.fromDb.activityEntries);
+    const ss = sessions.map(StorageAdapter.fromDb.callSessions);
+    const de = deptRowsAll.map(StorageAdapter.fromDb.deptEntries);
+    const byTime = key => (a,b) => (a.date||'').localeCompare(b.date||'') || (a[key]||'').localeCompare(b[key]||'');
+    const nameOf = id => (state.users.find(u => u.id === id) || {}).name || '';
+    const personLabel = userId ? nameOf(userId) : 'Everyone';
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Utopian Land Buyers';
+    wb.created = new Date();
+
+    // ---- Summary (built first so it's the first tab; filled in below)
+    const sum = wb.addWorksheet('Summary');
+    sum.columns = [{width:34},{width:16},{width:16},{width:16},{width:16},{width:16},{width:16},{width:16},{width:16}];
+
+    // ---- Department sheets
+    if(has('leadgen')){
+      xlSheet(wb, 'Lead Generation', [
+        {header:'Date', key:'date', width:14, fmt:ALOG_XLSX.dateFmt},
+        {header:'Time sent', key:'time', width:12, fmt:ALOG_XLSX.timeFmt},
+        {header:'Counties', key:'counties', width:40, wrap:true},
+        {header:'# Counties', key:'nCounties', width:11},
+        {header:'SMS sent', key:'sms', width:11, fmt:'#,##0'},
+        {header:'Notes', key:'notes', width:40, wrap:true},
+        {header:'Logged by', key:'who', width:18},
+      ], cs.sort(byTime('sentAt')).map(c => ({date:xlDate(c.date), time:xlTime(c.sentAt),
+        counties:(c.counties||[]).join(', '), nCounties:(c.counties||[]).length,
+        sms:Number(c.smsCount)||0, notes:c.notes, who:nameOf(c.userId)})));
+    }
+    if(has('conversion')){
+      xlSheet(wb, 'Lead Conversion', [
+        {header:'Date', key:'date', width:14, fmt:ALOG_XLSX.dateFmt},
+        {header:'Time', key:'time', width:11, fmt:ALOG_XLSX.timeFmt},
+        {header:'Contact', key:'contact', width:26},
+        {header:'Type', key:'type', width:16},
+        {header:'Notes', key:'notes', width:50, wrap:true},
+        {header:'Logged by', key:'who', width:18},
+      ], ae.sort(byTime('occurredAt')).map(e => ({date:xlDate(e.date), time:xlTime(e.occurredAt),
+        contact:e.contactName, type:ALOG_KINDS[e.kind] || e.kind, notes:e.notes, who:nameOf(e.userId)})));
+      xlSheet(wb, 'Call Sessions', [
+        {header:'Date', key:'date', width:14, fmt:ALOG_XLSX.dateFmt},
+        {header:'Clock in', key:'start', width:11, fmt:ALOG_XLSX.timeFmt},
+        {header:'Clock out', key:'end', width:11, fmt:ALOG_XLSX.timeFmt},
+        {header:'Hours', key:'hours', width:9, fmt:'0.00'},
+        {header:'Person', key:'who', width:18},
+      ], ss.sort(byTime('startedAt')).map(x => ({date:xlDate(x.date), start:xlTime(x.startedAt),
+        end:x.endedAt ? xlTime(x.endedAt) : null,
+        hours:x.endedAt ? Math.round(sessionMs(x) / 36e3) / 100 : null, who:nameOf(x.userId)})));
+    }
+    const propCols = e => {
+      const pv = deptPropView(e);
+      return {prop:pv.ref || '', loc:pv.desc || '', status: !pv.ref ? '' : pv.gone ? 'Deleted' : 'Active'};
+    };
+    if(has('tc')){
+      const cfg = DEPT_LOGS.tc;
+      xlSheet(wb, 'TC and Closing', [
+        {header:'Date', key:'date', width:14, fmt:ALOG_XLSX.dateFmt},
+        {header:'Time', key:'time', width:11, fmt:ALOG_XLSX.timeFmt},
+        {header:'Prop ID', key:'prop', width:14},
+        {header:'County / State', key:'loc', width:18},
+        {header:'Property', key:'status', width:10},
+        {header:'Action', key:'action', width:28},
+        {header:'Detail', key:'detail', width:26},
+        {header:'Summary', key:'summary', width:40, wrap:true},
+        {header:'Notes', key:'notes', width:40, wrap:true},
+        {header:'Logged by', key:'who', width:18},
+      ], de.filter(e => e.dept === 'tc').sort(byTime('occurredAt')).map(e => {
+        const k = cfg.kinds[e.kind] || {label:e.kind, title:d => d};
+        const pc = propCols(e);
+        return {date:xlDate(e.date), time:xlTime(e.occurredAt), ...pc, action:k.label, detail:e.detail,
+          summary:k.title(e.detail, pc.prop, e.qty), notes:e.notes, who:nameOf(e.userId)};
+      }));
+    }
+    if(has('dispo')){
+      const cfg = DEPT_LOGS.dispo;
+      xlSheet(wb, 'Disposition', [
+        {header:'Date', key:'date', width:14, fmt:ALOG_XLSX.dateFmt},
+        {header:'Time', key:'time', width:11, fmt:ALOG_XLSX.timeFmt},
+        {header:'Prop ID', key:'prop', width:14},
+        {header:'County / State', key:'loc', width:18},
+        {header:'Property', key:'status', width:10},
+        {header:'Action', key:'action', width:26},
+        {header:'Count', key:'qty', width:8},
+        {header:'Detail', key:'detail', width:26},
+        {header:'Notes', key:'notes', width:40, wrap:true},
+        {header:'Logged by', key:'who', width:18},
+      ], de.filter(e => e.dept === 'dispo').sort(byTime('occurredAt')).map(e => {
+        const k = cfg.kinds[e.kind] || {label:e.kind};
+        return {date:xlDate(e.date), time:xlTime(e.occurredAt), ...propCols(e), action:k.label,
+          qty:e.qty === '' ? null : Number(e.qty), detail:e.detail, notes:e.notes, who:nameOf(e.userId)};
+      }));
+    }
+
+    // ---- Summary content
+    const bold = {bold:true};
+    sum.addRow(['Utopian Land Buyers — Activity log report']).font = {bold:true, size:16, color:{argb:ALOG_XLSX.titleFont}};
+    sum.addRow([`${fmtLong(from)} – ${fmtLong(to)}`]);
+    sum.addRow([`Departments: ${ALOG_DEPTS.filter(d => has(d.key)).map(d => d.label).join(', ')}`]);
+    sum.addRow([`Person: ${personLabel}`]);
+    sum.addRow([`Generated ${new Date().toLocaleString('en-US', {timeZone:CRM_TZ, dateStyle:'medium', timeStyle:'short'})} (Central)`]).font = {italic:true, color:{argb:'FF8A857C'}};
+    sum.addRow([]);
+
+    const section = (title, pairs) => {
+      const h = sum.addRow([title]);
+      h.font = {bold:true, color:{argb:ALOG_XLSX.headerFont}};
+      h.getCell(1).fill = {type:'pattern', pattern:'solid', fgColor:{argb:ALOG_XLSX.headerFill}};
+      h.getCell(2).fill = {type:'pattern', pattern:'solid', fgColor:{argb:ALOG_XLSX.headerFill}};
+      pairs.forEach(([label, val, fmt]) => {
+        const r = sum.addRow([label, val]);
+        if(fmt) r.getCell(2).numFmt = fmt;
+      });
+      sum.addRow([]);
+    };
+    const qtySum = (rows, kind) => rows.filter(e => e.kind === kind).reduce((t,e) => t + (Number(e.qty)||0), 0);
+    if(has('leadgen')) section('Lead Generation', [
+      ['Campaigns sent', cs.length],
+      ['SMS sent', cs.reduce((t,c) => t + (Number(c.smsCount)||0), 0), '#,##0'],
+      ['Distinct counties hit', new Set(cs.flatMap(c => (c.counties||[]).map(n => n.toLowerCase()))).size],
+    ]);
+    if(has('conversion')) section('Lead Conversion', [
+      ['Conversations', ae.filter(e => e.kind === 'conversation').length],
+      ['Contracts sent', ae.filter(e => e.kind === 'contract').length],
+      ['Distinct contacts', new Set(ae.map(e => e.contactName.trim().toLowerCase())).size],
+      ['Call sessions', ss.length],
+      ['Hours on the phones', Math.round(ss.reduce((t,x) => t + sessionMs(x), 0) / 36e3) / 100, '0.00'],
+    ]);
+    if(has('tc')){
+      const rows = de.filter(e => e.dept === 'tc');
+      section('TC and Closing', [
+        ...Object.entries(DEPT_LOGS.tc.kinds).map(([k,v]) => [v.label, rows.filter(e => e.kind === k).length]),
+        ['Deals touched', new Set(rows.map(deptPropKey).filter(Boolean)).size],
+      ]);
+    }
+    if(has('dispo')){
+      const rows = de.filter(e => e.dept === 'dispo');
+      section('Disposition', [
+        ...Object.entries(DEPT_LOGS.dispo.kinds).map(([k,v]) => [v.label, v.qty ? qtySum(rows, k) : rows.filter(e => e.kind === k).length]),
+        ['Properties worked', new Set(rows.map(deptPropKey).filter(Boolean)).size],
+      ]);
+    }
+
+    // By-day table: one row per day in the range that has anything logged.
+    const dayCols = [];
+    if(has('leadgen')) dayCols.push(['SMS sent', d => cs.filter(c => c.date === d).reduce((t,c) => t + (Number(c.smsCount)||0), 0)],
+                                    ['Campaigns', d => cs.filter(c => c.date === d).length]);
+    if(has('conversion')) dayCols.push(['Conversations', d => ae.filter(e => e.date === d && e.kind === 'conversation').length],
+                                       ['Contracts sent', d => ae.filter(e => e.date === d && e.kind === 'contract').length],
+                                       ['Call hours', d => Math.round(ss.filter(x => x.date === d).reduce((t,x) => t + sessionMs(x), 0) / 36e3) / 100]);
+    if(has('tc')) dayCols.push(['TC actions', d => de.filter(e => e.dept === 'tc' && e.date === d).length]);
+    if(has('dispo')) dayCols.push(['Agents called', d => qtySum(de.filter(e => e.dept === 'dispo' && e.date === d), 'agents_called')],
+                                  ['Dispo actions', d => de.filter(e => e.dept === 'dispo' && e.date === d).length]);
+    const days = [...new Set([...cs, ...ae, ...ss, ...de].map(r => r.date))].filter(Boolean).sort();
+    const h = sum.addRow(['By day', ...dayCols.map(c => c[0])]);
+    h.eachCell(c => { c.font = {bold:true, color:{argb:ALOG_XLSX.headerFont}};
+      c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:ALOG_XLSX.headerFill}}; });
+    if(!days.length) sum.addRow(['Nothing logged in this range']).font = {italic:true};
+    days.forEach(d => {
+      const r = sum.addRow([xlDate(d), ...dayCols.map(c => c[1](d))]);
+      r.getCell(1).numFmt = 'ddd, mmm d, yyyy';
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const scope = depts.length === ALOG_DEPTS.length ? 'All departments'
+      : ALOG_DEPTS.filter(d => has(d.key)).map(d => d.label.replace(/ & /g,' and ')).join(', ');
+    const fname = `Activity log - ${scope} - ${from === to ? from : `${from} to ${to}`}.xlsx`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    closeSubModal();
+    toast('Report downloaded');
+  }catch(e){
+    console.error('Activity log export failed:', e);
+    toast('Export failed: ' + (e.message || 'unknown error'), 'err');
+    btn.disabled = false; btn.innerHTML = btnHtml;
+  }
 }
 
 /* =========================================================
