@@ -1041,6 +1041,24 @@ input,select,textarea{font:inherit;color:inherit}
   .alog-entry .dl-kind{display:none}
 }
 
+/* ---- sign-in & access (2026-09-23) ---- */
+.auth-card{max-width:400px}
+.auth-logo{height:40px;width:auto;display:block;margin:0 0 18px}
+.auth-error{min-height:18px;font-size:12.5px;color:var(--danger);margin:4px 0 10px}
+.auth-submit{width:100%;justify-content:center}
+.who-chip{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink)}
+.who-chip .who-name{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:600px){ .who-chip .who-name{display:none} }
+.member-access{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0 2px;border-top:1px solid var(--border);margin-top:10px}
+.member-access-btns{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.acc-pill{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 9px;border-radius:20px;background:var(--surface-2);color:var(--ink-2)}
+.acc-pill.is-admin{background:var(--accent-soft);color:var(--accent)}
+.acc-pill.is-off{background:var(--danger-soft, #FBE9E4);color:var(--danger)}
+.acc-pill.is-none{background:transparent;border:1px dashed var(--border);color:var(--ink-3)}
+.acc-email{font-size:12px;color:var(--ink-3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acc-you{font-size:10.5px;color:var(--ink-3)}
+.cred-box{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-md);padding:12px;font-size:12.5px;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,monospace;margin:0 0 4px}
+
 /* ---- tasks tab (property card) ---- */
 .funding-tab-count.is-overdue{background:var(--danger-soft);color:var(--danger)}
 .prop-tasks-head{
@@ -1668,9 +1686,7 @@ input,select,textarea{font:inherit;color:inherit}
         <span id="backend-label">Local</span>
         <span id="sync-status"><i class="ti ti-refresh"></i></span>
       </div>
-      <select class="who-select" id="active-user-select" onchange="app.switchUser(this.value)">
-        <option value="">Choose user…</option>
-      </select>
+      <div class="who-chip" id="who-chip"></div>
     </div>
   </header>
 
@@ -1814,7 +1830,11 @@ const StorageAdapter = {
       notes:a.notes||null, updated_at:new Date().toISOString()})
   },
   fromDb: {
-    users: u => ({id:u.id, name:u.name, role:u.role||'', colorIdx:u.color_idx||0}),
+    // authId/email/appRole/active are login fields. They're read here but
+    // deliberately NOT written back by toDb.users — only the admin-users Edge
+    // Function changes them, so an ordinary profile save can't touch access.
+    users: u => ({id:u.id, name:u.name, role:u.role||'', colorIdx:u.color_idx||0,
+      authId:u.auth_id||'', email:u.email||'', appRole:u.app_role||'member', active:u.active!==false}),
     props: p => ({id:p.id, propertyId:p.property_id||'',
       county:p.county||'', state:p.state||'TX',
       acres:p.acres!=null?String(p.acres):'',
@@ -1918,9 +1938,24 @@ const StorageAdapter = {
     }
 
     try{
-      this.supabase = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey);
+      this.supabase = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, {
+        auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:false, storageKey:'utopian-auth'}
+      });
     }catch(e){
       this.failure = {code:'bad-url', detail:'Could not create the Supabase client: '+(e.message||e)};
+      return {ok:false, backend:'local', failure:this.failure};
+    }
+
+    /* ---- Sign-in gate (2026-09-23) -----------------------------------------
+       Nothing is read until someone is signed in. The database enforces the
+       same thing (every table's policy requires an active, linked teammate),
+       so this is the friendly front door, not the lock. */
+    try{
+      const {data:{session}} = await this.supabase.auth.getSession();
+      this.session = session || null;
+    }catch(e){ this.session = null; }
+    if(!this.session){
+      this.failure = {code:'auth', detail:'Not signed in.'};
       return {ok:false, backend:'local', failure:this.failure};
     }
 
@@ -2225,6 +2260,18 @@ const StorageAdapter = {
     }finally{
       this.setSyncing(false);
     }
+  },
+
+  // The teammate row linked to the signed-in login, or null if there isn't an
+  // active one. RLS only lets a linked, active teammate read the users table,
+  // so an unlinked login simply gets nothing back here.
+  async loadMe(){
+    if(!this.session) return null;
+    const {data, error} = await this.supabase.from('users').select('*')
+      .eq('auth_id', this.session.user.id).maybeSingle();
+    if(error){ console.warn('Could not look up your teammate record:', error.message); return null; }
+    if(!data || data.active === false) return null;
+    return this.fromDb.users(data);
   },
 
   async saveActiveUser(id){
@@ -3372,7 +3419,12 @@ function applyCore(data){
   state.fundingTemplates = data.fundingTemplates || [];
   state.auditStandards = data.auditStandards || [];
   state.auditLogs = data.auditLogs || [];
-  state.activeUserId = data.activeUserId;
+  // The signed-in teammate always wins over whatever the device remembered.
+  state.activeUserId = state.me ? state.me.id : data.activeUserId;
+  if(state.me){
+    const fresh = state.users.find(u => u.id === state.me.id);
+    if(fresh) state.me = fresh;
+  }
 }
 async function loadAll(){
   // Don't overwrite state while saves/deletes are in-flight — the write may
@@ -3549,6 +3601,271 @@ function downloadLegacyLocalData(){
 }
 
 /* =========================================================
+   SIGN-IN & ACCESS (2026-09-23)
+
+   Email + password logins, created by an admin from the Team page
+   (any email address works — personal is fine). An admin-set
+   password is temporary: the person must choose their own on first
+   sign-in. Forgotten passwords are reset by an admin the same way.
+
+   The screens below replace the page, like the connection-error
+   screen does, and a successful step simply reloads the app so boot
+   runs once, cleanly, as the signed-in person.
+   ========================================================= */
+const isAdmin = () => !!(state.me && state.me.appRole === 'admin' && state.me.active);
+const MIN_PASSWORD = 10;
+
+function authShell(inner){
+  document.body.innerHTML = `
+  <div class="conn-wrap auth-wrap">
+    <div class="conn-card auth-card">
+      <img src="logo.png" alt="Utopian Land Buyers" class="auth-logo">
+      ${inner}
+    </div>
+  </div>`;
+}
+
+function renderLogin(){
+  authShell(`
+    <h1 class="conn-title">Team sign in</h1>
+    <p class="conn-detail">Utopian Land Buyers workspace. Employees only.</p>
+    <form id="auth-form" onsubmit="event.preventDefault();doSignIn()" autocomplete="on">
+      <div class="form-group"><label class="form-label" for="auth-email">Email</label>
+        <input class="form-input" id="auth-email" type="email" autocomplete="username" required autofocus></div>
+      <div class="form-group"><label class="form-label" for="auth-pw">Password</label>
+        <input class="form-input" id="auth-pw" type="password" autocomplete="current-password" required></div>
+      <div class="auth-error" id="auth-error" role="alert"></div>
+      <button class="btn btn-primary auth-submit" id="auth-go" type="submit">Sign in</button>
+    </form>
+    <p class="conn-note" style="margin-top:14px">Forgot your password, or don't have a login yet? Ask an admin — they can set one for you from the Team page.</p>`);
+}
+async function doSignIn(){
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-pw').value;
+  const err = document.getElementById('auth-error');
+  const btn = document.getElementById('auth-go');
+  err.textContent = '';
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  const {error} = await StorageAdapter.supabase.auth.signInWithPassword({email, password});
+  if(error){
+    const m = (error.message||'').toLowerCase();
+    err.textContent = m.includes('banned') ? 'This account has been deactivated. Talk to an admin.'
+      : m.includes('invalid') ? 'Email or password is incorrect.'
+      : m.includes('rate') || m.includes('too many') ? 'Too many attempts — wait a minute and try again.'
+      : error.message;
+    btn.disabled = false; btn.textContent = 'Sign in';
+    return;
+  }
+  location.reload();
+}
+
+// Full-screen version, shown when an admin-set temporary password is in use.
+function renderSetPassword(email){
+  authShell(`
+    <h1 class="conn-title">Choose your password</h1>
+    <p class="conn-detail">Signed in as <strong>${escape(email||'')}</strong> with a temporary password. Pick your own to continue — at least ${MIN_PASSWORD} characters.</p>
+    <form onsubmit="event.preventDefault();doSetPassword('auth')" autocomplete="on">
+      <input type="email" autocomplete="username" value="${escape(email||'')}" hidden>
+      <div class="form-group"><label class="form-label" for="auth-new">New password</label>
+        <input class="form-input" id="auth-new" type="password" autocomplete="new-password" required autofocus></div>
+      <div class="form-group"><label class="form-label" for="auth-new2">Confirm new password</label>
+        <input class="form-input" id="auth-new2" type="password" autocomplete="new-password" required></div>
+      <div class="auth-error" id="auth-error" role="alert"></div>
+      <button class="btn btn-primary auth-submit" id="auth-go" type="submit">Save and continue</button>
+    </form>
+    <p class="conn-note" style="margin-top:14px"><a href="#" onclick="event.preventDefault();signOut()">Sign out instead</a></p>`);
+}
+// Voluntary change, from Settings.
+function openChangePassword(){
+  showSubModal(`<div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h2 class="modal-title">Change password</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <form onsubmit="event.preventDefault();doSetPassword('modal')">
+      <input type="email" autocomplete="username" value="${escape((state.me&&state.me.email)||'')}" hidden>
+      <div class="form-group"><label class="form-label">New password</label>
+        <input class="form-input" id="auth-new" type="password" autocomplete="new-password" required></div>
+      <div class="form-group"><label class="form-label">Confirm new password</label>
+        <input class="form-input" id="auth-new2" type="password" autocomplete="new-password" required></div>
+      <div class="auth-error" id="auth-error" role="alert"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeSubModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="auth-go">Save password</button>
+      </div>
+    </form>
+  </div>`);
+}
+async function doSetPassword(where){
+  const a = document.getElementById('auth-new').value;
+  const b = document.getElementById('auth-new2').value;
+  const err = document.getElementById('auth-error');
+  const btn = document.getElementById('auth-go');
+  err.textContent = '';
+  if(a.length < MIN_PASSWORD) return err.textContent = `Use at least ${MIN_PASSWORD} characters.`;
+  if(a !== b) return err.textContent = "Those passwords don't match.";
+  btn.disabled = true;
+  const {error} = await StorageAdapter.supabase.auth.updateUser({password:a, data:{must_change_password:false}});
+  if(error){
+    btn.disabled = false;
+    err.textContent = /different|same/i.test(error.message) ? 'Choose a password different from the temporary one.' : error.message;
+    return;
+  }
+  if(where === 'auth'){ location.reload(); return; }
+  closeSubModal();
+  toast('Password changed');
+}
+
+function renderNoAccess(email){
+  authShell(`
+    <h1 class="conn-title">No access yet</h1>
+    <p class="conn-detail">You're signed in as <strong>${escape(email||'')}</strong>, but this login isn't linked to an active teammate.</p>
+    <p class="conn-note">Ask an admin to check your access on the Team page. If you were recently deactivated, this is why.</p>
+    <div class="conn-actions" style="margin-top:16px"><button class="btn btn-primary" onclick="signOut()"><i class="ti ti-logout"></i> Sign out</button></div>`);
+}
+
+/* Sign out also cleans this device: its push subscription (so the next
+   person to use it doesn't get your notifications) and cached numbers. */
+async function signOut(){
+  try{ await Prefs.flush(); }catch(e){}
+  try{
+    if('serviceWorker' in navigator){
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && await reg.pushManager.getSubscription();
+      if(sub){ await removePushSubscription(sub); await sub.unsubscribe(); }
+    }
+  }catch(e){}
+  try{
+    Object.keys(localStorage).filter(k => k.startsWith('ulc_') || k.startsWith('notif_'))
+      .forEach(k => localStorage.removeItem(k));
+  }catch(e){}
+  try{ await StorageAdapter.supabase.auth.signOut(); }catch(e){}
+  location.reload();
+}
+
+/* ---- Admin: logins -------------------------------------------------- */
+async function adminCall(body){
+  const {data, error} = await StorageAdapter.supabase.functions.invoke('admin-users', {body});
+  if(error){
+    let msg = error.message || 'Request failed';
+    try{ const j = await error.context.json(); if(j && j.error) msg = j.error; }catch(e){}
+    throw new Error(msg);
+  }
+  if(data && data.error) throw new Error(data.error);
+  return data;
+}
+// 14 characters from an alphabet with no look-alikes (no 0/O, 1/l/I).
+function genTempPassword(){
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const buf = new Uint32Array(14);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, n => abc[n % abc.length]).join('');
+}
+function credentialsPanel(u, email, pw){
+  const text = `Utopian Land Buyers team login\nSite: ${location.origin}${location.pathname}\nEmail: ${email}\nTemporary password: ${pw}\nYou'll be asked to choose your own password when you first sign in.`;
+  return `<p class="conn-detail" style="margin-bottom:10px">Send ${escape(u.name)} these details privately (text or in person). They'll choose their own password on first sign-in.</p>
+    <pre class="cred-box" id="cred-box">${escape(text)}</pre>
+    <div class="modal-actions">
+      <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('cred-box').textContent).then(()=>toast('Copied'))"><i class="ti ti-copy"></i> Copy</button>
+      <button class="btn btn-primary" onclick="closeSubModal()">Done</button>
+    </div>`;
+}
+function openCreateLogin(userId){
+  const u = state.users.find(x => x.id === userId);
+  if(!u) return;
+  showSubModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <h2 class="modal-title">Create login — ${escape(u.name)}</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="cl-body">
+      <div class="form-group"><label class="form-label">Their email</label>
+        <input class="form-input" id="cl-email" type="email" placeholder="name@example.com" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Temporary password</label>
+        <div style="display:flex;gap:6px"><input class="form-input" id="cl-pw" value="${genTempPassword()}" autocomplete="off" style="font-family:ui-monospace,monospace">
+        <button type="button" class="btn" title="New password" onclick="document.getElementById('cl-pw').value=genTempPassword()"><i class="ti ti-refresh"></i></button></div></div>
+      <div class="form-group"><label class="form-label">Access</label>
+        <select class="form-select" id="cl-role">
+          <option value="member">Member — uses the workspace</option>
+          <option value="admin">Admin — also manages team, logins and data</option>
+        </select></div>
+      <div class="auth-error" id="cl-error" role="alert"></div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeSubModal()">Cancel</button>
+        <button class="btn btn-primary" id="cl-go" onclick="doCreateLogin('${u.id}')">Create login</button>
+      </div>
+    </div>
+  </div>`);
+}
+async function doCreateLogin(userId){
+  const u = state.users.find(x => x.id === userId);
+  const email = document.getElementById('cl-email').value.trim().toLowerCase();
+  const password = document.getElementById('cl-pw').value;
+  const role = document.getElementById('cl-role').value;
+  const err = document.getElementById('cl-error');
+  const btn = document.getElementById('cl-go');
+  err.textContent = '';
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err.textContent = 'Enter a valid email.';
+  if(password.length < MIN_PASSWORD) return err.textContent = `The password needs at least ${MIN_PASSWORD} characters.`;
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try{
+    await adminCall({action:'create_login', userId, email, password, role});
+  }catch(e){
+    btn.disabled = false; btn.textContent = 'Create login';
+    return err.textContent = e.message;
+  }
+  document.getElementById('cl-body').innerHTML = credentialsPanel(u, email, password);
+  await loadCore(); app.render();
+}
+function openResetPassword(userId){
+  const u = state.users.find(x => x.id === userId);
+  if(!u) return;
+  const pw = genTempPassword();
+  showSubModal(`<div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <h2 class="modal-title">Reset password — ${escape(u.name)}</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div id="rp-body">
+      <p class="conn-detail">This sets a new temporary password for <strong>${escape(u.email)}</strong>. Their current password stops working, and they'll choose a new one when they next sign in.</p>
+      <div class="form-group"><label class="form-label">Temporary password</label>
+        <input class="form-input" id="rp-pw" value="${pw}" autocomplete="off" style="font-family:ui-monospace,monospace"></div>
+      <div class="auth-error" id="rp-error" role="alert"></div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeSubModal()">Cancel</button>
+        <button class="btn btn-primary" id="rp-go" onclick="doResetPassword('${u.id}')">Reset password</button>
+      </div>
+    </div>
+  </div>`);
+}
+async function doResetPassword(userId){
+  const u = state.users.find(x => x.id === userId);
+  const password = document.getElementById('rp-pw').value;
+  const err = document.getElementById('rp-error');
+  const btn = document.getElementById('rp-go');
+  if(password.length < MIN_PASSWORD) return err.textContent = `At least ${MIN_PASSWORD} characters.`;
+  btn.disabled = true;
+  try{ await adminCall({action:'reset_password', userId, password}); }
+  catch(e){ btn.disabled = false; return err.textContent = e.message; }
+  document.getElementById('rp-body').innerHTML = credentialsPanel(u, u.email, password);
+}
+async function adminAction(action, userId, extra){
+  const u = state.users.find(x => x.id === userId);
+  if(!u) return;
+  const confirms = {
+    set_active: extra && extra.active === false ? `Deactivate ${u.name}? They lose access immediately. Their history stays.` : null,
+    remove_login: `Delete ${u.name}'s login? They won't be able to sign in until you create a new one. Their history stays.`,
+    set_role: extra && extra.role === 'admin' ? `Make ${u.name} an admin? Admins can manage logins, team members and data.` : null,
+  };
+  if(confirms[action] && !confirm(confirms[action])) return;
+  try{
+    await adminCall({action, userId, ...(extra||{})});
+    toast('Done');
+  }catch(e){ return toast(e.message, 'err'); }
+  await loadCore(); app.render();
+}
+
+/* =========================================================
    APP CONTROLLER
    ========================================================= */
 const app = {
@@ -3557,9 +3874,26 @@ const app = {
     // Supabase is the only backend now. Rather than quietly running on local
     // data nobody else can see, stop here and say exactly what's wrong.
     if(!conn.ok){
+      if(conn.failure && conn.failure.code === 'auth'){ renderLogin(); return; }
       renderConnectionError(conn.failure);
       return;
     }
+    // Signed in. A temporary password set by an admin has to be replaced
+    // before anything else loads.
+    const sessUser = StorageAdapter.session.user;
+    if(sessUser.user_metadata && sessUser.user_metadata.must_change_password){
+      renderSetPassword(sessUser.email);
+      return;
+    }
+    // Who you are now comes from your login, not from a picker.
+    const me = await StorageAdapter.loadMe();
+    if(!me){ renderNoAccess(sessUser.email); return; }
+    state.me = me;
+    state.activeUserId = me.id;
+    StorageAdapter.saveActiveUser(me.id);
+    StorageAdapter.supabase.auth.onAuthStateChange(ev => {
+      if(ev === 'SIGNED_OUT') location.reload();
+    });
     // Old builds mirrored everything into localStorage. Now that we're
     // connected, clear that copy so it can't be mistaken for live data.
     StorageAdapter.legacyLocalKeys.forEach(k => { try{ localStorage.removeItem(k); }catch(e){} });
@@ -3576,7 +3910,7 @@ const app = {
 
     await Promise.all([
       loadCore(),
-      Prefs.load(localStorage.getItem(StorageAdapter.localKeys.active) || '')
+      Prefs.load(me.id)
     ]);
     // Restore the tab you were last on before the first render, so a reload
     // lands you back where you were instead of bouncing to the dashboard.
@@ -3670,10 +4004,15 @@ const app = {
     this.render();
   },
 
+  // Was the "who's using this device" picker; now just shows who's signed in.
   buildUserSelect(){
-    const sel = $('#active-user-select');
-    sel.innerHTML = `<option value="">Choose user…</option>` +
-      state.users.map(u => `<option value="${u.id}" ${u.id===state.activeUserId?'selected':''}>${escape(u.name)}</option>`).join('');
+    const el = $('#who-chip');
+    if(!el || !state.me) return;
+    const c = userColor(state.me.id);
+    const html = `<span class="avatar" style="background:${c.bg};color:${c.fg};width:24px;height:24px;font-size:10px">${initials(state.me.name)}</span>
+      <span class="who-name">${escape(state.me.name)}</span>
+      <button class="icon-btn" title="Sign out" aria-label="Sign out" onclick="signOut()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/><path d="M9 12h12l-3-3"/><path d="M18 15l3-3"/></svg></button>`;
+    if(el.innerHTML !== html) el.innerHTML = html;
   },
 
   async switchUser(id){
@@ -3719,8 +4058,10 @@ const app = {
     // Backend badge + "who's using this device" selector only need to live in the
     // top bar on the Dashboard — it's already got its own prominent selector there,
     // so keeping it in the global bar everywhere else was just clutter/duplication.
-    const topRight = document.querySelector('.topbar-right');
-    if(topRight) topRight.style.display = state.activeView === 'dashboard' ? 'flex' : 'none';
+    // The signed-in chip (with Sign out) shows everywhere; the backend badge
+    // stays a Dashboard-only detail.
+    const badge = document.getElementById('backend-badge');
+    if(badge) badge.style.display = state.activeView === 'dashboard' ? '' : 'none';
 
     this.buildUserSelect();
 
@@ -4170,21 +4511,6 @@ function renderDashboard(){
     'Here\'s what the team needs to get done today.',
     `<button class="btn btn-primary" data-action="new-task"><i class="ti ti-plus"></i> Create Task</button>`
   ) + `
-  <div class="card" style="margin-bottom:20px;background:var(--accent-soft);border-color:var(--accent)">
-    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <div style="width:38px;height:38px;border-radius:10px;background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-        <i class="ti ti-user-circle" style="font-size:20px"></i>
-      </div>
-      <div style="flex:1;min-width:220px">
-        <div style="font-weight:600;font-size:14px;color:var(--accent)">Who's using this device?</div>
-        <div style="font-size:12px;color:var(--ink-2);margin-top:2px">Sets whose tasks show up here and who this browser sends notifications for.</div>
-      </div>
-      <select class="form-select" id="dash-user-select" style="max-width:220px" onchange="app.switchUser(this.value)">
-        <option value="" ${!state.activeUserId?'selected':''}>Choose user…</option>
-        ${state.users.map(u=>`<option value="${u.id}" ${u.id===state.activeUserId?'selected':''}>${escape(u.name)}</option>`).join('')}
-      </select>
-    </div>
-  </div>
   <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
     <div class="stat-card" style="flex:1;min-width:200px;max-width:260px">
       <div class="stat-label"><i class="ti ti-checkbox" style="font-size:14px"></i> Open tasks</div>
@@ -10668,8 +10994,25 @@ async function deleteCampaignEntry(id, dateStr){
 }
 
 function renderTeam(){
-  return pageHeader('Workspace', 'Team', 'Everyone with access to this workspace.',
-    `<button class="btn btn-primary" data-action="new-user"><i class="ti ti-user-plus"></i> Add member</button>`) + `
+  const admin = isAdmin();
+  const accessStrip = u => {
+    const pill = !u.authId ? `<span class="acc-pill is-none">No login</span>`
+      : !u.active ? `<span class="acc-pill is-off">Deactivated</span>`
+      : `<span class="acc-pill ${u.appRole==='admin'?'is-admin':''}">${u.appRole==='admin'?'Admin':'Member'}</span>`;
+    const email = u.email ? `<span class="acc-email" title="${escape(u.email)}">${escape(u.email)}</span>` : '';
+    const me = state.me && u.id === state.me.id;
+    const btns = !admin ? '' : !u.authId
+      ? `<button class="btn btn-sm btn-primary" onclick="openCreateLogin('${u.id}')"><i class="ti ti-key"></i> Create login</button>`
+      : `<button class="btn btn-sm" onclick="openResetPassword('${u.id}')">Reset password</button>
+         ${me ? '' : `<button class="btn btn-sm" onclick="adminAction('set_role','${u.id}',{role:'${u.appRole==='admin'?'member':'admin'}'})">${u.appRole==='admin'?'Make member':'Make admin'}</button>
+         <button class="btn btn-sm ${u.active?'btn-danger':''}" onclick="adminAction('set_active','${u.id}',{active:${!u.active}})">${u.active?'Deactivate':'Reactivate'}</button>
+         <button class="btn btn-sm" title="Delete the login (keeps the teammate and their history)" onclick="adminAction('remove_login','${u.id}')">Remove login</button>`}`;
+    return `<div class="member-access">${pill}${email}${me?'<span class="acc-you">You</span>':''}<span class="member-access-btns">${btns}</span></div>`;
+  };
+  return pageHeader('Workspace', 'Team', admin
+      ? 'Everyone with access to this workspace. You can create logins, reset passwords and deactivate access here.'
+      : 'Everyone with access to this workspace.',
+    admin ? `<button class="btn btn-primary" data-action="new-user"><i class="ti ti-user-plus"></i> Add member</button>` : '') + `
     <div class="grid grid-2">
     ${state.users.map(u=>{
       const c = userColor(u.id);
@@ -10682,11 +11025,12 @@ function renderTeam(){
             <div class="member-name">${escape(u.name)}</div>
             <div class="member-role">${escape(u.role||'—')} <span style="color:var(--border-strong)">·</span> ${myTasks.length} open task${myTasks.length===1?'':'s'}</div>
           </div>
-          <div class="item-actions">
+          ${admin ? `<div class="item-actions">
             <button class="icon-btn" data-action="edit-user" data-id="${u.id}" title="Edit">${ICON_EDIT}</button>
             <button class="icon-btn" data-action="delete-user" data-id="${u.id}" title="Delete">${ICON_DELETE}</button>
-          </div>
+          </div>` : ''}
         </div>
+        ${accessStrip(u)}
         <div class="member-stats member-stats-4">
           <div class="member-stat"><div class="member-stat-val">${stats.completed}</div><div class="member-stat-lbl">Completed</div></div>
           <div class="member-stat"><div class="member-stat-val">${stats.onTimePct!==null?stats.onTimePct+'%':'—'}</div><div class="member-stat-lbl">On time</div></div>
@@ -10709,7 +11053,18 @@ function renderSettings(){
   const notifOn = notifPerm==='granted' && localStorage.getItem('notif_enabled')==='1';
   const iosNeedsInstall = isIOS() && !isStandalonePWA();
   const pushConfigured = !!vapidPublicKey();
-  return pageHeader('Configure', 'Settings', 'Backend, backups, and data hygiene.', '') + `
+  const me = state.me || {};
+  return pageHeader('Configure', 'Settings', 'Your account, notifications, backend and backups.', '') + `
+  <div class="settings-section">
+    <h3>Your account</h3>
+    <p>Signed in as <strong>${escape(me.name||'')}</strong>${me.email?` (${escape(me.email)})`:''} ·
+      ${me.appRole==='admin'?'Admin':'Member'}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="openChangePassword()"><i class="ti ti-key"></i> Change password</button>
+      <button class="btn" onclick="signOut()"><i class="ti ti-logout"></i> Sign out</button>
+    </div>
+  </div>
+
   <div class="settings-section">
     <h3>Data backend</h3>
     <p>
@@ -10777,11 +11132,11 @@ function renderSettings(){
   <div class="settings-section">
     <h3>Backup & restore</h3>
     <p>Download a JSON snapshot of everything, restore from a snapshot, or nuke it all and start over.</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
+    ${isAdmin() ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" data-action="export-data"><i class="ti ti-download"></i> Export JSON</button>
       <button class="btn" data-action="import-data"><i class="ti ti-upload"></i> Import JSON</button>
       <button class="btn btn-danger" data-action="reset-data"><i class="ti ti-trash"></i> Reset all data</button>
-    </div>
+    </div>` : `<p class="form-hint" style="margin:0">Only admins can back up, restore or reset data.</p>`}
   </div>
 
   <div class="settings-section">
@@ -11022,6 +11377,8 @@ async function confirmDelete(kind, id){
   const map = {prop:'props', task:'tasks', project:'projects', user:'users'};
   let msg = `Delete this ${labels[kind]}? This cannot be undone.`;
   if(kind==='user'){
+    if(!isAdmin()) return toast('Only admins can remove team members','err');
+    if(state.me && id === state.me.id) return toast("You can't delete yourself",'err');
     const openTasks = state.tasks.filter(t=>t.status!=='done'&&(t.assignees||[]).includes(id)).length;
     if(openTasks){
       msg = `This person has ${openTasks} open task(s) assigned. `
@@ -11029,6 +11386,15 @@ async function confirmDelete(kind, id){
     }
   }
   if(!confirm(msg)) return;
+  // A teammate with a login loses the login first, so no orphaned sign-in is
+  // left behind that could be re-linked later.
+  if(kind==='user'){
+    const u = state.users.find(x=>x.id===id);
+    if(u && u.authId){
+      try{ await adminCall({action:'remove_login', userId:id}); }
+      catch(e){ return toast('Could not remove their login: '+e.message,'err'); }
+    }
+  }
   const removed = state[map[kind]].find(x=>x.id===id);
   state[map[kind]] = state[map[kind]].filter(x=>x.id!==id);
   if(kind==='user' && state.activeUserId===id){

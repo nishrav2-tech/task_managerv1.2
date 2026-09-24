@@ -143,10 +143,15 @@ end $$;
 -- only the Edge Function (service role, which bypasses RLS) touches it, so a
 -- leaked anon key can't read who is being told what.
 alter table push_subscriptions enable row level security;
+-- 2026-09-23: signed-in teammates only (was anon full access). Requires the
+-- helper functions from auth-lockdown.sql.
 drop policy if exists "anon full access push_subscriptions" on push_subscriptions;
-create policy "anon full access push_subscriptions" on push_subscriptions
-  for all to anon, authenticated using (true) with check (true);
-grant select, insert, update, delete on push_subscriptions to anon, authenticated;
+drop policy if exists "members own push" on push_subscriptions;
+create policy "members own push" on push_subscriptions for all to authenticated
+  using (public.is_member())
+  with check (public.is_member() and user_id = public.current_member_id());
+revoke all on push_subscriptions from anon;
+grant select, insert, update, delete on push_subscriptions to authenticated;
 
 alter table notification_queue enable row level security;
 revoke all on notification_queue from anon, authenticated;
