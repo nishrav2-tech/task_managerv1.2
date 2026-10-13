@@ -707,6 +707,42 @@ input,select,textarea{font:inherit;color:inherit}
 }
 .prop-timeline-status .tl-sep{color:var(--ink-3);font-weight:500}
 
+/* ---- segmented closing timeline (2026-10-13) ---- */
+.tl2{position:relative;margin:4px 6px 10px}
+.tl2-labels{position:relative;height:30px}
+.tl2-seg-label{
+  position:absolute;bottom:4px;padding:0 4px;box-sizing:border-box;
+  text-align:center;line-height:1.2;overflow:hidden;
+}
+.tl2-range{display:block;font-size:11px;font-weight:650;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl2-split{display:block;font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl2-seg-label.is-now .tl2-range,.tl2-seg-label.is-now .tl2-split{color:var(--accent)}
+.tl2-seg-label.is-past .tl2-range{color:var(--ink-3)}
+.tl2-bar{position:relative;height:10px;border-radius:6px;background:var(--surface-2)}
+.tl2-seg{
+  position:absolute;top:0;bottom:0;border-right:2px solid var(--surface);
+  background:var(--surface-2);box-sizing:border-box;
+}
+.tl2-seg.is-first{border-radius:6px 0 0 6px}
+.tl2-seg.is-last{border-right:none;border-radius:0 6px 6px 0}
+.tl2-seg.is-first.is-last{border-radius:6px}
+.tl2-seg.is-past{background:color-mix(in srgb, var(--accent) 45%, var(--surface))}
+.tl2-seg.is-now{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.tl2-today{position:absolute;top:-5px;bottom:-5px;width:3px;margin-left:-1.5px;background:var(--ink);border-radius:2px}
+.tl2-today-label{
+  position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:3px;
+  font-size:10.5px;font-weight:700;color:var(--surface);background:var(--ink);
+  padding:1px 6px;border-radius:10px;white-space:nowrap;
+}
+.tl2-ticks{position:relative;height:40px}
+.tl2-tick{position:absolute;top:22px;transform:translateX(-50%);font-size:10px;color:var(--ink-3);white-space:nowrap}
+.tl2-tick.is-start{transform:none}
+.tl2-tick.is-end{transform:translateX(-100%)}
+.tl2-tick::before{content:'';position:absolute;top:-22px;left:50%;width:1px;height:20px;background:var(--border)}
+.tl2-tick.is-start::before{left:0}.tl2-tick.is-end::before{left:auto;right:0}
+@media(max-width:600px){ .tl2-split{display:none} .tl2-labels{height:18px} .tl2-tick span{font-size:9px}
+  .tl2-tick:not(.is-start):not(.is-end) span{display:none} }
+
 /* ---- funding tier table (under the timeline) ---- */
 .funding-table{
   width:100%;border-collapse:collapse;margin-top:12px;
@@ -7468,73 +7504,82 @@ function renderClosingTimeline(p){
     </div>`;
   }
 
+  /* Rebuilt 2026-10-13. The old version pinned each band's name to the dot at
+     the END of that band, so the label you read nearest the progress bar was
+     usually the band the deal had already left (day 99 sat right next to the
+     "47-91 days" label while actually being in 92-136). Now every band is its
+     own segment of the bar, labelled over its own stretch, drawn to scale,
+     with a "today" pin at the exact day. Day 0 is the closing date.
+
+     A band "0-46" covers days 0..46 inclusive, so it is 47 days long; the bar
+     runs from day 0 to the end of the last band's final day. */
   const lastDay = bands[bands.length-1].to;
-  const pctOf   = day => Math.min(100, Math.max(0, (day / lastDay) * 100));
-  // Before closing the window hasn't opened; past the last band it's spent.
-  const elapsedPct = since == null || since < 0 ? 0 : pctOf(since);
+  const span    = lastDay + 1;
+  const pos     = day => Math.min(100, Math.max(0, (day / span) * 100));
   const current = activeBand(p);
   const expired = since != null && since > lastDay;
+  const accent  = expired ? 'var(--danger)' : current ? 'var(--accent)' : 'var(--ink-3)';
+  const splitTxt = b => (b.pctUs==null && b.pctFunder==null) ? 'no split set'
+    : b.pctUs==null || b.pctUs === 0 ? `funder ${b.pctFunder}%`
+    : `us ${b.pctUs}% / funder ${b.pctFunder!=null?b.pctFunder:100-b.pctUs}%`;
+  const shortSplit = b => (b.pctUs==null && b.pctFunder==null) ? ''
+    : `${b.pctUs!=null?b.pctUs:0}/${b.pctFunder!=null?b.pctFunder:100-(b.pctUs||0)}`;
 
-  const accent = expired ? 'var(--danger)' : current ? 'var(--accent)' : 'var(--ink-3)';
+  const segs = bands.map(b => {
+    const left = pos(b.from), width = pos(b.to + 1) - left;
+    const state_ = since == null || since < 0 ? 'future'
+      : since > b.to ? 'past' : since >= b.from ? 'now' : 'future';
+    const start = addDays(p.closingDate, b.from), endD = b.date;
+    const tip = `Days ${b.from}-${b.to} (${fmt(start)} to ${fmt(endD)}) · ${splitTxt(b)}`;
+    return {b, left, width, state_, tip};
+  });
 
-  // Band boundaries, labelled above/below alternately so neighbouring labels
-  // can't overprint each other on a tight schedule.
-  const html = bands.map((b, i) => {
-    const pct    = pctOf(b.to);
-    const side   = i % 2 === 0 ? 'above' : 'below';
-    const past   = since != null && since > b.to;
-    // Match on the band's end day, not its id: a tier saved without an id gets
-    // a fresh one on every normalize pass, so ids can't be compared across two
-    // separate calls. End days are unique after de-duplication.
-    const isNow  = current && current.to === b.to;
-    const align  = pct >= 94 ? 'translateX(-100%)' : 'translateX(-50%)';
-    const split  = (b.pctUs!=null||b.pctFunder!=null)
-      ? `${b.pctUs!=null?b.pctUs:'—'}% / ${b.pctFunder!=null?b.pctFunder:'—'}%` : '';
-    const tip = `${b.label}${b.date?` — through ${fmtLong(b.date)}`:''}`
-      + (split?` · us ${b.pctUs}% / funder ${b.pctFunder}%`:'')
-      + (isNow?' · current band':'');
-    return `<div class="tl-mark" style="left:${pct}%" title="${escape(tip)}">
-      <div class="tl-dot ${past?'':'is-future'}"
-           style="background:${past?'var(--accent)':'var(--surface)'};border-color:var(--surface)"></div>
-      <div class="tl-stem ${side}"></div>
-      <div class="tl-label ${side}" style="transform:${align}">
-        <span class="tl-name" style="${isNow?'color:var(--accent)':''}">${escape(b.label)}</span>
-        <span class="tl-meta">${split}</span>
-      </div>
-    </div>`;
-  }).join('');
+  const labels = segs.map(x => `
+    <div class="tl2-seg-label is-${x.state_}" style="left:${x.left}%;width:${x.width}%" title="${escape(x.tip)}">
+      <span class="tl2-range">${x.b.from}-${x.b.to}</span>
+      <span class="tl2-split">${escape(shortSplit(x.b))}</span>
+    </div>`).join('');
+  const bar = segs.map((x, i) => `
+    <div class="tl2-seg is-${x.state_} ${i===0?'is-first':''} ${i===segs.length-1?'is-last':''}" style="left:${x.left}%;width:${x.width}%" title="${escape(x.tip)}"></div>`).join('');
+  // Dates under each boundary: the day a new split starts, plus the window end.
+  const ticks = [{day:0, date:p.closingDate, txt:'Closed'}]
+    .concat(bands.slice(1).map(b => ({day:b.from, date:addDays(p.closingDate, b.from)})))
+    .concat([{day:span, date:addDays(p.closingDate, span), end:true}])
+    .map(t => `<div class="tl2-tick ${t.end?'is-end':''} ${t.day===0?'is-start':''}" style="left:${pos(t.day)}%">
+        <span>${t.txt?t.txt+' ':''}${fmt(t.date)}</span></div>`).join('');
 
-  // Day 0 is the closing itself — anchor the left edge so the bands read as
-  // time since closing rather than floating free.
-  const zero = `<div class="tl-mark" style="left:0%" title="Closing ${escape(fmtLong(p.closingDate))}">
-    <div class="tl-dot" style="background:var(--accent);border-color:var(--surface)"></div>
-    <div class="tl-stem below"></div>
-    <div class="tl-label below" style="transform:translateX(0)">
-      <span class="tl-name">Closing</span>
-      <span class="tl-meta">${fmt(p.closingDate)}</span>
-    </div>
-  </div>`;
+  const pin = since != null && since >= 0 && !expired
+    ? `<div class="tl2-today" style="left:${pos(since + 0.5)}%" title="Today: day ${since} since closing">
+         <span class="tl2-today-label">Day ${since}</span></div>`
+    : '';
 
-  const statusLabel = since == null ? ''
-    : since < 0  ? `Closes in ${Math.abs(since)} day${Math.abs(since)===1?'':'s'}`
-    : expired    ? `Day ${since} — past the ${lastDay}-day window`
-    : `Day ${since} of ${lastDay}`;
-
-  const bandBit = current
-    ? `<span class="tl-sep">·</span> <span style="color:var(--ink-3)">in ${current.label}
-         · us ${current.pctUs!=null?current.pctUs+'%':'—'} / funder ${current.pctFunder!=null?current.pctFunder+'%':'—'}
-         ${(()=>{const v=shareOf(p,current.pctUs);return v!=null?`· ${money(v)} to us`:'';})()}</span>`
-    : since != null && since < 0
-      ? `<span class="tl-sep">·</span> <span style="color:var(--ink-3)">${bands.length} tier${bands.length===1?'':'s'} ready</span>`
-      : '';
+  const dayWord = n => `${n} day${n===1?'':'s'}`;
+  let statusLabel, bandBit = '';
+  if(since == null){
+    statusLabel = '';
+  }else if(since < 0){
+    statusLabel = `Closes in ${dayWord(Math.abs(since))} (${fmt(p.closingDate)})`;
+    bandBit = `<span class="tl-sep">·</span> <span style="color:var(--ink-3)">${bands.length} tier${bands.length===1?'':'s'} ready</span>`;
+  }else if(expired){
+    statusLabel = `${dayWord(since)} since closing, past the ${span}-day window (ended ${fmt(addDays(p.closingDate, span))})`;
+  }else{
+    statusLabel = `${dayWord(since)} since closing`;
+    if(current){
+      const v = shareOf(p, current.pctUs);
+      const left = current.to - since + 1;        // days remaining in this band, today included
+      const next = bands.find(b => b.from === current.to + 1);
+      bandBit = `<span class="tl-sep">·</span> <span style="color:var(--ink-3)">in days ${current.from}-${current.to}, ${escape(splitTxt(current))}${v!=null?`, ${money(Math.round(v))} to us`:''}</span>
+        <span class="tl-sep">·</span> <span style="color:var(--ink-3)">${next
+          ? `${dayWord(left)} left at this split, ${escape(shortSplit(next))} from ${fmt(addDays(p.closingDate, next.from))}`
+          : `${dayWord(left)} left in the window`}</span>`;
+    }
+  }
 
   return `<div class="prop-timeline">
-    <div class="prop-timeline-plot">
-      <div class="prop-timeline-track">
-        <div class="prop-timeline-fill" style="width:${elapsedPct}%"></div>
-        ${zero}
-        ${html}
-      </div>
+    <div class="tl2">
+      <div class="tl2-labels">${labels}</div>
+      <div class="tl2-bar">${bar}${pin}</div>
+      <div class="tl2-ticks">${ticks}</div>
     </div>
     <div class="prop-timeline-status" style="color:${accent}">
       <i class="ti ti-flag-3" style="font-size:11px"></i> ${statusLabel} ${bandBit}
