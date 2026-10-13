@@ -743,6 +743,17 @@ input,select,textarea{font:inherit;color:inherit}
 @media(max-width:600px){ .tl2-split{display:none} .tl2-labels{height:18px} .tl2-tick span{font-size:9px}
   .tl2-tick:not(.is-start):not(.is-end) span{display:none} }
 
+.listing-src-switch{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 2px}
+.listing-src-btn{
+  display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface);font-family:inherit;font-size:12.5px;font-weight:600;color:var(--ink-2);
+}
+.listing-src-btn.active{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.listing-src-btn.active .funding-tab-count{background:rgba(255,255,255,.22);color:inherit}
+.listing-src-missing{font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;background:var(--danger-soft,#fce8e8);color:var(--danger)}
+.listing-src-btn.active .listing-src-missing{background:rgba(255,255,255,.9)}
+button.prop-agent-stale{cursor:pointer;font-family:inherit}
+
 /* ---- funding tier table (under the timeline) ---- */
 .funding-table{
   width:100%;border-collapse:collapse;margin-top:12px;
@@ -1817,7 +1828,9 @@ const StorageAdapter = {
       listing_url:p.listingUrl||null,
       listing_url_2:p.listingUrl2||null,
       listing_stats:normalizeListingStats(p.listingStats),
-      agent_log:normalizeAgentLog(p.agentLog)}),
+      agent_log:normalizeAgentLog(p.agentLog),
+      fb_listing_url:p.fbListingUrl||null,
+      fb_listing_stats:normalizeListingStats(p.fbListingStats)}),
     fundingTemplates: t => ({id:t.id, name:t.name, tiers:normalizeFunding(t.tiers, {})}),
     tasks: t => ({id:t.id, title:t.title, linked_id:t.linkedId||null,
       linked_type:t.linkedType||null, due_date:t.dueDate||null,
@@ -1890,6 +1903,8 @@ const StorageAdapter = {
       listingUrl2:p.listing_url_2||'',
       listingStats:normalizeListingStats(p.listing_stats),
       agentLog:normalizeAgentLog(p.agent_log),
+      fbListingUrl:p.fb_listing_url||'',
+      fbListingStats:normalizeListingStats(p.fb_listing_stats),
       created:p.created_at?p.created_at.split('T')[0]:''}),
     tasks: t => ({id:t.id, title:t.title, linkedId:t.linked_id||'',
       linkedType:t.linked_type||'', dueDate:t.due_date||'',
@@ -2495,6 +2510,9 @@ const state = {
   // Listing details panel. Separate from listingOpen so collapsing the log
   // doesn't close the panel around it.
   listingLogOpen:null,
+  // Which listing source the open Listing details panel is showing:
+  // 'zillow' or 'facebook'. Reset to Zillow whenever a different card opens.
+  listingSource:'zillow',
   // Third tab on a property card: the deal's own task list.
   tasksOpen:null,
   // Whether THIS device holds a web-push subscription (resolved async on boot).
@@ -2848,6 +2866,42 @@ function agentStalePill(p){
   if(days !== null && days < 6) return '';
   const label = days === null ? 'No agent check-in' : `${days}d since check-in`;
   return `<span class="prop-agent-stale" title="Log an agent check-in under Listing details"><i class="ti ti-alert-triangle"></i> ${label}</span>`;
+}
+
+/* ---- Listing sources (2026-10-13) -------------------------------------------
+   Zillow and Facebook Marketplace are logged the same way (a reading of views
+   and saves per day, two charts) but count differently:
+     zillow    a ROLLING 30-day total -- see listingDeltas below
+     facebook  a running total since the listing went up, which only grows
+   listingDeltas works for both (new activity = this reading minus the last);
+   only the wording on the charts and log differs, so it lives here. */
+const LISTING_SRC = {
+  zillow: {
+    key:'zillow', name:'Zillow',
+    unitSuffix:'in the last 30 days', colSuffix:'30d',
+    totalsTitle:"Totals · Zillow's rolling 30 days",
+    dropNote: n => `Zillow's 30-day count fell by ${n}, so older saves aged out`,
+    viewsPh:'Views (last 30 days)', savesPh:'Saves (last 30 days)'
+  },
+  facebook: {
+    key:'facebook', name:'Facebook Marketplace',
+    unitSuffix:'total so far', colSuffix:'total',
+    totalsTitle:'Totals · Facebook Marketplace, since listed',
+    dropNote: n => `Facebook's total fell by ${n} (probably a correction), counted as 0 new`,
+    viewsPh:'Total clicks / views', savesPh:'Total saves'
+  }
+};
+// Purchase done (closed or already on Zillow) but no Facebook Marketplace
+// link saved. Pre-closing deals can't be listed yet, so they aren't flagged.
+const needsFbListing = p => {
+  const st = propStatus(p);
+  return (st === 'closed' || st === 'listed') && !(p.fbListingUrl||'').trim();
+};
+function fbMissingPill(p){
+  if(!needsFbListing(p)) return '';
+  return `<button type="button" class="prop-agent-stale prop-fb-missing" title="Add the Facebook Marketplace link under Listing details"
+      onclick="event.stopPropagation();openListingPanel('${p.id}','facebook')">
+    <i class="ti ti-brand-facebook"></i> No FB listing</button>`;
 }
 
 /* ---- New saves and views per day ------------------------------------------
@@ -7642,7 +7696,7 @@ function renderPropPanels(p, bands){
   </button>`;
   const listingTab = `<button class="funding-tab ${listingOpen?'is-open':''}" data-action="toggle-listing" data-id="${p.id}">
     <i class="ti ti-${listingOpen?'chevron-down':'chevron-right'}"></i>
-    Listing details${stats.length?` <span class="funding-tab-count">${stats.length}</span>`:''}
+    Listing details${(stats.length + normalizeListingStats(p.fbListingStats).length)?` <span class="funding-tab-count">${stats.length + normalizeListingStats(p.fbListingStats).length}</span>`:''}
   </button>`;
   // The count pill turns red when any of this deal's open work is overdue, so
   // a card tells you that without being opened.
@@ -7862,7 +7916,7 @@ function toggleListingPanel(id){
   state.listingOpen = alreadyOpen ? null : id;
   state.fundingOpen = null;
   state.tasksOpen = null;
-  if(!alreadyOpen) state.listingLogOpen = null;   // reopen collapsed, not mid-scroll
+  if(!alreadyOpen){ state.listingLogOpen = null; state.listingSource = 'zillow'; }   // reopen collapsed, on Zillow
   app.render();
 }
 // The deal's task list, third of the three tabs and exclusive with them.
@@ -7894,12 +7948,14 @@ function toggleListingLog(id){
 // toggle: it's a call to action, so clicking it must always end with the
 // panel open and the URL field ready, never shut it because it happened to
 // be open already.
-function openListingPanel(id){
+function openListingPanel(id, source){
   state.listingOpen = id;
   state.fundingOpen = null;
   state.tasksOpen = null;
+  state.listingSource = source === 'facebook' ? 'facebook' : 'zillow';
+  state.listingLogOpen = null;
   app.render();
-  const input = document.getElementById(`lst-url-${id}`);
+  const input = document.getElementById(source === 'facebook' ? `fb-url-${id}` : `lst-url-${id}`);
   if(input){ input.focus(); input.scrollIntoView({block:'nearest'}); }
 }
 function closeListingPanel(){
@@ -7938,6 +7994,53 @@ async function logListingEntry(id){
   p.listingStats = normalizeListingStats([...stats.filter(e=>e.date!==date), merged]);
   await saveOne('props', p);
   toast(`Logged ${fmtLong(date)}`);
+  app.render();
+}
+function setListingSource(source){
+  // The patcher reuses inputs by position, so a half-typed reading on one
+  // source would otherwise show up in the other's boxes.
+  document.querySelectorAll('.listing-panel-slot input').forEach(el => { el.value = ''; });
+  state.listingSource = source === 'facebook' ? 'facebook' : 'zillow';
+  state.listingLogOpen = null;
+  app.render();
+}
+async function saveFbListingUrl(id){
+  const p = state.props.find(x=>x.id===id);
+  if(!p) return;
+  const input = document.getElementById(`fb-url-${id}`);
+  const before = p.fbListingUrl;
+  p.fbListingUrl = input ? input.value.trim() : (p.fbListingUrl||'');
+  if(!await saveOne('props', p)){ p.fbListingUrl = before; app.render(); return; }
+  toast('Facebook Marketplace link saved');
+  app.render();
+}
+// Same one-reading-per-day rule as the Zillow log.
+async function logFbListingEntry(id){
+  const p = state.props.find(x=>x.id===id);
+  if(!p) return;
+  const date  = (document.getElementById(`fb-date-${id}`)||{}).value || today();
+  const views = (document.getElementById(`fb-views-${id}`)||{}).value;
+  const saves = (document.getElementById(`fb-saves-${id}`)||{}).value;
+  if(views === '' && saves === '') return toast('Enter views or saves first', 'err');
+  const stats = normalizeListingStats(p.fbListingStats);
+  const existing = stats.find(e => e.date === date);
+  const merged = {
+    date,
+    views: views !== '' ? numOrNull(views) : (existing ? existing.views : null),
+    saves: saves !== '' ? numOrNull(saves) : (existing ? existing.saves : null)
+  };
+  const before = p.fbListingStats;
+  p.fbListingStats = normalizeListingStats([...stats.filter(e=>e.date!==date), merged]);
+  if(!await saveOne('props', p)){ p.fbListingStats = before; app.render(); return; }
+  ['fb-views-','fb-saves-'].forEach(k => { const el = document.getElementById(k+id); if(el) el.value = ''; });
+  toast(`Logged ${fmtLong(date)}`);
+  app.render();
+}
+async function deleteFbListingEntry(id, date){
+  const p = state.props.find(x=>x.id===id);
+  if(!p) return;
+  p.fbListingStats = normalizeListingStats(p.fbListingStats).filter(e => e.date !== date);
+  await saveOne('props', p);
   app.render();
 }
 async function deleteListingEntry(id, date){
@@ -8004,7 +8107,100 @@ async function saveAgentEdit(id, week){
   toast('Check-in updated');
   app.render();
 }
+/* Listing details now has two sources, switched with the pills at the top:
+   Zillow (links, readings, charts and the agent check-in log) and Facebook
+   Marketplace (link, readings and the same two charts; no agent log). */
 function renderListingPanel(p, stats){
+  const src = state.listingSource === 'facebook' ? 'facebook' : 'zillow';
+  const zN = normalizeListingStats(p.listingStats).length;
+  const fN = normalizeListingStats(p.fbListingStats).length;
+  const hasZ = !!((p.listingUrl||'').trim() || (p.listingUrl2||'').trim());
+  const hasF = !!(p.fbListingUrl||'').trim();
+  const pill = (key, label, icon, n, has) => `
+    <button type="button" class="listing-src-btn ${src===key?'active':''}" onclick="setListingSource('${key}')">
+      <i class="ti ti-${icon}"></i> ${label}
+      ${n ? `<span class="funding-tab-count">${n}</span>` : ''}
+      ${!has ? `<span class="listing-src-missing" title="No link saved yet">no link</span>` : ''}
+    </button>`;
+  return `<div class="listing-src-switch">
+      ${pill('zillow','Zillow','home-search',zN,hasZ)}
+      ${pill('facebook','Facebook Marketplace','brand-facebook',fN,hasF)}
+    </div>
+    ${src === 'facebook' ? renderFbListingPanel(p) : renderZillowListingPanel(p, stats)}`;
+}
+
+function renderFbListingPanel(p){
+  const S = LISTING_SRC.facebook;
+  const stats = normalizeListingStats(p.fbListingStats);
+  const logOpen = state.listingLogOpen === p.id;
+  const byDate = logOpen ? new Map(listingDeltas(stats).map(d => [d.date, d])) : new Map();
+  const rows = !logOpen ? '' : [...stats].reverse().slice(0, 21).map(e => {
+    const d = byDate.get(e.date);
+    const note = !d ? 'First reading — nothing before it to compare against'
+      : d.agedSaves ? S.dropNote(Math.abs(d.changeSaves))
+      : d.gap > 1 ? `${d.gap} days since the previous entry — shown as a daily average`
+      : '';
+    return `
+    <tr${note?` title="${escape(note)}"`:''}>
+      <td class="ft-name">${fmt(e.date)}${d && d.gap>1?` <span class="ft-dim">+${d.gap}d</span>`:''}</td>
+      <td class="ft-num">${e.views!=null?e.views.toLocaleString():'—'}</td>
+      <td class="ft-num">${e.saves!=null?e.saves.toLocaleString():'—'}</td>
+      <td class="ft-num">${d?perDay(d.newViews):'<span class="ft-dim">baseline</span>'}</td>
+      <td class="ft-num">${d?perDay(d.newSaves):'<span class="ft-dim">baseline</span>'}</td>
+      <td class="ft-status">
+        <button type="button" class="icon-btn" title="Remove entry"
+                onclick="deleteFbListingEntry('${p.id}','${e.date}')"><i class="ti ti-x"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="funding-panel">
+    <div class="listing-url-row" style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
+        <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px">
+          <label class="form-label">Facebook Marketplace listing</label>
+          <input class="form-input" id="fb-url-${p.id}" placeholder="https://www.facebook.com/marketplace/item/…"
+                 value="${escape(p.fbListingUrl||'')}">
+        </div>
+        ${p.fbListingUrl ? `<a class="btn btn-sm" href="${escape(p.fbListingUrl)}" target="_blank" rel="noopener">
+          <i class="ti ti-external-link"></i></a>` : ''}
+      </div>
+      <div style="margin-top:8px">
+        <button type="button" class="btn btn-sm" onclick="saveFbListingUrl('${p.id}')">Save link</button>
+      </div>
+    </div>
+
+    <div class="listing-entry-row">
+      <input class="form-input" type="date" id="fb-date-${p.id}" value="${today()}">
+      <input class="form-input" type="number" min="0" step="1" id="fb-views-${p.id}" placeholder="${S.viewsPh}">
+      <input class="form-input" type="number" min="0" step="1" id="fb-saves-${p.id}" placeholder="${S.savesPh}">
+      <button type="button" class="btn btn-sm btn-primary" onclick="logFbListingEntry('${p.id}')">
+        <i class="ti ti-plus"></i> Log
+      </button>
+    </div>
+
+    ${renderListingCharts(stats, S)}
+
+    ${stats.length ? `<div class="listing-log">
+      <button type="button" class="listing-log-toggle" data-action="toggle-listing-log" data-id="${p.id}">
+        <i class="ti ti-${logOpen?'chevron-down':'chevron-right'}"></i>
+        Day-by-day log <span class="funding-tab-count">${stats.length}</span>
+      </button>
+      <div class="listing-log-slot">${logOpen ? `
+        <table class="funding-table" style="margin-top:4px">
+          <thead><tr>
+            <th>Date</th>
+            <th class="ft-num">Views ${S.colSuffix}</th><th class="ft-num">Saves ${S.colSuffix}</th>
+            <th class="ft-num">New views</th><th class="ft-num">New saves</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>` : ''}</div>
+    </div>` : ''}
+  </div>`;
+}
+
+function renderZillowListingPanel(p, stats){
   stats = stats || normalizeListingStats(p.listingStats);
   const logOpen = state.listingLogOpen === p.id;
   // Deltas are keyed by date so the table can show each row's own movement
@@ -8341,11 +8537,12 @@ const chartAttr = o => escape(JSON.stringify(o));
    they belong on screen together rather than one behind a disclosure toggle.
    The headline strip sits above both, full width, since it summarises the
    whole listing rather than either chart. */
-function renderListingCharts(stats){
+function renderListingCharts(stats, src){
+  src = src || LISTING_SRC.zillow;
   return `${renderListingSummary(stats)}
     <div class="listing-charts">
-      ${renderListingDailyChart(stats)}
-      ${renderListingChart(stats)}
+      ${renderListingDailyChart(stats, src)}
+      ${renderListingChart(stats, src)}
     </div>`;
 }
 
@@ -8401,7 +8598,8 @@ function renderListingSummary(stats){
    predicts a showing; new views ride along as a line on its own right-hand
    axis, since views run an order of magnitude larger and would flatten the
    bars to nothing on a shared scale. */
-function renderListingDailyChart(stats){
+function renderListingDailyChart(stats, src){
+  src = src || LISTING_SRC.zillow;
   const days = listingDeltas(stats).filter(d => d.newSaves != null || d.newViews != null);
   if(!days.length){
     return `<div class="prop-timeline-empty" style="margin:6px 0 14px">
@@ -8435,7 +8633,7 @@ function renderListingDailyChart(stats){
     const y = yS(v), h = Math.max(v > 0 ? 1.5 : 0, padT + plotH - y);
     const tip = `${fmtLong(d.date)} · ${perDay(d.newSaves)} new save${d.newSaves===1?'':'s'}`
       + (d.gap > 1 ? ` per day (${d.gap} days since the last entry)` : '')
-      + (d.agedSaves ? ` · Zillow's 30-day count fell by ${Math.abs(d.changeSaves)}, so older saves aged out` : '')
+      + (d.agedSaves ? ` · ${src.dropNote(Math.abs(d.changeSaves))}` : '')
       + (d.newViews != null ? ` · ${perDay(d.newViews)} new views` : '');
     return `<g><title>${escape(tip)}</title>
       <rect x="${(cx(i)-barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}"
@@ -8508,7 +8706,8 @@ let chartSeq = 0;
 // The raw readings behind the chart above: Zillow's rolling 30-day totals as
 // logged, views and saves. Useful as context — a flat rolling line with bars
 // still showing means new saves are only replacing ones aging out.
-function renderListingChart(stats){
+function renderListingChart(stats, src){
+  src = src || LISTING_SRC.zillow;
   if(stats.length < 2){
     return `<div class="prop-timeline-empty" style="margin:6px 0 14px">
       <i class="ti ti-chart-line" style="font-size:13px"></i>
@@ -8538,8 +8737,8 @@ function renderListingChart(stats){
     a: e.views==null ? null : +yFor(e.views).toFixed(1),
     b: e.saves==null ? null : +yFor(e.saves).toFixed(1),
     html: `<span class="ro-date">${escape(fmtLong(e.date))}</span>`
-      + `<span class="ro-val"><b>${e.views!=null?e.views.toLocaleString():'—'}</b> views in the last 30 days</span>`
-      + `<span class="ro-val"><b>${e.saves!=null?e.saves.toLocaleString():'—'}</b> saves in the last 30 days</span>`
+      + `<span class="ro-val"><b>${e.views!=null?e.views.toLocaleString():'—'}</b> views ${src.unitSuffix}</span>`
+      + `<span class="ro-val"><b>${e.saves!=null?e.saves.toLocaleString():'—'}</b> saves ${src.unitSuffix}</span>`
   }));
   const geom = {W, padL, plotW, slot:0, mode:'line'};
   const lastPt = points[points.length-1];
@@ -8549,7 +8748,7 @@ function renderListingChart(stats){
   const lastS = [...stats].reverse().find(e=>e.saves!=null);
   const lastV = [...stats].reverse().find(e=>e.views!=null);
   return `<div>
-    <div class="listing-chart-title">Totals · Zillow's rolling 30 days</div>
+    <div class="listing-chart-title">${escape(src.totalsTitle)}</div>
     <div class="listing-chart-legend">
       <span><span class="listing-swatch" style="background:var(--accent)"></span>Views · ${lastV?lastV.views.toLocaleString():'—'} latest</span>
       <span><span class="listing-swatch" style="background:var(--danger)"></span>Saves · ${lastS?lastS.saves.toLocaleString():'—'} latest</span>
@@ -8667,6 +8866,15 @@ function renderProperties(){
   // Counted across ALL properties, not the filtered view — a deal that needs
   // listing shouldn't be able to hide behind a search box or a status tab.
   const unlisted = state.props.filter(needsListing);
+  const noFb = state.props.filter(needsFbListing);
+  const fbBanner = noFb.length ? `<div class="page-alert">
+    <i class="ti ti-brand-facebook"></i>
+    <div class="page-alert-body">
+      <strong>${noFb.length} deal${noFb.length===1?'':'s'} not on Facebook Marketplace</strong> —
+      ${noFb.slice(0,3).map(p=>escape(p.propertyId||'Untitled')).join(', ')}${noFb.length>3?` and ${noFb.length-3} more`:''}.
+      Closed or listed, with no Facebook link saved.
+    </div>
+  </div>` : '';
   const banner = unlisted.length ? `<div class="page-alert">
     <i class="ti ti-alert-triangle"></i>
     <div class="page-alert-body">
@@ -8679,7 +8887,7 @@ function renderProperties(){
 
   return pageHeader('Deals', 'Properties', 'Every parcel, offer, and ARV.',
     `<button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button>`) + `
-    ${banner}
+    ${banner}${fbBanner}
     <div class="seg-control" role="tablist" style="margin-bottom:12px">
       <button class="seg-btn ${!statusFilter?'active':''}" role="tab" aria-selected="${!statusFilter}" onclick="setPropStatusFilter('')">
         All <span class="seg-count">${state.props.length}</span>
@@ -8717,6 +8925,7 @@ function renderProperties(){
               ${PROP_STATUS_LABEL[status]}
             </span>
             ${agentStalePill(p)}
+            ${fbMissingPill(p)}
           </div>
           <div class="item-meta">
             <span>${escape(p.county)}, ${escape(p.state)}</span>
@@ -11806,6 +12015,8 @@ async function saveProp(id){
     listingUrl2: existing ? existing.listingUrl2 : '',
     listingStats: existing ? existing.listingStats : [],
     agentLog: existing ? existing.agentLog : [],
+    fbListingUrl: existing ? existing.fbListingUrl : '',
+    fbListingStats: existing ? existing.fbListingStats : [],
     created: existing ? existing.created : today()
   };
   if(id){ const i=state.props.findIndex(p=>p.id===id); state.props[i]=data; }
