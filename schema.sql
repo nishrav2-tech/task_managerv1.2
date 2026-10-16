@@ -92,6 +92,8 @@ alter table properties add column if not exists fb_listing_stats jsonb not null 
 -- Sold deals + Facebook quick replies (2026-10-16)
 alter table properties add column if not exists sold_date   date;
 alter table properties add column if not exists fb_snippets jsonb not null default '[]'::jsonb;
+-- Facebook Marketplace info blurb (replaces fb_snippets, 2026-10-16)
+alter table properties add column if not exists fb_info text;
 alter table properties drop constraint if exists properties_status_check;
 alter table properties add constraint properties_status_check check (status in ('pre-closing','closed','listed','sold'));
 alter table properties add column if not exists created_at   timestamptz not null default now();
@@ -623,7 +625,7 @@ begin
   for t in
     select * from (values
       ('users',         array['id','name','role','color_idx','created_at']),
-      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_url_2','listing_stats','agent_log','fb_listing_url','fb_listing_stats','sold_date','fb_snippets','ghl_url','land_portal_url','created_at']),
+      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_url_2','listing_stats','agent_log','fb_listing_url','fb_listing_stats','sold_date','fb_snippets','fb_info','ghl_url','land_portal_url','created_at']),
       ('funding_templates', array['id','name','tiers','created_at']),
       ('tasks',         array['id','title','linked_id','linked_type','due_date','priority','status','notes','assignees','completed_at','created_at']),
       ('projects',      array['id','title','category','status','priority','description','due_date','assignees','created_at']),

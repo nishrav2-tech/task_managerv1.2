@@ -865,11 +865,6 @@ button.prop-agent-stale{cursor:pointer;font-family:inherit}
 .sold-strip span{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
 .fb-snips{margin-top:16px;padding-top:14px;border-top:1px dashed var(--border)}
 .fb-snips-title{font-family:var(--serif);font-size:16px;font-weight:500;margin:0 0 2px;color:var(--ink)}
-.fb-snip{border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px;margin:8px 0;background:var(--surface)}
-.fb-snip-head{display:flex;align-items:center;gap:6px;margin-bottom:4px}
-.fb-snip-label{font-size:12.5px;font-weight:700;color:var(--ink);flex:1;min-width:0}
-.fb-snip-text{font-size:13px;color:var(--ink-2);white-space:pre-wrap;line-height:1.5;margin:0}
-.fb-snip-form{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 
 .prop-agent-stale{
   display:inline-flex;align-items:center;gap:3px;
@@ -1844,7 +1839,7 @@ const StorageAdapter = {
       fb_listing_url:p.fbListingUrl||null,
       fb_listing_stats:normalizeListingStats(p.fbListingStats),
       sold_date:p.soldDate||null,
-      fb_snippets:normalizeFbSnippets(p.fbSnippets)}),
+      fb_info:(p.fbInfo||'').trim()||null}),
     fundingTemplates: t => ({id:t.id, name:t.name, tiers:normalizeFunding(t.tiers, {})}),
     tasks: t => ({id:t.id, title:t.title, linked_id:t.linkedId||null,
       linked_type:t.linkedType||null, due_date:t.dueDate||null,
@@ -1920,7 +1915,7 @@ const StorageAdapter = {
       fbListingUrl:p.fb_listing_url||'',
       fbListingStats:normalizeListingStats(p.fb_listing_stats),
       soldDate:p.sold_date||'',
-      fbSnippets:normalizeFbSnippets(p.fb_snippets),
+      fbInfo:p.fb_info||'',
       created:p.created_at?p.created_at.split('T')[0]:''}),
     tasks: t => ({id:t.id, title:t.title, linkedId:t.linked_id||'',
       linkedType:t.linked_type||'', dueDate:t.due_date||'',
@@ -8216,7 +8211,7 @@ function renderFbListingPanel(p){
         </table>` : ''}</div>
     </div>` : ''}
 
-    ${renderFbSnippets(p)}
+    ${renderFbInfo(p)}
   </div>`;
 }
 
@@ -9047,104 +9042,27 @@ async function saveMarkSold(id){
 }
 
 /* ---- Facebook Marketplace copy and paste (2026-10-16) ----------------------
-   Saved quick responses per property, each with a Copy button, for answering
-   Marketplace messages fast. Stored in properties.fb_snippets. */
-function normalizeFbSnippets(raw){
-  let list = raw;
-  if(typeof list === 'string'){ try{ list = JSON.parse(list); }catch(e){ return []; } }
-  if(!Array.isArray(list)) return [];
-  return list.filter(x => x && typeof x === 'object' && String(x.text||'').trim())
-    .map(x => ({id: x.id || uid(), label: String(x.label||'').trim(), text: String(x.text)}));
-}
-function renderFbSnippets(p){
-  const list = normalizeFbSnippets(p.fbSnippets);
+   One free-text blurb per property: everything someone (or an AI agent)
+   needs to answer Marketplace messages about this deal. Stored in
+   properties.fb_info. */
+function renderFbInfo(p){
   return `<div class="fb-snips">
     <h4 class="fb-snips-title">Facebook Marketplace copy and paste</h4>
-    <p class="form-hint" style="margin:0 0 4px">Quick replies for this property. Click Copy, then paste into Messenger.</p>
-    ${list.map(sn => `<div class="fb-snip">
-      <div class="fb-snip-head">
-        <span class="fb-snip-label">${escape(sn.label || 'Response')}</span>
-        <button type="button" class="btn btn-sm btn-primary" onclick="copyFbSnippet('${p.id}','${sn.id}')"><i class="ti ti-copy"></i> Copy</button>
-        <button type="button" class="icon-btn" title="Edit" onclick="editFbSnippet('${p.id}','${sn.id}')">${ICON_EDIT}</button>
-        <button type="button" class="icon-btn" title="Delete" onclick="deleteFbSnippet('${p.id}','${sn.id}')">${ICON_DELETE}</button>
-      </div>
-      <p class="fb-snip-text">${escape(sn.text)}</p>
-    </div>`).join('')}
-    <div class="fb-snip-form">
-      <input class="form-input" id="fbsn-label-${p.id}" placeholder="Label, e.g. Is it still available? / Price / Directions">
-      <textarea class="form-textarea" id="fbsn-text-${p.id}" rows="3" placeholder="Type or paste the response"></textarea>
-      <div><button type="button" class="btn btn-sm" onclick="addFbSnippet('${p.id}')"><i class="ti ti-plus"></i> Add response</button></div>
-    </div>
+    <p class="form-hint" style="margin:0 0 6px">Everything needed to answer Messenger leads about this property.</p>
+    <textarea class="form-textarea" id="fbinfo-${p.id}" rows="10"
+      placeholder="Price, terms, acreage, access, utilities, directions, common questions and answers...">${escape(p.fbInfo||'')}</textarea>
+    <div style="margin-top:8px"><button type="button" class="btn btn-sm btn-primary" onclick="saveFbInfo('${p.id}')">Save</button></div>
   </div>`;
 }
-async function saveFbSnippets(p, next){
-  const before = p.fbSnippets;
-  p.fbSnippets = next;
-  if(!await saveOne('props', p)){ p.fbSnippets = before; app.render(); return false; }
+async function saveFbInfo(id){
+  const p = state.props.find(x => x.id === id);
+  if(!p) return;
+  const el = document.getElementById(`fbinfo-${id}`);
+  const before = p.fbInfo;
+  p.fbInfo = el ? el.value : (p.fbInfo||'');
+  if(!await saveOne('props', p)){ p.fbInfo = before; app.render(); return; }
+  toast('Saved');
   app.render();
-  return true;
-}
-async function addFbSnippet(id){
-  const p = state.props.find(x => x.id === id);
-  if(!p) return;
-  const labelEl = document.getElementById(`fbsn-label-${id}`);
-  const textEl = document.getElementById(`fbsn-text-${id}`);
-  const text = (textEl.value||'').trim();
-  if(!text) return toast('Type the response first','err');
-  const next = [...normalizeFbSnippets(p.fbSnippets), {id: uid(), label: (labelEl.value||'').trim(), text}];
-  labelEl.value = ''; textEl.value = '';
-  if(await saveFbSnippets(p, next)) toast('Response saved');
-}
-function copyFbSnippet(id, snId){
-  const p = state.props.find(x => x.id === id);
-  const sn = p && normalizeFbSnippets(p.fbSnippets).find(x => x.id === snId);
-  if(!sn) return;
-  const done = () => toast('Copied');
-  if(navigator.clipboard && window.isSecureContext){
-    navigator.clipboard.writeText(sn.text).then(done, () => fallbackCopy(sn.text) && done());
-  }else if(fallbackCopy(sn.text)) done();
-}
-function fallbackCopy(text){
-  const ta = document.createElement('textarea');
-  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-  document.body.appendChild(ta); ta.select();
-  let ok = false; try{ ok = document.execCommand('copy'); }catch(e){}
-  ta.remove();
-  if(!ok) toast('Copy blocked by the browser, select the text instead','err');
-  return ok;
-}
-function editFbSnippet(id, snId){
-  const p = state.props.find(x => x.id === id);
-  const sn = p && normalizeFbSnippets(p.fbSnippets).find(x => x.id === snId);
-  if(!sn) return;
-  showSubModal(`<div class="modal" style="max-width:480px">
-    <div class="modal-header">
-      <h2 class="modal-title">Edit response</h2>
-      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
-    </div>
-    <div class="form-group"><label class="form-label">Label</label>
-      <input class="form-input" id="fbsn-edit-label" value="${escape(sn.label)}"></div>
-    <div class="form-group"><label class="form-label">Response</label>
-      <textarea class="form-textarea" id="fbsn-edit-text" rows="6">${escape(sn.text)}</textarea></div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeSubModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveFbSnippetEdit('${id}','${snId}')">Save</button>
-    </div>
-  </div>`);
-}
-async function saveFbSnippetEdit(id, snId){
-  const p = state.props.find(x => x.id === id);
-  if(!p) return;
-  const text = ($('#fbsn-edit-text').value||'').trim();
-  if(!text) return toast('The response can\'t be empty','err');
-  const next = normalizeFbSnippets(p.fbSnippets).map(x => x.id === snId
-    ? {...x, label: ($('#fbsn-edit-label').value||'').trim(), text} : x);
-  if(await saveFbSnippets(p, next)){ closeSubModal(); toast('Response updated'); }
-}
-async function deleteFbSnippet(id, snId){
-  const p = state.props.find(x => x.id === id);
-  if(!p || !confirm('Delete this response?')) return;
-  await saveFbSnippets(p, normalizeFbSnippets(p.fbSnippets).filter(x => x.id !== snId));
 }
 
 function setPropStatusFilter(status){
@@ -12219,7 +12137,7 @@ async function saveProp(id){
     agentLog: existing ? existing.agentLog : [],
     fbListingUrl: existing ? existing.fbListingUrl : '',
     fbListingStats: existing ? existing.fbListingStats : [],
-    fbSnippets: existing ? existing.fbSnippets : [],
+    fbInfo: existing ? existing.fbInfo : '',
     soldDate: ($('#fp-sold').value||''),
     created: existing ? existing.created : today()
   };
