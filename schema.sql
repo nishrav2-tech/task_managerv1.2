@@ -89,6 +89,11 @@ alter table properties add column if not exists agent_log     jsonb not null def
 -- Facebook Marketplace listing (2026-10-13): link + running-total readings
 alter table properties add column if not exists fb_listing_url   text;
 alter table properties add column if not exists fb_listing_stats jsonb not null default '[]'::jsonb;
+-- Sold deals + Facebook quick replies (2026-10-16)
+alter table properties add column if not exists sold_date   date;
+alter table properties add column if not exists fb_snippets jsonb not null default '[]'::jsonb;
+alter table properties drop constraint if exists properties_status_check;
+alter table properties add constraint properties_status_check check (status in ('pre-closing','closed','listed','sold'));
 alter table properties add column if not exists created_at   timestamptz not null default now();
 
 -- Existing rows predating the funding schedule get an empty list rather
@@ -618,7 +623,7 @@ begin
   for t in
     select * from (values
       ('users',         array['id','name','role','color_idx','created_at']),
-      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_url_2','listing_stats','agent_log','fb_listing_url','fb_listing_stats','ghl_url','land_portal_url','created_at']),
+      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_url_2','listing_stats','agent_log','fb_listing_url','fb_listing_stats','sold_date','fb_snippets','ghl_url','land_portal_url','created_at']),
       ('funding_templates', array['id','name','tiers','created_at']),
       ('tasks',         array['id','title','linked_id','linked_type','due_date','priority','status','notes','assignees','completed_at','created_at']),
       ('projects',      array['id','title','category','status','priority','description','due_date','assignees','created_at']),
@@ -748,7 +753,7 @@ begin
       ('tasks',    'tasks_linked_type_check', $q$check (linked_type in ('property','project') or linked_type is null)$q$),
       ('projects', 'projects_status_check',   $q$check (status in ('ideas','planned','in-progress','done'))$q$),
       ('projects', 'projects_priority_check', $q$check (priority in ('high','medium','low'))$q$),
-      ('properties', 'properties_status_check', $q$check (status in ('pre-closing','closed','listed'))$q$)
+      ('properties', 'properties_status_check', $q$check (status in ('pre-closing','closed','listed','sold'))$q$)
     ) as v(tbl, cname, cdef)
   loop
     begin
