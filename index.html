@@ -85,6 +85,26 @@ input,select,textarea{font:inherit;color:inherit}
   letter-spacing:-.01em;
   flex-shrink:0;
 }
+.ws-wrap{position:relative}
+.topnav[hidden],.ws-menu[hidden]{display:none!important}
+.ws-btn{display:flex;align-items:center;gap:8px;padding:4px 8px 4px 4px;border:1px solid transparent;border-radius:var(--r-md);
+  background:transparent;cursor:pointer;font-family:inherit;color:var(--ink-2)}
+.ws-btn:hover,.ws-btn[aria-expanded="true"]{background:var(--surface-2);border-color:var(--border)}
+.ws-label{font-family:var(--sans, inherit);font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap}
+.ws-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:80;min-width:260px;padding:6px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:0 10px 30px rgba(0,0,0,.12)}
+.ws-item{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:none;border-radius:calc(var(--r-md) - 2px);
+  background:transparent;cursor:pointer;font-family:inherit;text-align:left;color:var(--ink)}
+.ws-item:hover{background:var(--surface-2)}
+.ws-item.active{background:var(--accent-soft)}
+.ws-item i{font-size:20px;color:var(--accent)}
+.ws-item b{display:block;font-size:13.5px;font-weight:650}
+.ws-item small{display:block;font-size:11.5px;color:var(--ink-3);margin-top:1px}
+.cre-empty{max-width:560px;margin:40px auto;text-align:center;padding:40px 24px;border:1px dashed var(--border-strong);
+  border-radius:var(--r-md);background:var(--surface)}
+.cre-empty i{font-size:40px;color:var(--accent)}
+.cre-empty h3{font-family:var(--serif);font-weight:500;font-size:22px;margin:10px 0 6px}
+.cre-empty p{color:var(--ink-3);font-size:13.5px;margin:0}
 .brand-logo{
   max-width:100%;
   height:auto;
@@ -1723,10 +1743,26 @@ button.prop-agent-stale{cursor:pointer;font-family:inherit}
 <div class="app">
   <!-- TOP NAVBAR -->
   <header class="topbar">
-    <div class="brand">
-      <img src="logo.png" alt="Utopian Land Buyers" class="brand-logo">
+    <div class="brand ws-wrap">
+      <button type="button" class="ws-btn" id="ws-btn" onclick="toggleWorkspaceMenu(event)"
+              aria-haspopup="menu" aria-expanded="false" title="Switch workspace">
+        <img src="logo.png" alt="Utopian Capital" class="brand-logo">
+        <span class="ws-label" id="ws-label">Land</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="ws-menu" id="ws-menu" role="menu" hidden>
+        <button type="button" role="menuitem" class="ws-item" data-ws="land" onclick="switchWorkspace('land')">
+          <i class="ti ti-trees"></i><span><b>Land</b><small>Deals, KPIs, tasks and team</small></span>
+        </button>
+        <button type="button" role="menuitem" class="ws-item" data-ws="cre" onclick="switchWorkspace('cre')">
+          <i class="ti ti-building-skyscraper"></i><span><b>Commercial Real Estate</b><small>New workspace</small></span>
+        </button>
+      </div>
     </div>
-    <nav class="topnav">
+    <nav class="topnav" id="nav-cre" hidden>
+      <div class="nav-item" data-view="cre-dashboard"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
+    </nav>
+    <nav class="topnav" id="nav-land">
       <div class="nav-item active" data-view="dashboard"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
       <div class="nav-item" data-view="activity"><i class="ti ti-chart-histogram"></i> KPIs &amp; Tracking</div>
       <div class="nav-item" data-view="properties"><i class="ti ti-home"></i> Properties <span class="count" id="count-props">0</span></div>
@@ -2610,7 +2646,7 @@ const escape = s => (s||'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':
 // Tasks & Projects tab with the Projects section already selected.
 // 'kpis' is an alias for the KPIs & Tracking tab (view key 'activity'), so
 // #kpis links work; normalizeView() folds it in with the KPIs half selected.
-const VALID_VIEWS = ['dashboard','properties','tasks','projects','activity','kpis','calendar','team','settings'];
+const VALID_VIEWS = ['cre-dashboard','dashboard','properties','tasks','projects','activity','kpis','calendar','team','settings'];
 const VIEW_KEY = 'activeView';
 const viewFromHash = () => {
   const v = decodeURIComponent(location.hash.replace(/^#/,''));
@@ -2671,6 +2707,67 @@ function startingView(){
   // A view removed in a later version, or junk in the hash, must not leave the
   // app rendering a blank main pane — fall back to the dashboard.
   return normalizeView(viewFromHash() || (VALID_VIEWS.includes(stored) ? stored : 'dashboard'));
+}
+
+/* ---- Workspaces (2026-10-18) ----------------------------------------------
+   The logo opens a switcher between two workspaces with their own tab sets:
+   Land (everything that existed before) and Commercial Real Estate (blank for
+   now). Which one you're in is simply implied by the view: CRE views are
+   prefixed "cre-", so a reload, a #cre-dashboard link and the stored last
+   view all land you back in the right workspace with no extra state. */
+const WORKSPACES = {
+  land: {label:'Land', home:'dashboard'},
+  cre:  {label:'Commercial Real Estate', short:'Commercial', home:'cre-dashboard'}
+};
+const workspaceOf = v => String(v||'').startsWith('cre-') ? 'cre' : 'land';
+function toggleWorkspaceMenu(ev){
+  if(ev) ev.stopPropagation();
+  const menu = document.getElementById('ws-menu');
+  const btn = document.getElementById('ws-btn');
+  if(!menu) return;
+  const open = menu.hidden;
+  menu.hidden = !open;
+  btn.setAttribute('aria-expanded', String(open));
+  const cur = workspaceOf(state.activeView);
+  menu.querySelectorAll('.ws-item').forEach(el => el.classList.toggle('active', el.dataset.ws === cur));
+}
+function closeWorkspaceMenu(){
+  const menu = document.getElementById('ws-menu');
+  if(menu && !menu.hidden){ menu.hidden = true; document.getElementById('ws-btn').setAttribute('aria-expanded','false'); }
+}
+document.addEventListener('click', e => { if(!e.target.closest || !e.target.closest('.ws-wrap')) closeWorkspaceMenu(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeWorkspaceMenu(); });
+// Remembers the last view inside each workspace, so flipping back to Land
+// returns to the tab you left rather than always the dashboard.
+function switchWorkspace(ws){
+  closeWorkspaceMenu();
+  const cur = workspaceOf(state.activeView);
+  if(ws === cur) return;
+  try{ localStorage.setItem('ulc_lastView_' + cur, state.activeView); }catch(e){}
+  let target = WORKSPACES[ws].home;
+  try{
+    const last = localStorage.getItem('ulc_lastView_' + ws);
+    if(last && VALID_VIEWS.includes(last) && workspaceOf(last) === ws) target = last;
+  }catch(e){}
+  app.go(target);
+}
+// Shows the right tab strip and the workspace name beside the logo.
+function syncWorkspaceChrome(){
+  const ws = workspaceOf(state.activeView);
+  const land = document.getElementById('nav-land'), cre = document.getElementById('nav-cre');
+  if(land) land.hidden = ws !== 'land';
+  if(cre) cre.hidden = ws !== 'cre';
+  const lbl = document.getElementById('ws-label');
+  const text = WORKSPACES[ws].short || WORKSPACES[ws].label;
+  if(lbl && lbl.textContent !== text) lbl.textContent = text;
+}
+function renderCreDashboard(){
+  return pageHeader('Commercial Real Estate', 'Dashboard', 'A separate workspace for commercial properties.', '') + `
+    <div class="cre-empty">
+      <i class="ti ti-building-skyscraper"></i>
+      <h3>Nothing here yet</h3>
+      <p>This workspace is set up and ready. Its tabs and tools will be added here.</p>
+    </div>`;
 }
 
 function userColor(id){
@@ -4200,6 +4297,7 @@ const app = {
     document.querySelectorAll('.nav-item[data-view]').forEach(el=>{
       el.classList.toggle('active', el.dataset.view === state.activeView);
     });
+    syncWorkspaceChrome();
 
     // Backend badge + "who's using this device" selector only need to live in the
     // top bar on the Dashboard — it's already got its own prominent selector there,
@@ -4222,6 +4320,7 @@ const app = {
       kpis: renderKpiTracking,
       team: renderTeam,
       settings: renderSettings,
+      'cre-dashboard': renderCreDashboard,
     };
     /* ---- Repaint discipline (2026-08-18) --------------------------------
        This used to blow away #main and restart the .view-enter/fadeUp
