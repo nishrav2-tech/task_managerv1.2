@@ -893,3 +893,60 @@ end $$;
 --   2. Fill in your project URL and anon key
 --   3. Hard-refresh index.html — the badge should read "Supabase"
 -- =========================================================
+
+-- ============================================================================
+-- CRE Debt Tracker (2026-10-21)
+--   market_rates     daily index readings, filled by the rates-sync Edge
+--                    Function (Treasury.gov 5Y/10Y, NY Fed SOFR, prime =
+--                    fed funds target upper + 3%). Read-only to the app.
+--   cre_loan_quotes  lender quotes: index + spread (or flat fixed), terms.
+-- ============================================================================
+create table if not exists public.market_rates (
+  series    text not null,            -- dgs5 | dgs10 | sofr | prime
+  rate_date date not null,
+  value     numeric not null,         -- percent, e.g. 4.25
+  primary key (series, rate_date)
+);
+create index if not exists market_rates_date_idx on public.market_rates (rate_date desc);
+alter table public.market_rates enable row level security;
+drop policy if exists "members read market_rates" on public.market_rates;
+create policy "members read market_rates" on public.market_rates
+  for select to authenticated using (public.is_member());
+
+create table if not exists public.cre_loan_quotes (
+  id           uuid primary key default gen_random_uuid(),
+  deal_name    text,
+  lender       text not null,
+  loan_type    text,
+  rate_type    text not null default 'floating' check (rate_type in ('floating','fixed')),
+  index_key    text check (index_key in ('dgs5','dgs10','sofr','prime')),
+  spread_bps   numeric,
+  floor_rate   numeric,
+  fixed_rate   numeric,
+  loan_amount  numeric,
+  ltv          numeric,
+  term_months  int,
+  amort_years  numeric,
+  io_months    int,
+  orig_fee_pct numeric,
+  prepay       text,
+  quote_date   date default current_date,
+  status       text default 'quoted',
+  notes        text,
+  user_id      uuid,
+  created_at   timestamptz default now()
+);
+alter table public.cre_loan_quotes enable row level security;
+drop policy if exists "members full access cre_loan_quotes" on public.cre_loan_quotes;
+create policy "members full access cre_loan_quotes" on public.cre_loan_quotes
+  for all to authenticated using (public.is_member()) with check (public.is_member());
+
+-- Shared secret the cron job sends to rates-sync:
+--   insert into public.app_secrets(key, value) values ('RATES_SECRET', encode(gen_random_bytes(24),'hex'))
+--   on conflict (key) do nothing;
+-- Weekday schedule (13:15 and 22:15 UTC, after SOFR and Treasury publish):
+--   select cron.schedule('rates-sync-daily', '15 13,22 * * 1-5', $$select net.http_post(
+--     url := 'https://yahosblylysopbxgztvg.supabase.co/functions/v1/rates-sync',
+--     headers := jsonb_build_object('Content-Type','application/json','x-rates-secret',
+--       (select value from public.app_secrets where key='RATES_SECRET')),
+--     timeout_milliseconds := 120000)$$);

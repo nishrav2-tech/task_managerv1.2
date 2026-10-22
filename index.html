@@ -105,6 +105,68 @@ input,select,textarea{font:inherit;color:inherit}
 .cre-empty i{font-size:40px;color:var(--accent)}
 .cre-empty h3{font-family:var(--serif);font-weight:500;font-size:22px;margin:10px 0 6px}
 .cre-empty p{color:var(--ink-3);font-size:13.5px;margin:0}
+/* ---- CRE Debt Tracker ---- */
+.spin{display:inline-block;animation:spin 1s linear infinite}
+.debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.debt-stat{all:unset;box-sizing:border-box;cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:14px 16px;transition:border-color .15s var(--ease),box-shadow .15s var(--ease),opacity .15s}
+.debt-stat:hover{box-shadow:var(--shadow-md)}
+.debt-stat:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.debt-stat:not(.on){opacity:.62}
+.debt-stat .stat-value{font-size:30px;margin-top:6px}
+.debt-eye{margin-left:auto;font-size:14px}
+.debt-sw{display:inline-block;width:10px;height:10px;border-radius:3px;border:2px solid transparent;flex:none;box-sizing:border-box}
+.debt-chg{display:flex;gap:12px;font-size:12.5px;color:var(--ink-2);margin-top:4px;font-variant-numeric:tabular-nums}
+.debt-chg small{color:var(--ink-3);font-size:11px}
+.debt-sub{font-size:11.5px;color:var(--ink-3);margin-top:3px;line-height:1.35}
+.debt-muted{color:var(--ink-3)}
+.debt-chart-card{padding:14px 16px 10px;margin-bottom:14px}
+.debt-chart-card:hover{box-shadow:none}
+.debt-chart-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.debt-legend{display:flex;gap:6px;flex-wrap:wrap}
+.debt-leg{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);padding:4px 9px;border-radius:999px;border:1px solid var(--border)}
+.debt-leg:hover{border-color:var(--border-strong)}
+.debt-leg.off{color:var(--ink-3)}
+.debt-leg:focus-visible{outline:2px solid var(--accent)}
+.debt-range{margin-bottom:0}
+.debt-range .seg-btn{padding:4px 10px;font-size:12px}
+.debt-chart{position:relative;touch-action:pan-y}
+.debt-tip{position:absolute;top:8px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-md);box-shadow:var(--shadow-md);
+  padding:8px 10px;font-size:12px;pointer-events:none;min-width:170px;z-index:2}
+.debt-tip-date{font-weight:600;color:var(--ink);margin-bottom:4px}
+.debt-tip-row{display:flex;align-items:center;gap:6px;color:var(--ink-2);line-height:1.6}
+.debt-tip-row b{margin-left:auto;padding-left:12px;color:var(--ink);font-variant-numeric:tabular-nums}
+.debt-recent{margin-bottom:14px}
+.debt-recent summary{cursor:pointer;font-weight:600;font-size:13.5px}
+.debt-recent[open] summary{margin-bottom:10px}
+.debt-source{font-size:12px;color:var(--ink-3);display:flex;gap:6px;align-items:flex-start;line-height:1.5}
+.debt-source i{margin-top:2px}
+.debt-empty{text-align:center;padding:36px 20px;color:var(--ink-3)}
+.debt-empty i{font-size:30px;color:var(--accent)}
+.debt-empty h3{font-family:var(--serif);font-weight:500;font-size:20px;color:var(--ink);margin:8px 0 4px}
+.debt-empty p{max-width:520px;margin:6px auto 0;font-size:13.5px}
+.debt-qbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.debt-group{margin-bottom:14px}
+.debt-group:hover{box-shadow:none}
+.debt-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.debt-table{width:100%;border-collapse:collapse;font-size:13px;min-width:760px}
+.debt-table th{text-align:left;font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+.debt-table td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+.debt-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.debt-table tr:last-child td{border-bottom:0}
+.debt-main{font-weight:500;color:var(--ink);overflow-wrap:anywhere}
+.debt-rate{font-weight:700;font-size:14px}
+.debt-strong{font-weight:700}
+.debt-best{display:inline-block;margin-left:6px;font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--success-soft);color:var(--success-ink);vertical-align:1px}
+.debt-act{white-space:nowrap;text-align:right}
+.debt-act>div{display:flex;gap:2px;justify-content:flex-end}
+.debt-qtable{table-layout:fixed;min-width:900px}
+.debt-qtable .debt-sub{white-space:normal}
+.debt-note-row td{padding-top:0;font-size:12px;color:var(--ink-2);border-top:0}
+tr:has(+ .debt-note-row) td{border-bottom:0}
+.debt-declined td{opacity:.5}
+@media (max-width:900px){.debt-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:480px){.debt-stat .stat-value{font-size:24px}.debt-stat{padding:12px}}
 .brand-logo{
   max-width:100%;
   height:auto;
@@ -1761,6 +1823,7 @@ button.prop-agent-stale{cursor:pointer;font-family:inherit}
     </div>
     <nav class="topnav" id="nav-cre" hidden>
       <div class="nav-item" data-view="cre-dashboard"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
+      <div class="nav-item" data-view="cre-debt"><i class="ti ti-percentage"></i> Debt Tracker</div>
     </nav>
     <nav class="topnav" id="nav-land">
       <div class="nav-item active" data-view="dashboard"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
@@ -2646,7 +2709,7 @@ const escape = s => (s||'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':
 // Tasks & Projects tab with the Projects section already selected.
 // 'kpis' is an alias for the KPIs & Tracking tab (view key 'activity'), so
 // #kpis links work; normalizeView() folds it in with the KPIs half selected.
-const VALID_VIEWS = ['cre-dashboard','dashboard','properties','tasks','projects','activity','kpis','calendar','team','settings'];
+const VALID_VIEWS = ['cre-dashboard','cre-debt','dashboard','properties','tasks','projects','activity','kpis','calendar','team','settings'];
 const VIEW_KEY = 'activeView';
 const viewFromHash = () => {
   const v = decodeURIComponent(location.hash.replace(/^#/,''));
@@ -2765,10 +2828,676 @@ function renderCreDashboard(){
   return pageHeader('Commercial Real Estate', 'Dashboard', 'A separate workspace for commercial properties.', '') + `
     <div class="cre-empty">
       <i class="ti ti-building-skyscraper"></i>
-      <h3>Nothing here yet</h3>
-      <p>This workspace is set up and ready. Its tabs and tools will be added here.</p>
+      <h3>Commercial workspace</h3>
+      <p>Track benchmark rates and compare lender quotes in the Debt Tracker. More tools will be added here.</p>
+      <button class="btn btn-primary" style="margin-top:14px" onclick="app.go('cre-debt')"><i class="ti ti-percentage"></i> Open Debt Tracker</button>
     </div>`;
 }
+
+/* ---- CRE Debt Tracker (2026-10-21) -----------------------------------------
+   Two sub-tabs:
+     Market rates  the four indexes commercial loans are priced off, with a
+                   switchable chart (any mix of series, 1M to 5Y).
+     Loan quotes   lender quotes entered as index + spread (or a flat fixed
+                   rate), priced live against today's index and compared.
+
+   Where the numbers come from: the rates-sync Edge Function, on a weekday
+   schedule, pulls straight from the publishers into public.market_rates:
+     5Y / 10Y Treasury  Treasury.gov daily par yield curve
+     SOFR               NY Fed Markets API
+     Prime              fed funds target upper bound + 3.00% (NY Fed), the
+                        convention every major bank's prime follows
+   FRED is its fallback. The browser keeps a copy in localStorage and only
+   asks Supabase for rows newer than what it already holds, so after the
+   first visit a page load moves a handful of rows, not five years. */
+const DEBT_SERIES = [
+  {key:'dgs5',  label:'5Y Treasury',  short:'5Y',    color:'#2a78d6'},
+  {key:'dgs10', label:'10Y Treasury', short:'10Y',   color:'#eb6834'},
+  {key:'sofr',  label:'SOFR',         short:'SOFR',  color:'#1baf7a'},
+  {key:'prime', label:'Prime rate',   short:'Prime', color:'#eda100'},
+];
+const DEBT_SERIES_BY = Object.fromEntries(DEBT_SERIES.map(s => [s.key, s]));
+const DEBT_RANGES = [['1M',30],['3M',91],['6M',182],['YTD','ytd'],['1Y',365],['2Y',730],['5Y',1826]];
+const DEBT_LOAN_TYPES = ['Bank','Agency (Fannie / Freddie)','CMBS','Life company','Bridge','Debt fund','Construction','SBA 504','SBA 7(a)','HUD','Mezzanine','Seller financing','Other'];
+const DEBT_STATUSES = [['quoted','Quoted'],['term_sheet','Term sheet'],['applied','Applied'],['approved','Approved'],['closed','Closed'],['declined','Declined']];
+const DEBT_STATUS_LABEL = Object.fromEntries(DEBT_STATUSES);
+const RATES_CACHE_KEY = 'ulc_rates_v1';
+
+const DebtRates = {series:{}, loaded:false, loading:false, fetchedAt:0, error:null};
+const DebtQuotes = {rows:null, loading:false, error:null};
+
+function debtUi(){
+  if(!state.debt){
+    const saved = (k, d) => { try{ const v = Prefs.get(k, null); return v == null ? d : v; }catch(e){ return d; } };
+    state.debt = {
+      tab: saved('creDebtTab', 'rates'),
+      range: saved('creDebtRange', '1Y'),
+      show: saved('creDebtShow', ['dgs5','dgs10','sofr','prime']),
+      deal: '',
+    };
+    if(!Array.isArray(state.debt.show)) state.debt.show = DEBT_SERIES.map(s => s.key);
+  }
+  return state.debt;
+}
+function setDebtTab(t){ debtUi().tab = t; try{ Prefs.set('creDebtTab', t); }catch(e){} app.render(); }
+function setDebtRange(r){ debtUi().range = r; try{ Prefs.set('creDebtRange', r); }catch(e){} app.render(); }
+function toggleDebtSeries(key){
+  const ui = debtUi();
+  const on = ui.show.includes(key);
+  if(on && ui.show.length === 1) return toast('Keep at least one index on the chart');
+  // Kept in the fixed series order, so a toggle never reshuffles anything.
+  ui.show = DEBT_SERIES.map(s => s.key).filter(k => k === key ? !on : ui.show.includes(k));
+  try{ Prefs.set('creDebtShow', ui.show); }catch(e){}
+  app.render();
+}
+function setDebtDeal(v){ debtUi().deal = v; app.render(); }
+
+/* ---- Rates: cache + incremental fetch ------------------------------------ */
+function readRatesCache(){
+  try{
+    const raw = localStorage.getItem(RATES_CACHE_KEY);
+    if(!raw) return;
+    const c = JSON.parse(raw);
+    if(c && c.series){ DebtRates.series = c.series; DebtRates.loaded = true; DebtRates.fetchedAt = c.fetchedAt || 0; }
+  }catch(e){}
+}
+function writeRatesCache(){
+  try{ localStorage.setItem(RATES_CACHE_KEY, JSON.stringify({series:DebtRates.series, fetchedAt:DebtRates.fetchedAt})); }catch(e){}
+}
+const isoShift = (iso, days) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0,10); };
+
+async function loadDebtRates(force){
+  if(DebtRates.loading) return;
+  if(!DebtRates.loaded) readRatesCache();
+  // Rates move twice a weekday at most; no need to ask more than every 30 min.
+  if(!force && DebtRates.loaded && Date.now() - DebtRates.fetchedAt < 30*60*1000) return;
+  const sb = StorageAdapter.supabase;
+  if(!sb){ DebtRates.error = 'Not connected to the database.'; return; }
+  DebtRates.loading = true;
+  try{
+    // Re-read the last 10 days too: the publishers occasionally revise.
+    const lasts = DEBT_SERIES.map(s => { const a = DebtRates.series[s.key]; return a && a.length ? a[a.length-1][0] : null; });
+    const since = lasts.every(Boolean) ? isoShift(lasts.sort()[0], -10) : '2000-01-01';
+    const got = [];
+    for(let from = 0; ; from += 1000){
+      const {data, error} = await sb.from('market_rates').select('series,rate_date,value')
+        .gte('rate_date', since).order('series').order('rate_date').range(from, from + 999);
+      if(error) throw error;
+      got.push(...data);
+      if(data.length < 1000) break;
+    }
+    const merged = {};
+    for(const s of DEBT_SERIES){
+      const m = new Map((DebtRates.series[s.key] || []).map(r => [r[0], r[1]]));
+      got.filter(r => r.series === s.key).forEach(r => m.set(r.rate_date, +r.value));
+      merged[s.key] = [...m.entries()].sort((a,b) => a[0] < b[0] ? -1 : 1);
+    }
+    DebtRates.series = merged;
+    DebtRates.loaded = true;
+    DebtRates.fetchedAt = Date.now();
+    DebtRates.error = null;
+    writeRatesCache();
+  }catch(e){
+    DebtRates.error = e.message || String(e);
+  }finally{
+    DebtRates.loading = false;
+    if(workspaceOf(state.activeView) === 'cre') app.render();
+  }
+}
+// Asks the Edge Function to pull from Treasury / NY Fed right now, then
+// re-reads. The schedule already does this on weekdays; the button is for
+// "I want this morning's SOFR before the 9am call".
+async function refreshDebtRates(btn){
+  const sb = StorageAdapter.supabase;
+  if(!sb) return toast('Not connected', 'err');
+  if(btn){ btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2 spin"></i> Updating'; }
+  try{
+    const {data, error} = await sb.functions.invoke('rates-sync', {body:{}});
+    if(error) throw error;
+    const errs = Object.entries((data && data.result) || {}).filter(([,v]) => v && v.error);
+    await loadDebtRates(true);
+    toast(errs.length ? `Updated, but ${errs.map(([k]) => DEBT_SERIES_BY[k].label).join(', ')} could not be reached` : 'Rates are up to date', errs.length ? 'err' : undefined);
+  }catch(e){
+    toast('Could not update rates: ' + (e.message || e), 'err');
+    app.render();
+  }
+}
+
+// Latest reading on or before a date (rates aren't published on holidays).
+function rateOn(key, iso){
+  const a = DebtRates.series[key] || [];
+  let lo = 0, hi = a.length - 1, ans = null;
+  while(lo <= hi){ const mid = (lo + hi) >> 1; if(a[mid][0] <= iso){ ans = a[mid]; lo = mid + 1; } else hi = mid - 1; }
+  return ans;
+}
+function latestRate(key){ const a = DebtRates.series[key] || []; return a.length ? {date:a[a.length-1][0], value:a[a.length-1][1]} : null; }
+const pct = (v, d=2) => v == null || isNaN(v) ? '—' : (+v).toFixed(d) + '%';
+const bps = v => v == null || isNaN(v) ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(Math.round(v)) + ' bps';
+const debtDate = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'}) : '';
+const debtDateShort = (iso, withYear) => new Date(iso + 'T12:00:00').toLocaleDateString(undefined, withYear ? {month:'short', year:'2-digit'} : {month:'short', day:'numeric'});
+const usd = v => v == null || isNaN(v) ? '—' : '$' + Math.round(v).toLocaleString();
+
+/* ---- View ------------------------------------------------------------------ */
+function renderCreDebt(){
+  const ui = debtUi();
+  if(!DebtRates.loaded && !DebtRates.loading) readRatesCache();
+  loadDebtRates(false);
+  if(ui.tab === 'quotes' && DebtQuotes.rows == null) loadDebtQuotes();
+
+  const nQuotes = (DebtQuotes.rows || []).filter(q => q.status !== 'declined').length;
+  const tabs = `<div class="seg-control" role="tablist" style="margin-bottom:16px">
+      <button class="seg-btn ${ui.tab==='rates'?'active':''}" role="tab" aria-selected="${ui.tab==='rates'}" onclick="setDebtTab('rates')"><i class="ti ti-chart-line"></i> Market rates</button>
+      <button class="seg-btn ${ui.tab==='quotes'?'active':''}" role="tab" aria-selected="${ui.tab==='quotes'}" onclick="setDebtTab('quotes')"><i class="ti ti-scale"></i> Loan quotes ${DebtQuotes.rows ? `<span class="seg-count">${nQuotes}</span>` : ''}</button>
+    </div>`;
+  const actions = ui.tab === 'rates'
+    ? `<button class="btn" onclick="refreshDebtRates(this)" ${DebtRates.loading?'disabled':''}><i class="ti ti-refresh"></i> Update rates</button>`
+    : `<button class="btn btn-primary" onclick="openDebtQuote()"><i class="ti ti-plus"></i> Add quote</button>`;
+  return pageHeader('Commercial Real Estate', 'Debt Tracker', 'Benchmark rates and lender quotes, priced against today’s index.', actions)
+    + tabs + (ui.tab === 'quotes' ? renderDebtQuotes() : renderDebtRates());
+}
+
+function renderDebtRates(){
+  const ui = debtUi();
+  if(!DebtRates.loaded){
+    return `<div class="card debt-empty">${DebtRates.error
+      ? `<i class="ti ti-alert-triangle"></i><p>Couldn’t load rates: ${escape(DebtRates.error)}</p>`
+      : `<i class="ti ti-loader-2 spin"></i><p>Loading rates…</p>`}</div>`;
+  }
+  const cards = DEBT_SERIES.map(s => {
+    const L = latestRate(s.key);
+    if(!L) return `<div class="debt-stat"><div class="stat-label">${s.label}</div><div class="stat-value">—</div></div>`;
+    const w = rateOn(s.key, isoShift(L.date, -7)), m = rateOn(s.key, isoShift(L.date, -30));
+    const yr = (DebtRates.series[s.key] || []).filter(r => r[0] >= isoShift(L.date, -365)).map(r => r[1]);
+    const on = ui.show.includes(s.key);
+    return `<button type="button" class="debt-stat ${on?'on':''}" aria-pressed="${on}" onclick="toggleDebtSeries('${s.key}')"
+              title="${on?'Hide from':'Show on'} the chart">
+        <div class="stat-label"><span class="debt-sw" style="background:${s.color}"></span>${s.label}
+          <i class="ti ${on?'ti-eye':'ti-eye-off'} debt-eye"></i></div>
+        <div class="stat-value">${pct(L.value)}</div>
+        <div class="debt-chg"><span>${bps(w ? (L.value - w[1]) * 100 : null)} <small>1W</small></span><span>${bps(m ? (L.value - m[1]) * 100 : null)} <small>1M</small></span></div>
+        <div class="debt-sub">${yr.length ? `52W ${pct(Math.min(...yr))} to ${pct(Math.max(...yr))} · ` : ''}as of ${debtDate(L.date)}</div>
+      </button>`;
+  }).join('');
+
+  const rangeBtns = DEBT_RANGES.map(([k]) => `<button class="seg-btn ${ui.range===k?'active':''}" onclick="setDebtRange('${k}')">${k}</button>`).join('');
+  const legend = DEBT_SERIES.map(s => {
+    const on = ui.show.includes(s.key);
+    return `<button type="button" class="debt-leg ${on?'':'off'}" aria-pressed="${on}" onclick="toggleDebtSeries('${s.key}')">
+      <span class="debt-sw" style="background:${on?s.color:'transparent'};border-color:${s.color}"></span>${s.label}</button>`;
+  }).join('');
+
+  return `<div class="debt-stats">${cards}</div>
+    <div class="card debt-chart-card">
+      <div class="debt-chart-head">
+        <div class="debt-legend">${legend}</div>
+        <div class="seg-control debt-range" role="tablist">${rangeBtns}</div>
+      </div>
+      ${renderDebtChart()}
+    </div>
+    ${renderDebtRecent()}
+    <p class="debt-source"><i class="ti ti-info-circle"></i> Treasury yields from Treasury.gov (daily par yield curve). SOFR from the New York Fed.
+      Prime is the fed funds target upper bound plus 3.00%, the rate every major bank posts. Updates automatically on weekdays${DebtRates.fetchedAt ? `; last checked ${new Date(DebtRates.fetchedAt).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}` : ''}.</p>`;
+}
+
+function debtRangeStart(range, lastIso){
+  if(range === 'YTD') return lastIso.slice(0,4) + '-01-01';
+  const days = (DEBT_RANGES.find(r => r[0] === range) || ['1Y',365])[1];
+  return isoShift(lastIso, -days);
+}
+
+let debtChartData = null; // geometry for the hover layer, rebuilt on each render
+function renderDebtChart(){
+  const ui = debtUi();
+  const shown = DEBT_SERIES.filter(s => ui.show.includes(s.key) && (DebtRates.series[s.key] || []).length);
+  if(!shown.length) return `<div class="debt-empty"><p>No data for the selected indexes yet.</p></div>`;
+  const lastIso = shown.map(s => latestRate(s.key).date).sort().pop();
+  const start = debtRangeStart(ui.range, lastIso);
+
+  // Phones get a narrower canvas so the text stays legible when scaled down.
+  const narrow = window.innerWidth < 640, fs = narrow ? 11 : 10;
+  const W = narrow ? 400 : 820, H = narrow ? 280 : 300, padL = 40, padR = narrow ? 82 : 96, padT = 12, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const t0 = Date.parse(start + 'T00:00:00Z'), t1 = Date.parse(lastIso + 'T00:00:00Z');
+  const span = Math.max(1, t1 - t0);
+  const X = iso => padL + (Date.parse(iso + 'T00:00:00Z') - t0) / span * plotW;
+
+  const pts = {};
+  let lo = Infinity, hi = -Infinity;
+  for(const s of shown){
+    const a = (DebtRates.series[s.key] || []).filter(r => r[0] >= start && r[0] <= lastIso);
+    // Thin very long ranges to ~400 points a line: the eye can't see more, and
+    // it keeps the SVG light. The last point is always kept.
+    const step = Math.max(1, Math.ceil(a.length / 400));
+    pts[s.key] = a.filter((r, i) => i % step === 0 || i === a.length - 1);
+    a.forEach(r => { if(r[1] < lo) lo = r[1]; if(r[1] > hi) hi = r[1]; });
+  }
+  if(!isFinite(lo)) return `<div class="debt-empty"><p>No readings in this range.</p></div>`;
+  // Nice y-ticks.
+  const rawSpan = Math.max(hi - lo, 0.2);
+  const stepY = [0.05,0.1,0.125,0.25,0.5,1,2].find(v => rawSpan / v <= 6) || 2;
+  const yMin = Math.floor((lo - rawSpan*0.06) / stepY) * stepY, yMax = Math.ceil((hi + rawSpan*0.06) / stepY) * stepY;
+  const Y = v => padT + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+  const decY = stepY < 0.1 ? 2 : stepY < 1 ? (stepY % 0.25 === 0 && stepY < 0.5 ? 2 : 1) : 0;
+
+  let grid = '';
+  for(let v = yMin; v <= yMax + 1e-9; v += stepY){
+    const y = Y(v).toFixed(1);
+    grid += `<line x1="${padL}" x2="${padL+plotW}" y1="${y}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
+      <text x="${padL-6}" y="${(+y+3).toFixed(1)}" font-size="${fs}" fill="var(--ink-3)" text-anchor="end">${v.toFixed(decY)}%</text>`;
+  }
+  const dayspan = (t1 - t0) / 864e5;
+  const ticks = narrow ? 3 : 6, xl = [];
+  for(let k = 0; k <= ticks - 1; k++){
+    const t = new Date(t0 + span * k / (ticks - 1)).toISOString().slice(0,10);
+    xl.push(`<text x="${X(t).toFixed(1)}" y="${H-6}" font-size="${fs}" fill="var(--ink-3)" text-anchor="${k===0?'start':k===ticks-1?'end':'middle'}">${debtDateShort(t, dayspan > 200)}</text>`);
+  }
+
+  const lines = shown.map(s => {
+    const d = pts[s.key].map((r, i) => `${i ? 'L' : 'M'}${X(r[0]).toFixed(1)},${Y(r[1]).toFixed(1)}`).join('');
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }).join('');
+
+  // Direct labels at the right edge, nudged apart so they never overlap.
+  const ends = shown.map(s => { const a = pts[s.key]; const r = a[a.length-1]; return {s, v:r[1], y:Y(r[1]), x:X(r[0])}; })
+    .sort((a,b) => a.y - b.y);
+  for(let i = 1; i < ends.length; i++) if(ends[i].y - ends[i-1].y < 13) ends[i].y = ends[i-1].y + 13;
+  const over = ends.length ? ends[ends.length-1].y - (padT + plotH) : 0;
+  if(over > 0) ends.forEach(e => e.y -= over);
+  const labels = ends.map(e => `<circle cx="${e.x.toFixed(1)}" cy="${Y(e.v).toFixed(1)}" r="3.5" fill="${e.s.color}" stroke="var(--surface)" stroke-width="2"/>
+      <text x="${(padL+plotW+8).toFixed(1)}" y="${(e.y+3.5).toFixed(1)}" font-size="${fs+1}" fill="var(--ink-2)"><tspan font-weight="600">${e.s.short}</tspan> ${e.v.toFixed(2)}%</text>`).join('');
+
+  // Hover: every date any shown series has, so the crosshair stops on real readings.
+  const dates = [...new Set(shown.flatMap(s => (DebtRates.series[s.key] || []).filter(r => r[0] >= start && r[0] <= lastIso).map(r => r[0])))].sort();
+  debtChartData = {W, padL, plotW, padT, plotH, t0, span, dates, keys:shown.map(s => s.key), yMin, yMax};
+
+  const n = shown.length;
+  return `<div class="debt-chart" id="debt-chart">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible" role="img"
+           aria-label="${escape(shown.map(s => s.label).join(', '))} from ${debtDate(start)} to ${debtDate(lastIso)}"
+           onmousemove="debtScrub(event)" onmouseleave="debtScrubEnd()" ontouchstart="debtScrub(event)" ontouchmove="debtScrub(event)" ontouchend="debtScrubEnd()">
+        ${grid}${lines}${labels}${xl.join('')}
+        <g id="debt-hover" style="display:none">
+          <line id="debt-xline" y1="${padT}" y2="${padT+plotH}" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="3,3"/>
+          ${shown.map(s => `<circle data-k="${s.key}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`).join('')}
+        </g>
+        <rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent"/>
+      </svg>
+      <div class="debt-tip" id="debt-tip" hidden></div>
+    </div>`;
+}
+function debtScrub(e){
+  const g = debtChartData, host = document.getElementById('debt-chart');
+  if(!g || !host || !g.dates.length) return;
+  const svg = host.querySelector('svg'), box = svg.getBoundingClientRect();
+  const touch = e.touches && e.touches[0];
+  const cx = ((touch ? touch.clientX : e.clientX) - box.left) / box.width * g.W;
+  if(cx < g.padL - 10 || cx > g.padL + g.plotW + 10){ debtScrubEnd(); return; }
+  const tAt = g.t0 + Math.min(1, Math.max(0, (cx - g.padL) / g.plotW)) * g.span;
+  const iso = new Date(tAt).toISOString().slice(0,10);
+  // Nearest real reading date.
+  let lo = 0, hi = g.dates.length - 1;
+  while(lo < hi){ const m = (lo + hi) >> 1; if(g.dates[m] < iso) lo = m + 1; else hi = m; }
+  let d = g.dates[lo];
+  if(lo > 0 && Math.abs(Date.parse(g.dates[lo-1]) - tAt) < Math.abs(Date.parse(d) - tAt)) d = g.dates[lo-1];
+  const x = g.padL + (Date.parse(d + 'T00:00:00Z') - g.t0) / g.span * g.plotW;
+  const Y = v => g.padT + (1 - (v - g.yMin) / (g.yMax - g.yMin)) * g.plotH;
+  const hov = svg.querySelector('#debt-hover');
+  hov.style.display = '';
+  const xl = hov.querySelector('#debt-xline'); xl.setAttribute('x1', x); xl.setAttribute('x2', x);
+  const rows = [];
+  g.keys.forEach(k => {
+    const r = rateOn(k, d), c = hov.querySelector(`circle[data-k="${k}"]`);
+    if(r && r[0] >= g.dates[0]){ c.setAttribute('cx', x); c.setAttribute('cy', Y(r[1])); c.style.display = ''; }
+    else c.style.display = 'none';
+    const s = DEBT_SERIES_BY[k];
+    rows.push(`<div class="debt-tip-row"><span class="debt-sw" style="background:${s.color}"></span><span>${s.label}</span><b>${r ? pct(r[1]) : '—'}</b></div>`);
+  });
+  const tip = document.getElementById('debt-tip');
+  tip.innerHTML = `<div class="debt-tip-date">${debtDate(d)}</div>${rows.join('')}`;
+  tip.hidden = false;
+  const px = x / g.W * box.width;
+  const left = px + 14 + tip.offsetWidth > box.width ? px - 14 - tip.offsetWidth : px + 14;
+  tip.style.left = Math.max(0, left) + 'px';
+  if(touch && e.cancelable) e.preventDefault();
+}
+function debtScrubEnd(){
+  const hov = document.getElementById('debt-hover'), tip = document.getElementById('debt-tip');
+  if(hov) hov.style.display = 'none';
+  if(tip) tip.hidden = true;
+}
+
+// The same numbers as a table: the last ten reading days, every index.
+function renderDebtRecent(){
+  const dates = [...new Set(DEBT_SERIES.flatMap(s => (DebtRates.series[s.key] || []).slice(-12).map(r => r[0])))].sort().reverse().slice(0, 10);
+  if(!dates.length) return '';
+  const exact = (k, d) => { const r = rateOn(k, d); return r && r[0] === d ? pct(r[1]) : `<span class="debt-muted">${r ? pct(r[1]) : '—'}</span>`; };
+  return `<details class="card debt-recent">
+      <summary>Recent readings <span class="debt-muted">(last 10 days, table view)</span></summary>
+      <div class="debt-table-wrap"><table class="debt-table">
+        <thead><tr><th>Date</th>${DEBT_SERIES.map(s => `<th class="num">${s.label}</th>`).join('')}<th class="num">10Y − 5Y</th></tr></thead>
+        <tbody>${dates.map(d => {
+          const a = rateOn('dgs10', d), b = rateOn('dgs5', d);
+          return `<tr><td>${debtDate(d)}</td>${DEBT_SERIES.map(s => `<td class="num">${exact(s.key, d)}</td>`).join('')}<td class="num">${a && b ? bps((a[1]-b[1])*100) : '—'}</td></tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <p class="debt-muted" style="margin:8px 0 0;font-size:12px">Grey means no new reading that day (weekend or holiday for that market); the prior value is shown.</p>
+    </details>`;
+}
+
+/* ---- Loan quotes ----------------------------------------------------------- */
+async function loadDebtQuotes(){
+  if(DebtQuotes.loading) return;
+  const sb = StorageAdapter.supabase;
+  if(!sb){ DebtQuotes.rows = []; DebtQuotes.error = 'Not connected to the database.'; return; }
+  DebtQuotes.loading = true;
+  try{
+    const {data, error} = await sb.from('cre_loan_quotes').select('*').order('quote_date', {ascending:false}).limit(1000);
+    if(error) throw error;
+    DebtQuotes.rows = data || [];
+    DebtQuotes.error = null;
+  }catch(e){
+    DebtQuotes.rows = DebtQuotes.rows || [];
+    DebtQuotes.error = e.message || String(e);
+  }finally{
+    DebtQuotes.loading = false;
+    if(state.activeView === 'cre-debt') app.render();
+  }
+}
+
+// What a quote costs today. Index-priced quotes float with the index (or lock
+// at closing, for fixed-rate deals priced over Treasuries), so both are shown
+// at today's index; a floor lifts the rate when the index has fallen below it.
+function quoteRate(q){
+  if(!q.index_key){
+    return q.fixed_rate != null ? {rate:+q.fixed_rate} : {rate:null};
+  }
+  const L = latestRate(q.index_key);
+  if(!L) return {rate:null, idx:null};
+  let rate = L.value + (+q.spread_bps || 0) / 100;
+  let floored = false;
+  if(q.floor_rate != null && rate < +q.floor_rate){ rate = +q.floor_rate; floored = true; }
+  return {rate, idx:L, floored};
+}
+function monthlyPayment(P, ratePct, amortYears){
+  const r = ratePct / 100 / 12;
+  if(!amortYears) return P * r;            // interest only
+  const n = amortYears * 12;
+  return r ? P * r / (1 - Math.pow(1 + r, -n)) : P / n;
+}
+function balanceAfter(P, ratePct, amortYears, months){
+  if(!amortYears || months <= 0) return P;
+  const r = ratePct / 100 / 12, pmt = monthlyPayment(P, ratePct, amortYears);
+  return r ? P * Math.pow(1 + r, months) - pmt * (Math.pow(1 + r, months) - 1) / r : P - pmt * months;
+}
+function quoteMath(q){
+  const {rate, idx, floored} = quoteRate(q);
+  const P = +q.loan_amount || 0;
+  const out = {rate, idx, floored};
+  if(rate == null || !P) return out;
+  const amort = +q.amort_years || 0, io = +q.io_months || 0, term = +q.term_months || 0;
+  out.ioPmt = P * rate / 100 / 12;
+  out.amPmt = amort ? monthlyPayment(P, rate, amort) : out.ioPmt;
+  // Year-one debt service: IO months at the IO payment, the rest amortizing.
+  const ioIn1 = amort ? Math.min(io, 12) : 12;
+  out.ds1 = out.ioPmt * ioIn1 + out.amPmt * (12 - ioIn1);
+  out.dsStab = out.amPmt * 12;
+  out.fee = q.orig_fee_pct != null ? P * q.orig_fee_pct / 100 : null;
+  if(term) out.balloon = balanceAfter(P, rate, amort, Math.max(0, term - (amort ? io : term)));
+  return out;
+}
+function quotePricing(q){
+  if(!q.index_key) return q.fixed_rate != null ? `Fixed ${pct(q.fixed_rate, 3).replace(/0%$/, '%')}` : '—';
+  const s = DEBT_SERIES_BY[q.index_key];
+  const sp = Math.round(+q.spread_bps || 0);
+  return `${s ? s.short : q.index_key} ${sp < 0 ? '−' : '+'} ${Math.abs(sp)} bps`;
+}
+const termText = m => !m ? '' : m % 12 === 0 ? `${m/12}-yr` : `${m}-mo`;
+
+function renderDebtQuotes(){
+  const ui = debtUi();
+  if(DebtQuotes.rows == null) return `<div class="card debt-empty"><i class="ti ti-loader-2 spin"></i><p>Loading quotes…</p></div>`;
+  if(DebtQuotes.error && !DebtQuotes.rows.length) return `<div class="card debt-empty"><i class="ti ti-alert-triangle"></i><p>Couldn’t load quotes: ${escape(DebtQuotes.error)}</p></div>`;
+  const all = DebtQuotes.rows;
+  if(!all.length){
+    return `<div class="card debt-empty">
+      <i class="ti ti-scale"></i>
+      <h3>No loan quotes yet</h3>
+      <p>Add each lender’s quote as an index plus a spread (SOFR + 275, 5Y Treasury + 190) or a flat fixed rate. They’re priced against today’s index and compared side by side.</p>
+      <button class="btn btn-primary" onclick="openDebtQuote()" style="margin-top:12px"><i class="ti ti-plus"></i> Add quote</button>
+    </div>`;
+  }
+  const deals = [...new Set(all.map(q => q.deal_name || 'Unassigned'))].sort();
+  if(ui.deal && !deals.includes(ui.deal)) ui.deal = '';
+  const filter = `<div class="debt-qbar">
+      <label class="form-label" style="margin:0">Deal</label>
+      <select class="form-select" style="width:auto;min-width:200px" onchange="setDebtDeal(this.value)">
+        <option value="">All deals (${deals.length})</option>
+        ${deals.map(d => `<option value="${escape(d)}" ${ui.deal===d?'selected':''}>${escape(d)}</option>`).join('')}
+      </select>
+      <span class="debt-muted" style="font-size:12.5px">Rates are priced at today’s index. Declined quotes sink to the bottom.</span>
+    </div>`;
+  const groups = (ui.deal ? [ui.deal] : deals).map(d => {
+    const qs = all.filter(q => (q.deal_name || 'Unassigned') === d).map(q => ({q, m:quoteMath(q)}));
+    const live = qs.filter(x => x.q.status !== 'declined' && x.m.rate != null);
+    const bestRate = live.length ? Math.min(...live.map(x => x.m.rate)) : null;
+    const withDs = live.filter(x => x.m.ds1 != null);
+    const bestDs = withDs.length > 1 ? Math.min(...withDs.map(x => x.m.ds1)) : null;
+    qs.sort((a,b) => (a.q.status === 'declined') - (b.q.status === 'declined') || (a.m.rate ?? 99) - (b.m.rate ?? 99));
+    const rows = qs.map(({q, m}) => {
+      const isBest = bestRate != null && live.length > 1 && m.rate === bestRate && q.status !== 'declined';
+      const amort = +q.amort_years ? `${+q.amort_years}-yr amort` : 'Interest only';
+      const io = +q.io_months && +q.amort_years ? ` · ${q.io_months} mo IO` : '';
+      return `<tr class="${q.status==='declined'?'debt-declined':''}">
+        <td><div class="debt-main">${escape(q.lender)} ${isBest?'<span class="debt-best">Lowest rate</span>':''}</div>
+            <div class="debt-sub">${escape(q.loan_type || 'Loan')} · ${DEBT_STATUS_LABEL[q.status] || escape(q.status || '')} · ${debtDate(q.quote_date)}</div></td>
+        <td><div class="debt-main">${quotePricing(q)}</div>
+            <div class="debt-sub">${q.index_key ? (q.rate_type === 'fixed' ? 'Fixed at closing' : 'Floating') : 'Flat rate'}${q.floor_rate != null ? ` · ${pct(q.floor_rate)} floor` : ''}</div></td>
+        <td class="num"><div class="debt-main debt-rate">${pct(m.rate, 3).replace(/0%$/, '%')}</div>
+            <div class="debt-sub">${m.idx ? `${DEBT_SERIES_BY[q.index_key].short} ${pct(m.idx.value)} on ${debtDateShort(m.idx.date)}` : q.index_key ? 'No index data' : ''}${m.floored ? ' · floor applies' : ''}</div></td>
+        <td class="num"><div class="debt-main">${usd(q.loan_amount)}</div>
+            <div class="debt-sub">${[q.ltv != null ? `${+q.ltv}% LTV` : '', termText(+q.term_months)].filter(Boolean).join(' · ') || '&nbsp;'}</div></td>
+        <td class="num"><div class="debt-main">${m.amPmt != null ? usd(m.amPmt) + '/mo' : '—'}</div>
+            <div class="debt-sub">${amort}${io}${io ? ` (${usd(m.ioPmt)}/mo IO)` : ''}</div></td>
+        <td class="num"><div class="debt-main ${bestDs != null && m.ds1 === bestDs ? 'debt-strong' : ''}">${usd(m.ds1)}</div>
+            <div class="debt-sub">${m.balloon != null ? `${usd(m.balloon)} balloon` : '&nbsp;'}</div></td>
+        <td class="num"><div class="debt-main">${m.fee != null ? usd(m.fee) : '—'}</div>
+            <div class="debt-sub">${q.orig_fee_pct != null ? `${+q.orig_fee_pct}% orig` : ''}${q.prepay ? ` · ${escape(q.prepay)}` : ''}</div></td>
+        <td class="debt-act"><div>
+          <button class="icon-btn" title="Edit" onclick="openDebtQuote('${q.id}')">${ICON_EDIT}</button>
+          <button class="icon-btn" title="Delete" onclick="deleteDebtQuote('${q.id}')">${ICON_DELETE}</button>
+        </div></td>
+      </tr>${q.notes ? `<tr class="debt-note-row ${q.status==='declined'?'debt-declined':''}"><td colspan="8">${escape(q.notes)}</td></tr>` : ''}`;
+    }).join('');
+    return `<div class="card debt-group">
+      <div class="card-header" style="margin-bottom:8px">
+        <div><div class="card-title">${escape(d)}</div>
+          <div class="card-sub">${qs.length} quote${qs.length===1?'':'s'}${bestRate != null ? ` · best ${pct(bestRate, 3).replace(/0%$/, '%')}` : ''}</div></div>
+        <button class="btn btn-sm" onclick="openDebtQuote(null, ${escape(JSON.stringify(d === 'Unassigned' ? '' : d))})"><i class="ti ti-plus"></i> Quote</button>
+      </div>
+      <div class="debt-table-wrap"><table class="debt-table debt-qtable">
+        <colgroup><col style="width:19%"><col style="width:15%"><col style="width:15%"><col style="width:11%"><col style="width:15%"><col style="width:12%"><col style="width:9%"><col style="width:76px"></colgroup>
+        <thead><tr><th>Lender</th><th>Pricing</th><th class="num">All-in rate</th><th class="num">Loan</th><th class="num">Payment</th><th class="num">Year 1 debt service</th><th class="num">Fees</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
+  return filter + groups;
+}
+
+function openDebtQuote(id, deal){
+  const q = id ? (DebtQuotes.rows || []).find(x => x.id === id) : null;
+  const v = (k, d='') => q && q[k] != null ? escape(String(q[k])) : d;
+  const pricing = q ? (q.index_key ? 'index' : 'flat') : 'index';
+  const deals = [...new Set((DebtQuotes.rows || []).map(x => x.deal_name).filter(Boolean))].sort();
+  const opt = (val, label, cur) => `<option value="${escape(val)}" ${cur===val?'selected':''}>${escape(label)}</option>`;
+  showModal(`<div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <h2 class="modal-title">${q ? 'Edit loan quote' : 'Add loan quote'}</h2>
+      <button class="icon-btn" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Deal / property</label>
+        <input class="form-input" id="dq-deal" list="dq-deals" value="${q ? v('deal_name') : escape(deal || debtUi().deal || '')}" placeholder="e.g. 1200 Main St retail">
+        <datalist id="dq-deals">${deals.map(d => `<option value="${escape(d)}">`).join('')}</datalist></div>
+      <div class="form-group"><label class="form-label">Lender *</label>
+        <input class="form-input" id="dq-lender" value="${v('lender')}" placeholder="e.g. First Horizon"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Type of debt</label>
+        <select class="form-select" id="dq-type">${DEBT_LOAN_TYPES.map(t => opt(t, t, q ? q.loan_type : 'Bank')).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select class="form-select" id="dq-status">${DEBT_STATUSES.map(([k,l]) => opt(k, l, q ? q.status : 'quoted')).join('')}</select></div>
+    </div>
+    <div class="form-group"><label class="form-label">Pricing</label>
+      <div class="seg-control" role="radiogroup" id="dq-pricing" data-v="${pricing}">
+        <button type="button" class="seg-btn ${pricing==='index'?'active':''}" onclick="setDqPricing('index')">Index + spread</button>
+        <button type="button" class="seg-btn ${pricing==='flat'?'active':''}" onclick="setDqPricing('flat')">Flat fixed rate</button>
+      </div></div>
+    <div id="dq-index-fields" ${pricing==='flat'?'hidden':''}>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Index</label>
+          <select class="form-select" id="dq-index" onchange="dqPreview()">${DEBT_SERIES.map(s => { const L = latestRate(s.key); return opt(s.key, `${s.label}${L ? ` (${pct(L.value)} today)` : ''}`, q ? q.index_key : 'sofr'); }).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Spread (bps)</label>
+          <input class="form-input" id="dq-spread" type="number" step="1" value="${v('spread_bps')}" placeholder="275" oninput="dqPreview()"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Rate behaviour</label>
+          <select class="form-select" id="dq-ratetype">${opt('floating','Floating (resets with the index)', q ? q.rate_type : 'floating')}${opt('fixed','Fixed at closing (index + spread locks)', q ? q.rate_type : 'floating')}</select></div>
+        <div class="form-group"><label class="form-label">Floor (all-in %, optional)</label>
+          <input class="form-input" id="dq-floor" type="number" step="0.01" value="${v('floor_rate')}" placeholder="e.g. 6.00" oninput="dqPreview()"></div>
+      </div>
+    </div>
+    <div id="dq-flat-fields" ${pricing==='index'?'hidden':''}>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Fixed rate (%)</label>
+          <input class="form-input" id="dq-fixed" type="number" step="0.001" value="${v('fixed_rate')}" placeholder="6.25" oninput="dqPreview()"></div>
+        <div class="form-group"></div>
+      </div>
+    </div>
+    <p class="form-hint" id="dq-preview" style="margin:-4px 0 12px"></p>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Loan amount ($)</label>
+        <input class="form-input" id="dq-amount" type="number" min="0" step="1000" value="${v('loan_amount')}"></div>
+      <div class="form-group"><label class="form-label">LTV (%)</label>
+        <input class="form-input" id="dq-ltv" type="number" min="0" max="100" step="0.5" value="${v('ltv')}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Term (months)</label>
+        <input class="form-input" id="dq-term" type="number" min="0" step="1" value="${v('term_months')}" placeholder="60"></div>
+      <div class="form-group"><label class="form-label">Amortization (yrs, blank = IO)</label>
+        <input class="form-input" id="dq-amort" type="number" min="0" step="1" value="${v('amort_years')}" placeholder="25"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Interest-only period (months)</label>
+        <input class="form-input" id="dq-io" type="number" min="0" step="1" value="${v('io_months')}" placeholder="0"></div>
+      <div class="form-group"><label class="form-label">Origination fee (%)</label>
+        <input class="form-input" id="dq-fee" type="number" min="0" step="0.05" value="${v('orig_fee_pct')}" placeholder="1.00"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Prepayment</label>
+        <input class="form-input" id="dq-prepay" value="${v('prepay')}" placeholder="e.g. 3-2-1, yield maintenance"></div>
+      <div class="form-group"><label class="form-label">Quote date</label>
+        <input class="form-input" id="dq-date" type="date" value="${v('quote_date', today())}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Notes</label>
+      <textarea class="form-textarea" id="dq-notes" rows="3" placeholder="Recourse, reserves, DSCR covenant, rate lock terms...">${v('notes')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDebtQuote(${q ? `'${q.id}'` : 'null'})">${q ? 'Save' : 'Add quote'}</button>
+    </div>
+  </div>`);
+  dqPreview();
+}
+function setDqPricing(p){
+  const host = document.getElementById('dq-pricing');
+  if(!host) return;
+  host.dataset.v = p;
+  host.querySelectorAll('.seg-btn').forEach((b, i) => b.classList.toggle('active', (i === 0) === (p === 'index')));
+  document.getElementById('dq-index-fields').hidden = p !== 'index';
+  document.getElementById('dq-flat-fields').hidden = p !== 'flat';
+  dqPreview();
+}
+const dqNum = id => { const el = document.getElementById(id); return el && el.value !== '' && !isNaN(parseFloat(el.value)) ? parseFloat(el.value) : null; };
+function dqPreview(){
+  const el = document.getElementById('dq-preview');
+  if(!el) return;
+  const p = document.getElementById('dq-pricing').dataset.v;
+  if(p === 'flat'){ const f = dqNum('dq-fixed'); el.textContent = f != null ? `All-in rate: ${f}%` : ''; return; }
+  const k = document.getElementById('dq-index').value, L = latestRate(k), sp = dqNum('dq-spread'), fl = dqNum('dq-floor');
+  if(!L){ el.textContent = 'No index data loaded yet.'; return; }
+  if(sp == null){ el.textContent = `${DEBT_SERIES_BY[k].label} is ${pct(L.value)} today.`; return; }
+  let r = L.value + sp / 100; const floored = fl != null && r < fl; if(floored) r = fl;
+  el.textContent = `All-in today: ${pct(L.value)} + ${sp} bps = ${r.toFixed(3).replace(/0$/,'')}%${floored ? ' (floor applies)' : ''}`;
+}
+async function saveDebtQuote(id){
+  const sb = StorageAdapter.supabase;
+  if(!sb) return toast('Not connected', 'err');
+  const val = id => (document.getElementById(id).value || '').trim();
+  const lender = val('dq-lender');
+  if(!lender) return toast('Enter the lender', 'err');
+  const flat = document.getElementById('dq-pricing').dataset.v === 'flat';
+  const row = {
+    deal_name: val('dq-deal') || null,
+    lender,
+    loan_type: val('dq-type') || null,
+    status: val('dq-status') || 'quoted',
+    rate_type: flat ? 'fixed' : val('dq-ratetype'),
+    index_key: flat ? null : val('dq-index'),
+    spread_bps: flat ? null : dqNum('dq-spread'),
+    floor_rate: flat ? null : dqNum('dq-floor'),
+    fixed_rate: flat ? dqNum('dq-fixed') : null,
+    loan_amount: dqNum('dq-amount'),
+    ltv: dqNum('dq-ltv'),
+    term_months: dqNum('dq-term') != null ? Math.round(dqNum('dq-term')) : null,
+    amort_years: dqNum('dq-amort') || null,
+    io_months: dqNum('dq-io') != null ? Math.round(dqNum('dq-io')) : null,
+    orig_fee_pct: dqNum('dq-fee'),
+    prepay: val('dq-prepay') || null,
+    quote_date: val('dq-date') || today(),
+    notes: val('dq-notes') || null,
+  };
+  if(flat && row.fixed_rate == null) return toast('Enter the fixed rate', 'err');
+  if(!flat && row.spread_bps == null) return toast('Enter the spread in bps', 'err');
+  try{
+    let res;
+    if(id) res = await sb.from('cre_loan_quotes').update(row).eq('id', id).select().single();
+    else res = await sb.from('cre_loan_quotes').insert({...row, user_id: state.me ? state.me.id : null}).select().single();
+    if(res.error) throw res.error;
+    const rows = DebtQuotes.rows || (DebtQuotes.rows = []);
+    const i = rows.findIndex(x => x.id === res.data.id);
+    if(i >= 0) rows[i] = res.data; else rows.unshift(res.data);
+    closeModal();
+    toast(id ? 'Quote saved' : 'Quote added');
+    app.render();
+  }catch(e){
+    toast('Could not save: ' + (e.message || e), 'err');
+  }
+}
+async function deleteDebtQuote(id){
+  const q = (DebtQuotes.rows || []).find(x => x.id === id);
+  if(!q) return;
+  showSubModal(`<div class="modal" style="max-width:380px">
+    <div class="modal-header"><h2 class="modal-title">Delete quote?</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button></div>
+    <p class="form-hint">${escape(q.lender)}${q.deal_name ? ` for ${escape(q.deal_name)}` : ''}, ${escape(quotePricing(q))}. To keep it on record instead, set its status to Declined.</p>
+    <div class="modal-actions"><button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDeleteDebtQuote('${id}')">Delete</button></div>
+  </div>`);
+}
+async function confirmDeleteDebtQuote(id){
+  const {error} = await StorageAdapter.supabase.from('cre_loan_quotes').delete().eq('id', id);
+  if(error) return toast('Could not delete: ' + error.message, 'err');
+  DebtQuotes.rows = (DebtQuotes.rows || []).filter(x => x.id !== id);
+  closeSubModal();
+  toast('Quote deleted');
+  app.render();
+}
+// Redraw the chart when the window crosses the phone breakpoint.
+let debtNarrow = window.innerWidth < 640;
+window.addEventListener('resize', () => {
+  const n = window.innerWidth < 640;
+  if(n !== debtNarrow){ debtNarrow = n; if(state.activeView === 'cre-debt') app.render(); }
+});
 
 function userColor(id){
   const u = state.users.find(x=>x.id===id);
@@ -4321,6 +5050,7 @@ const app = {
       team: renderTeam,
       settings: renderSettings,
       'cre-dashboard': renderCreDashboard,
+      'cre-debt': renderCreDebt,
     };
     /* ---- Repaint discipline (2026-08-18) --------------------------------
        This used to blow away #main and restart the .view-enter/fadeUp
