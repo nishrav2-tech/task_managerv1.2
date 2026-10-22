@@ -4583,7 +4583,7 @@ function authShell(inner){
   document.body.innerHTML = `
   <div class="conn-wrap auth-wrap">
     <div class="conn-card auth-card">
-      <img src="logo.png" alt="Utopian Land Buyers" class="auth-logo">
+      <img src="logo.png" alt="Utopian Capital" class="auth-logo">
       ${inner}
     </div>
   </div>`;
@@ -4592,7 +4592,7 @@ function authShell(inner){
 function renderLogin(){
   authShell(`
     <h1 class="conn-title">Team sign in</h1>
-    <p class="conn-detail">Utopian Land Buyers workspace. Employees only.</p>
+    <p class="conn-detail">Utopian Capital workspace. Employees only.</p>
     <form id="auth-form" onsubmit="event.preventDefault();doSignIn()" autocomplete="on">
       <div class="form-group"><label class="form-label" for="auth-email">Email</label>
         <input class="form-input" id="auth-email" type="email" autocomplete="username" required autofocus></div>
@@ -4726,7 +4726,7 @@ function genTempPassword(){
   return Array.from(buf, n => abc[n % abc.length]).join('');
 }
 function credentialsPanel(u, email, pw){
-  const text = `Utopian Land Buyers team login\nSite: ${location.origin}${location.pathname}\nEmail: ${email}\nTemporary password: ${pw}\nYou'll be asked to choose your own password when you first sign in.`;
+  const text = `Utopian Capital team login\nSite: ${location.origin}${location.pathname}\nEmail: ${email}\nTemporary password: ${pw}\nYou'll be asked to choose your own password when you first sign in.`;
   return `<p class="conn-detail" style="margin-bottom:10px">Send ${escape(u.name)} these details privately (text or in person). They'll choose their own password on first sign-in.</p>
     <pre class="cred-box" id="cred-box">${escape(text)}</pre>
     <div class="modal-actions">
