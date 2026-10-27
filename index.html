@@ -260,6 +260,8 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 
 .mkc-flag-hot{background:var(--danger-soft,#fbe4e1);color:var(--danger,#b3261e)}
 .mkc-above{color:var(--danger,#b3261e)!important;font-weight:600;margin-top:2px}
+.mkc-implied{background:var(--accent-soft)!important;font-weight:700;color:var(--accent)}
+.mkc-short{color:var(--danger)!important}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -4373,12 +4375,13 @@ const MK_CALC_MIN_N = 8;
 function mkCalcCfg(fips){
   const ui = mkUi();
   ui.calc = ui.calc || {};
-  return ui.calc[fips] || (ui.calc[fips] = {acres:'', discPct:10, costPct:12, mult:2, maxLots:8});
+  return ui.calc[fips] || (ui.calc[fips] = {acres:'', ask:'', discPct:10, costPct:12, mult:2, maxLots:8});
 }
 function setMkCalc(fips){
   const cfg = mkCalcCfg(fips);
   const num = (id, d) => { const el = document.getElementById(id + fips); const n = el ? parseFloat(el.value) : NaN; return Number.isFinite(n) ? n : d; };
   cfg.acres = num('mkc-ac-', '');
+  { const a = num('mkc-ask-', ''); cfg.ask = a > 0 ? a : ''; }
   cfg.discPct = Math.min(90, Math.max(0, num('mkc-dp-', 0)));
   cfg.costPct = Math.min(90, Math.max(0, num('mkc-cp-', 0)));
   cfg.mult = Math.max(1, num('mkc-mu-', 2));
@@ -4425,6 +4428,7 @@ function mkCalcRows(fips){
   const A = +cfg.acres;
   if(!p || !p.e || !(A > 0)) return null;
   const U = A;
+  const ask = +cfg.ask > 0 ? +cfg.ask : 0;
   const disc = (cfg.discPct || 0) / 100, cost = (cfg.costPct || 0) / 100;
   const whole = mkPpaNear(p, A);
   const wholeVal = whole.n ? A * whole.med * (1 - disc) : null;
@@ -4446,21 +4450,27 @@ function mkCalcRows(fips){
       grossMed: N * L * d.med,
       netLow: net(d.p25), netMed: net(d.med), netHigh: net(d.p75),
       offerLow, offerHigh, capped,
+      multLow: ask ? net(d.p25) / ask : null, multMed: ask ? net(d.med) / ask : null, multHigh: ask ? net(d.p75) / ask : null,
       cv: d.med ? d.sd / d.med : 0});
   });
   // Best = most we can justify paying at median prices, then the stronger low end.
+  // With an asking price, best = highest multiple at median prices.
   rows.sort((a, b) => b.offerHigh - a.offerHigh || b.offerLow - a.offerLow);
-  return {A, U, whole, wholeVal, rows};
+  return {A, U, whole, wholeVal, rows, ask};
 }
 const mkUsd = v => (v < 0 ? '−$' : '$') + Math.round(Math.abs(v)).toLocaleString();
 const mkK = v => (v < 0 ? '−' : '') + mkMoney(Math.abs(v));
 function renderMkCalc(c){
   const fips = c.fips, r = c.r || {}, cfg = mkCalcCfg(fips);
+  const askRes = +cfg.ask > 0 && +cfg.acres > 0 && MK.ppaFull[fips] && MK.ppaFull[fips] !== 'loading' ? mkCalcRows(fips) : null;
+  if(askRes) askRes.rows.sort((x, y) => y.multMed - x.multMed || y.multLow - x.multLow);
   const inputs = `<div class="mkc-inputs">
       <label>Tract acres<input class="form-input" id="mkc-ac-${fips}" type="number" min="1" step="0.1" value="${cfg.acres}" placeholder="e.g. 40" onkeydown="mkCalcKey(event,'${fips}')"></label>
+      <label>Asking price<input class="form-input" id="mkc-ask-${fips}" type="number" min="0" step="1000" value="${cfg.ask || ''}" placeholder="optional" onkeydown="mkCalcKey(event,'${fips}')"></label>
       <label title="Knock off market prices for defects: access, floodplain, slope, shape">Discount %<input class="form-input" id="mkc-dp-${fips}" type="number" min="0" max="90" step="1" value="${cfg.discPct}" onkeydown="mkCalcKey(event,'${fips}')"></label>
       <label title="Survey, split, closing and sales commissions as a share of resale">Subdivide &amp; sale costs %<input class="form-input" id="mkc-cp-${fips}" type="number" min="0" max="90" step="0.5" value="${cfg.costPct}" onkeydown="mkCalcKey(event,'${fips}')"></label>
-      <label>Resale multiple<input class="form-input" id="mkc-mu-${fips}" type="number" min="1" step="0.1" value="${cfg.mult}" onkeydown="mkCalcKey(event,'${fips}')"></label>
+      ${askRes ? `<label title="Net resale at median prices ÷ asking price, best split. Clear the asking price to set your own multiple.">Multiple at asking<input class="form-input mkc-implied" id="mkc-mu-${fips}" type="text" readonly value="${askRes.rows.length ? askRes.rows[0].multMed.toFixed(2) + 'x' : '—'}"></label>`
+        : `<label>Resale multiple<input class="form-input" id="mkc-mu-${fips}" type="number" min="1" step="0.1" value="${cfg.mult}" onkeydown="mkCalcKey(event,'${fips}')"></label>`}
       <label>Max lots<input class="form-input" id="mkc-ml-${fips}" type="number" min="2" max="60" step="1" value="${cfg.maxLots || 8}" onkeydown="mkCalcKey(event,'${fips}')"></label>
       <button class="btn btn-sm btn-primary" onclick="setMkCalc('${fips}')"><i class="ti ti-calculator"></i> Calculate</button>
     </div>`;
@@ -4475,30 +4485,31 @@ function renderMkCalc(c){
   }else if(!(+cfg.acres > 0)){
     body = `<p class="debt-muted mkc-note">Enter the tract’s acreage and press Calculate to see split options and an offer range.</p>`;
   }else{
-    const res = mkCalcRows(fips);
+    const res = askRes || mkCalcRows(fips);
     if(!res.rows.length){
       body = `<p class="debt-muted mkc-note">No split options for ${res.A} acres within ${cfg.maxLots || 8} lots (lots must be at least 1 acre and you need two or more).</p>`;
     }else{
       const best = res.rows[0];
       const w = res.whole;
       const wholeVal = res.wholeVal;
-      const flag = row => row.capped ? `<span class="mkc-flag mkc-flag-hot" title="The split math supports paying more than the tract is worth sold whole today (${res.wholeVal != null ? mkUsd(res.wholeVal) : ''})">${row.offerLow > res.wholeVal ? 'above market value' : 'top end above market value'}</span>`
+      const flag = row => res.ask ? (row.d.n < MK_CALC_MIN_N ? '<span class="mkc-flag" title="Fewer than 8 sales near this lot size">thin data</span>' : row.cv > 0.6 ? '<span class="mkc-flag" title="Prices for this lot size vary widely">wide spread</span>' : '') : row.capped ? `<span class="mkc-flag mkc-flag-hot" title="The split math supports paying more than the tract is worth sold whole today (${res.wholeVal != null ? mkUsd(res.wholeVal) : ''})">${row.offerLow > res.wholeVal ? 'above market value' : 'top end above market value'}</span>`
         : row.d.n < MK_CALC_MIN_N ? '<span class="mkc-flag" title="Fewer than 8 sales near this lot size">thin data</span>'
         : row.cv > 0.6 ? '<span class="mkc-flag" title="Prices for this lot size vary widely (standard deviation above 60% of the median)">wide spread</span>' : '';
       const tr = row => `<tr class="${row === best ? 'mkc-best' : ''}">
           <td><b>${row.N} lots</b> × ${row.L.toFixed(row.L < 10 ? 1 : 0)} ac</td>
           <td class="num">${mkK(row.d.p25)} – <b>${mkK(row.d.med)}</b> – ${mkK(row.d.p75)}<div class="debt-sub">±${mkK(row.d.sd)} SD · ${row.d.n} sales, ${row.d.label}</div></td>
           <td class="num">${mkK(row.netLow)} – ${mkK(row.netHigh)}<div class="debt-sub">median ${mkK(row.netMed)}</div></td>
-          <td class="num mkc-offer"><b>${mkK(row.offerLow)} – ${mkK(row.offerHigh)}</b><div class="debt-sub">${mkK(row.offerLow / res.A)} – ${mkK(row.offerHigh / res.A)} / ac</div></td>
+          ${res.ask ? `<td class="num mkc-offer"><b class="${row.multMed >= cfg.mult ? '' : 'mkc-short'}">${row.multLow.toFixed(2)}x – ${row.multMed.toFixed(2)}x</b><div class="debt-sub">high ${row.multHigh.toFixed(2)}x · profit ${mkK(row.netMed - res.ask)} at median</div></td>`
+            : `<td class="num mkc-offer"><b>${mkK(row.offerLow)} – ${mkK(row.offerHigh)}</b><div class="debt-sub">${mkK(row.offerLow / res.A)} – ${mkK(row.offerHigh / res.A)} / ac</div></td>`}
           <td>${flag(row)}</td>
         </tr>`;
       body = `<div class="mkc-summary">
-          <div><span>Suggested offer range</span><b>${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)}</b><small>${mkK(best.offerLow / res.A)} – ${mkK(best.offerHigh / res.A)} per acre · best split ${best.N} × ${best.L.toFixed(1)} ac</small>${best.capped ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> ${best.offerLow > wholeVal ? 'Whole range is' : 'Top of range is'} above market value (${mkUsd(wholeVal)} as-is)</small>` : ''}</div>
+          ${res.ask ? `<div><span>Multiple at ${mkUsd(res.ask)} asking</span><b>${best.multLow.toFixed(2)}x – ${best.multMed.toFixed(2)}x</b><small>25th percentile to median prices · best split ${best.N} × ${best.L.toFixed(1)} ac · ${mkK(res.ask / res.A)}/ac asking</small>${best.multMed < cfg.mult ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Under your ${cfg.mult}x target. Offer ${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)} to hit it</small>` : ''}${wholeVal != null && res.ask > wholeVal ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Asking is above market value (${mkUsd(wholeVal)} as-is)</small>` : ''}</div>` : `<div><span>Suggested offer range</span><b>${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)}</b><small>${mkK(best.offerLow / res.A)} – ${mkK(best.offerHigh / res.A)} per acre · best split ${best.N} × ${best.L.toFixed(1)} ac</small>${best.capped ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> ${best.offerLow > wholeVal ? 'Whole range is' : 'Top of range is'} above market value (${mkUsd(wholeVal)} as-is)</small>` : ''}</div>`}
           <div><span>Resale after split (net)</span><b>${mkUsd(best.netLow)} – ${mkUsd(best.netHigh)}</b><small>25th to 75th percentile prices</small></div>
           <div><span>Tract sold whole today</span><b>${wholeVal != null ? '≈ ' + mkUsd(wholeVal) : '—'}</b><small>${w.n ? `median ${mkK(w.med)}/ac${cfg.discPct ? `, less ${cfg.discPct}%` : ''} · ${w.n} sales, ${w.label}` : 'no comparable sales'}</small></div>
         </div>
         <div class="debt-table-wrap"><table class="debt-table mkc-table">
-          <thead><tr><th>Split (${res.A} ac)</th><th class="num">Lot $/ac: 25th – median – 75th</th><th class="num">Net resale</th><th class="num">Offer range</th><th></th></tr></thead>
+          <thead><tr><th>Split (${res.A} ac)</th><th class="num">Lot $/ac: 25th – median – 75th</th><th class="num">Net resale</th><th class="num">${res.ask ? 'Multiple at asking' : 'Offer range'}</th><th></th></tr></thead>
           <tbody>${res.rows.map(tr).join('')}</tbody>
         </table></div>`;
     }
