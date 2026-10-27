@@ -105,6 +105,55 @@ input,select,textarea{font:inherit;color:inherit}
 .cre-empty i{font-size:40px;color:var(--accent)}
 .cre-empty h3{font-family:var(--serif);font-weight:500;font-size:22px;margin:10px 0 6px}
 .cre-empty p{color:var(--ink-3);font-size:13.5px;margin:0}
+/* ---- Markets ---- */
+.mk-section-label{font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin:2px 0 8px}
+.mk-state{padding:0;margin-bottom:10px;overflow:hidden}
+.mk-state:hover{box-shadow:none}
+.mk-head{all:unset;box-sizing:border-box;width:100%;cursor:pointer;display:flex;align-items:center;gap:12px;padding:14px 16px;flex-wrap:wrap}
+.mk-head:hover{background:var(--surface-2)}
+.mk-head:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.mk-chev{transition:transform .15s var(--ease);color:var(--ink-3)}
+.mk-state.open .mk-chev{transform:rotate(90deg)}
+.mk-name{font-family:var(--serif);font-size:19px;font-weight:500}
+.mk-name small{font-family:var(--sans);font-size:12px;color:var(--ink-3);margin-left:4px}
+.mk-pills{display:flex;gap:6px;flex-wrap:wrap}
+.mk-pill{font-size:11.5px;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--ink-2)}
+.mk-pill.yes{background:var(--success-soft);color:var(--success-ink)}
+.mk-head-stats{margin-left:auto;display:flex;gap:22px}
+.mk-head-stats div{display:flex;flex-direction:column;align-items:flex-end;line-height:1.2}
+.mk-head-stats b{font-size:15px;font-variant-numeric:tabular-nums}
+.mk-head-stats span{font-size:11px;color:var(--ink-3)}
+.mk-body{border-top:1px solid var(--border);padding:12px 16px 12px}
+.mk-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.mk-filters{margin-bottom:0}
+.mk-filters .seg-btn{padding:5px 10px;font-size:12.5px}
+.mk-tools .form-input.mk-search{width:190px;margin-left:auto}
+.mk-tools .form-select.mk-sort{width:auto}
+.mk-scroll{max-height:560px;overflow:auto;border:1px solid var(--border);border-radius:var(--r-md)}
+.mk-table{table-layout:fixed;min-width:820px}
+.mk-table thead th{position:sticky;top:0;background:var(--surface);z-index:1}
+.mk-table td{padding:7px 10px;vertical-align:middle}
+.mk-table tr.mk-on .mk-county b{color:var(--ink)}
+.mk-table tr:not(.mk-on) .mk-county b{font-weight:500;color:var(--ink-2)}
+.mk-county .debt-sub{white-space:normal}
+.mk-divider td{background:var(--surface-2);font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;padding:5px 10px}
+.mk-yn{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.mk-yn button{all:unset;cursor:pointer;font-size:12px;padding:4px 10px;color:var(--ink-3)}
+.mk-yn button+button{border-left:1px solid var(--border)}
+.mk-yn button:hover{background:var(--surface-2);color:var(--ink)}
+.mk-yn button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.mk-yn button.on.yes{background:var(--success-soft);color:var(--success-ink);font-weight:600}
+.mk-yn button.on.no{background:var(--danger-soft);color:var(--danger);font-weight:600}
+.mk-abs{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.mk-abs i{display:block;height:3px;border-radius:2px;background:var(--accent);opacity:.55;align-self:flex-end;max-width:72px}
+.mk-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12.5px}
+.mk-others{margin:18px 0 12px}
+.mk-others>summary{cursor:pointer;font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.mk-state.untracked .mk-head{padding:10px 16px}
+.mk-state.untracked .mk-name{font-size:16px}
+@media (max-width:700px){.mk-head-stats{margin-left:28px;width:100%;justify-content:flex-start}.mk-head-stats div{align-items:flex-start}.mk-tools .form-input.mk-search{margin-left:0;width:100%}}
+.mk-addbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-4px 0 16px}
+.mk-addbar .form-select{flex:0 1 240px}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -1830,6 +1879,7 @@ button.prop-agent-stale{cursor:pointer;font-family:inherit}
       <div class="nav-item" data-view="activity"><i class="ti ti-chart-histogram"></i> KPIs &amp; Tracking</div>
       <div class="nav-item" data-view="properties"><i class="ti ti-home"></i> Properties <span class="count" id="count-props">0</span></div>
       <div class="nav-item" data-view="tasks"><i class="ti ti-checkbox"></i> Tasks &amp; Projects <span class="count" id="count-tasks">0</span></div>
+      <div class="nav-item" data-view="markets"><i class="ti ti-map-2"></i> Markets</div>
       <div class="nav-item" data-view="team"><i class="ti ti-building-community"></i> Team</div>
       <div class="nav-item" data-view="settings"><i class="ti ti-settings"></i> Settings</div>
     </nav>
@@ -2709,7 +2759,7 @@ const escape = s => (s||'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':
 // Tasks & Projects tab with the Projects section already selected.
 // 'kpis' is an alias for the KPIs & Tracking tab (view key 'activity'), so
 // #kpis links work; normalizeView() folds it in with the KPIs half selected.
-const VALID_VIEWS = ['cre-dashboard','cre-debt','dashboard','properties','tasks','projects','activity','kpis','calendar','team','settings'];
+const VALID_VIEWS = ['cre-dashboard','cre-debt','dashboard','properties','tasks','projects','activity','kpis','calendar','markets','team','settings'];
 const VIEW_KEY = 'activeView';
 const viewFromHash = () => {
   const v = decodeURIComponent(location.hash.replace(/^#/,''));
@@ -3498,6 +3548,301 @@ window.addEventListener('resize', () => {
   const n = window.innerWidth < 640;
   if(n !== debtNarrow){ debtNarrow = n; if(state.activeView === 'cre-debt') app.render(); }
 });
+
+/* ---- Markets (2026-10-27) ---------------------------------------------------
+   Every US state and county, with our go / no-go per county for flips and for
+   subdivides, and the land market's pace from Landportal's MLS data:
+     sold_12m         land listings sold in the last 12 months
+     active_listings  land listings for sale now
+   from which:
+     absorption  = (sold_12m / 12) / active_listings   share of inventory that sells per month
+     supply      = active_listings / (sold_12m / 12)   months to sell what's listed now
+
+   States we model in live in public.market_states and show first, in their
+   saved order; every other state sits below, still clickable. Inside a state
+   the counties we market in (flip or subdivide = yes) come first.
+   County names and FIPS codes are the Census 2020 list, embedded below so
+   opening a state costs no database reads. */
+const MK_GEO = {"states":[["01","AL","Alabama"],["02","AK","Alaska"],["04","AZ","Arizona"],["05","AR","Arkansas"],["06","CA","California"],["08","CO","Colorado"],["09","CT","Connecticut"],["10","DE","Delaware"],["11","DC","District of Columbia"],["12","FL","Florida"],["13","GA","Georgia"],["15","HI","Hawaii"],["16","ID","Idaho"],["17","IL","Illinois"],["18","IN","Indiana"],["19","IA","Iowa"],["20","KS","Kansas"],["21","KY","Kentucky"],["22","LA","Louisiana"],["23","ME","Maine"],["24","MD","Maryland"],["25","MA","Massachusetts"],["26","MI","Michigan"],["27","MN","Minnesota"],["28","MS","Mississippi"],["29","MO","Missouri"],["30","MT","Montana"],["31","NE","Nebraska"],["32","NV","Nevada"],["33","NH","New Hampshire"],["34","NJ","New Jersey"],["35","NM","New Mexico"],["36","NY","New York"],["37","NC","North Carolina"],["38","ND","North Dakota"],["39","OH","Ohio"],["40","OK","Oklahoma"],["41","OR","Oregon"],["42","PA","Pennsylvania"],["44","RI","Rhode Island"],["45","SC","South Carolina"],["46","SD","South Dakota"],["47","TN","Tennessee"],["48","TX","Texas"],["49","UT","Utah"],["50","VT","Vermont"],["51","VA","Virginia"],["53","WA","Washington"],["54","WV","West Virginia"],["55","WI","Wisconsin"],["56","WY","Wyoming"]],"counties":{"01":"001Autauga|003Baldwin|005Barbour|007Bibb|009Blount|011Bullock|013Butler|015Calhoun|017Chambers|019Cherokee|021Chilton|023Choctaw|025Clarke|027Clay|029Cleburne|031Coffee|033Colbert|035Conecuh|037Coosa|039Covington|041Crenshaw|043Cullman|045Dale|047Dallas|049DeKalb|051Elmore|053Escambia|055Etowah|057Fayette|059Franklin|061Geneva|063Greene|065Hale|067Henry|069Houston|071Jackson|073Jefferson|075Lamar|077Lauderdale|079Lawrence|081Lee|083Limestone|085Lowndes|087Macon|089Madison|091Marengo|093Marion|095Marshall|097Mobile|099Monroe|101Montgomery|103Morgan|105Perry|107Pickens|109Pike|111Randolph|113Russell|117Shelby|115St. Clair|119Sumter|121Talladega|123Tallapoosa|125Tuscaloosa|127Walker|129Washington|131Wilcox|133Winston","02":"013Aleutians East Borough|016Aleutians West Census Area|020Anchorage Municipality|050Bethel Census Area|060Bristol Bay Borough|066Copper River Census Area|068Denali Borough|070Dillingham Census Area|090Fairbanks North Star Borough|100Haines Borough|105Hoonah-Angoon Census Area|110Juneau City and Borough|122Kenai Peninsula Borough|130Ketchikan Gateway Borough|150Kodiak Island Borough|158Kusilvak Census Area|164Lake and Peninsula Borough|170Matanuska-Susitna Borough|180Nome Census Area|185North Slope Borough|188Northwest Arctic Borough|195Petersburg Borough|195Petersburg Census Area|198Prince of Wales-Hyder Census Area|220Sitka City and Borough|230Skagway Municipality|240Southeast Fairbanks Census Area|261Valdez-Cordova Census Area|158Wade Hampton Census Area|275Wrangell City and Borough|282Yakutat City and Borough|290Yukon-Koyukuk Census Area","04":"001Apache|003Cochise|005Coconino|007Gila|009Graham|011Greenlee|012La Paz|013Maricopa|015Mohave|017Navajo|019Pima|021Pinal|023Santa Cruz|025Yavapai|027Yuma","05":"001Arkansas|003Ashley|005Baxter|007Benton|009Boone|011Bradley|013Calhoun|015Carroll|017Chicot|019Clark|021Clay|023Cleburne|025Cleveland|027Columbia|029Conway|031Craighead|033Crawford|035Crittenden|037Cross|039Dallas|041Desha|043Drew|045Faulkner|047Franklin|049Fulton|051Garland|053Grant|055Greene|057Hempstead|059Hot Spring|061Howard|063Independence|065Izard|067Jackson|069Jefferson|071Johnson|073Lafayette|075Lawrence|077Lee|079Lincoln|081Little River|083Logan|085Lonoke|087Madison|089Marion|091Miller|093Mississippi|095Monroe|097Montgomery|099Nevada|101Newton|103Ouachita|105Perry|107Phillips|109Pike|111Poinsett|113Polk|115Pope|117Prairie|119Pulaski|121Randolph|125Saline|127Scott|129Searcy|131Sebastian|133Sevier|135Sharp|123St. Francis|137Stone|139Union|141Van Buren|143Washington|145White|147Woodruff|149Yell","06":"001Alameda|003Alpine|005Amador|007Butte|009Calaveras|011Colusa|013Contra Costa|015Del Norte|017El Dorado|019Fresno|021Glenn|023Humboldt|025Imperial|027Inyo|029Kern|031Kings|033Lake|035Lassen|037Los Angeles|039Madera|041Marin|043Mariposa|045Mendocino|047Merced|049Modoc|051Mono|053Monterey|055Napa|057Nevada|059Orange|061Placer|063Plumas|065Riverside|067Sacramento|069San Benito|071San Bernardino|073San Diego|075San Francisco|077San Joaquin|079San Luis Obispo|081San Mateo|083Santa Barbara|085Santa Clara|087Santa Cruz|089Shasta|091Sierra|093Siskiyou|095Solano|097Sonoma|099Stanislaus|101Sutter|103Tehama|105Trinity|107Tulare|109Tuolumne|111Ventura|113Yolo|115Yuba","08":"001Adams|003Alamosa|005Arapahoe|007Archuleta|009Baca|011Bent|013Boulder|014Broomfield|015Chaffee|017Cheyenne|019Clear Creek|021Conejos|023Costilla|025Crowley|027Custer|029Delta|031Denver|033Dolores|035Douglas|037Eagle|041El Paso|039Elbert|043Fremont|045Garfield|047Gilpin|049Grand|051Gunnison|053Hinsdale|055Huerfano|057Jackson|059Jefferson|061Kiowa|063Kit Carson|067La Plata|065Lake|069Larimer|071Las Animas|073Lincoln|075Logan|077Mesa|079Mineral|081Moffat|083Montezuma|085Montrose|087Morgan|089Otero|091Ouray|093Park|095Phillips|097Pitkin|099Prowers|101Pueblo|103Rio Blanco|105Rio Grande|107Routt|109Saguache|111San Juan|113San Miguel|115Sedgwick|117Summit|119Teller|121Washington|123Weld|125Yuma","09":"001Fairfield|003Hartford|005Litchfield|007Middlesex|009New Haven|011New London|013Tolland|015Windham","10":"001Kent|003New Castle|005Sussex","11":"001District of Columbia|001Washington","12":"001Alachua|003Baker|005Bay|007Bradford|009Brevard|011Broward|013Calhoun|015Charlotte|017Citrus|019Clay|021Collier|023Columbia|027DeSoto|029Dixie|031Duval|033Escambia|035Flagler|037Franklin|039Gadsden|041Gilchrist|043Glades|045Gulf|047Hamilton|049Hardee|051Hendry|053Hernando|055Highlands|057Hillsborough|059Holmes|061Indian River|063Jackson|065Jefferson|067Lafayette|069Lake|071Lee|073Leon|075Levy|077Liberty|079Madison|081Manatee|083Marion|085Martin|086Miami-Dade|087Monroe|089Nassau|091Okaloosa|093Okeechobee|095Orange|097Osceola|099Palm Beach|101Pasco|103Pinellas|105Polk|107Putnam|113Santa Rosa|115Sarasota|117Seminole|109St. Johns|111St. Lucie|119Sumter|121Suwannee|123Taylor|125Union|127Volusia|129Wakulla|131Walton|133Washington","13":"001Appling|003Atkinson|005Bacon|007Baker|009Baldwin|011Banks|013Barrow|015Bartow|017Ben Hill|019Berrien|021Bibb|023Bleckley|025Brantley|027Brooks|029Bryan|031Bulloch|033Burke|035Butts|037Calhoun|039Camden|043Candler|045Carroll|047Catoosa|049Charlton|051Chatham|053Chattahoochee|055Chattooga|057Cherokee|059Clarke|061Clay|063Clayton|065Clinch|067Cobb|069Coffee|071Colquitt|073Columbia|075Cook|077Coweta|079Crawford|081Crisp|083Dade|085Dawson|089DeKalb|087Decatur|091Dodge|093Dooly|095Dougherty|097Douglas|099Early|101Echols|103Effingham|105Elbert|107Emanuel|109Evans|111Fannin|113Fayette|115Floyd|117Forsyth|119Franklin|121Fulton|123Gilmer|125Glascock|127Glynn|129Gordon|131Grady|133Greene|135Gwinnett|137Habersham|139Hall|141Hancock|143Haralson|145Harris|147Hart|149Heard|151Henry|153Houston|155Irwin|157Jackson|159Jasper|161Jeff Davis|163Jefferson|165Jenkins|167Johnson|169Jones|171Lamar|173Lanier|175Laurens|177Lee|179Liberty|181Lincoln|183Long|185Lowndes|187Lumpkin|193Macon|195Madison|197Marion|189McDuffie|191McIntosh|199Meriwether|201Miller|205Mitchell|207Monroe|209Montgomery|211Morgan|213Murray|215Muscogee|217Newton|219Oconee|221Oglethorpe|223Paulding|225Peach|227Pickens|229Pierce|231Pike|233Polk|235Pulaski|237Putnam|239Quitman|241Rabun|243Randolph|245Richmond|247Rockdale|249Schley|251Screven|253Seminole|255Spalding|257Stephens|259Stewart|261Sumter|263Talbot|265Taliaferro|267Tattnall|269Taylor|271Telfair|273Terrell|275Thomas|277Tift|279Toombs|281Towns|283Treutlen|285Troup|287Turner|289Twiggs|291Union|293Upson|295Walker|297Walton|299Ware|301Warren|303Washington|305Wayne|307Webster|309Wheeler|311White|313Whitfield|315Wilcox|317Wilkes|319Wilkinson|321Worth","15":"001Hawaii|003Honolulu|005Kalawao|007Kauai|009Maui","16":"001Ada|003Adams|005Bannock|007Bear Lake|009Benewah|011Bingham|013Blaine|015Boise|017Bonner|019Bonneville|021Boundary|023Butte|025Camas|027Canyon|029Caribou|031Cassia|033Clark|035Clearwater|037Custer|039Elmore|041Franklin|043Fremont|045Gem|047Gooding|049Idaho|051Jefferson|053Jerome|055Kootenai|057Latah|059Lemhi|061Lewis|063Lincoln|065Madison|067Minidoka|069Nez Perce|071Oneida|073Owyhee|075Payette|077Power|079Shoshone|081Teton|083Twin Falls|085Valley|087Washington","17":"001Adams|003Alexander|005Bond|007Boone|009Brown|011Bureau|013Calhoun|015Carroll|017Cass|019Champaign|021Christian|023Clark|025Clay|027Clinton|029Coles|031Cook|033Crawford|035Cumberland|039De Witt|037DeKalb|041Douglas|043DuPage|045Edgar|047Edwards|049Effingham|051Fayette|053Ford|055Franklin|057Fulton|059Gallatin|061Greene|063Grundy|065Hamilton|067Hancock|069Hardin|071Henderson|073Henry|075Iroquois|077Jackson|079Jasper|081Jefferson|083Jersey|085Jo Daviess|087Johnson|089Kane|091Kankakee|093Kendall|095Knox|099LaSalle|097Lake|101Lawrence|103Lee|105Livingston|107Logan|115Macon|117Macoupin|119Madison|121Marion|123Marshall|125Mason|127Massac|109McDonough|111McHenry|113McLean|129Menard|131Mercer|133Monroe|135Montgomery|137Morgan|139Moultrie|141Ogle|143Peoria|145Perry|147Piatt|149Pike|151Pope|153Pulaski|155Putnam|157Randolph|159Richland|161Rock Island|165Saline|167Sangamon|169Schuyler|171Scott|173Shelby|163St. Clair|175Stark|177Stephenson|179Tazewell|181Union|183Vermilion|185Wabash|187Warren|189Washington|191Wayne|193White|195Whiteside|197Will|199Williamson|201Winnebago|203Woodford","18":"001Adams|003Allen|005Bartholomew|007Benton|009Blackford|011Boone|013Brown|015Carroll|017Cass|019Clark|021Clay|023Clinton|025Crawford|027Daviess|033DeKalb|029Dearborn|031Decatur|035Delaware|037Dubois|039Elkhart|041Fayette|043Floyd|045Fountain|047Franklin|049Fulton|051Gibson|053Grant|055Greene|057Hamilton|059Hancock|061Harrison|063Hendricks|065Henry|067Howard|069Huntington|071Jackson|073Jasper|075Jay|077Jefferson|079Jennings|081Johnson|083Knox|085Kosciusko|087LaGrange|091LaPorte|089Lake|093Lawrence|095Madison|097Marion|099Marshall|101Martin|103Miami|105Monroe|107Montgomery|109Morgan|111Newton|113Noble|115Ohio|117Orange|119Owen|121Parke|123Perry|125Pike|127Porter|129Posey|131Pulaski|133Putnam|135Randolph|137Ripley|139Rush|143Scott|145Shelby|147Spencer|141St. Joseph|149Starke|151Steuben|153Sullivan|155Switzerland|157Tippecanoe|159Tipton|161Union|163Vanderburgh|165Vermillion|167Vigo|169Wabash|171Warren|173Warrick|175Washington|177Wayne|179Wells|181White|183Whitley","19":"001Adair|003Adams|005Allamakee|007Appanoose|009Audubon|011Benton|013Black Hawk|015Boone|017Bremer|019Buchanan|021Buena Vista|023Butler|025Calhoun|027Carroll|029Cass|031Cedar|033Cerro Gordo|035Cherokee|037Chickasaw|039Clarke|041Clay|043Clayton|045Clinton|047Crawford|049Dallas|051Davis|053Decatur|055Delaware|057Des Moines|059Dickinson|061Dubuque|063Emmet|065Fayette|067Floyd|069Franklin|071Fremont|073Greene|075Grundy|077Guthrie|079Hamilton|081Hancock|083Hardin|085Harrison|087Henry|089Howard|091Humboldt|093Ida|095Iowa|097Jackson|099Jasper|101Jefferson|103Johnson|105Jones|107Keokuk|109Kossuth|111Lee|113Linn|115Louisa|117Lucas|119Lyon|121Madison|123Mahaska|125Marion|127Marshall|129Mills|131Mitchell|133Monona|135Monroe|137Montgomery|139Muscatine|141O'Brien|143Osceola|145Page|147Palo Alto|149Plymouth|151Pocahontas|153Polk|155Pottawattamie|157Poweshiek|159Ringgold|161Sac|163Scott|165Shelby|167Sioux|169Story|171Tama|173Taylor|175Union|177Van Buren|179Wapello|181Warren|183Washington|185Wayne|187Webster|189Winnebago|191Winneshiek|193Woodbury|195Worth|197Wright","20":"001Allen|003Anderson|005Atchison|007Barber|009Barton|011Bourbon|013Brown|015Butler|017Chase|019Chautauqua|021Cherokee|023Cheyenne|025Clark|027Clay|029Cloud|031Coffey|033Comanche|035Cowley|037Crawford|039Decatur|041Dickinson|043Doniphan|045Douglas|047Edwards|049Elk|051Ellis|053Ellsworth|055Finney|057Ford|059Franklin|061Geary|063Gove|065Graham|067Grant|069Gray|071Greeley|073Greenwood|075Hamilton|077Harper|079Harvey|081Haskell|083Hodgeman|085Jackson|087Jefferson|089Jewell|091Johnson|093Kearny|095Kingman|097Kiowa|099Labette|101Lane|103Leavenworth|105Lincoln|107Linn|109Logan|111Lyon|115Marion|117Marshall|113McPherson|119Meade|121Miami|123Mitchell|125Montgomery|127Morris|129Morton|131Nemaha|133Neosho|135Ness|137Norton|139Osage|141Osborne|143Ottawa|145Pawnee|147Phillips|149Pottawatomie|151Pratt|153Rawlins|155Reno|157Republic|159Rice|161Riley|163Rooks|165Rush|167Russell|169Saline|171Scott|173Sedgwick|175Seward|177Shawnee|179Sheridan|181Sherman|183Smith|185Stafford|187Stanton|189Stevens|191Sumner|193Thomas|195Trego|197Wabaunsee|199Wallace|201Washington|203Wichita|205Wilson|207Woodson|209Wyandotte","21":"001Adair|003Allen|005Anderson|007Ballard|009Barren|011Bath|013Bell|015Boone|017Bourbon|019Boyd|021Boyle|023Bracken|025Breathitt|027Breckinridge|029Bullitt|031Butler|033Caldwell|035Calloway|037Campbell|039Carlisle|041Carroll|043Carter|045Casey|047Christian|049Clark|051Clay|053Clinton|055Crittenden|057Cumberland|059Daviess|061Edmonson|063Elliott|065Estill|067Fayette|069Fleming|071Floyd|073Franklin|075Fulton|077Gallatin|079Garrard|081Grant|083Graves|085Grayson|087Green|089Greenup|091Hancock|093Hardin|095Harlan|097Harrison|099Hart|101Henderson|103Henry|105Hickman|107Hopkins|109Jackson|111Jefferson|113Jessamine|115Johnson|117Kenton|119Knott|121Knox|123Larue|125Laurel|127Lawrence|129Lee|131Leslie|133Letcher|135Lewis|137Lincoln|139Livingston|141Logan|143Lyon|151Madison|153Magoffin|155Marion|157Marshall|159Martin|161Mason|145McCracken|147McCreary|149McLean|163Meade|165Menifee|167Mercer|169Metcalfe|171Monroe|173Montgomery|175Morgan|177Muhlenberg|179Nelson|181Nicholas|183Ohio|185Oldham|187Owen|189Owsley|191Pendleton|193Perry|195Pike|197Powell|199Pulaski|201Robertson|203Rockcastle|205Rowan|207Russell|209Scott|211Shelby|213Simpson|215Spencer|217Taylor|219Todd|221Trigg|223Trimble|225Union|227Warren|229Washington|231Wayne|233Webster|235Whitley|237Wolfe|239Woodford","22":"001Acadia|003Allen|005Ascension|007Assumption|009Avoyelles|011Beauregard|013Bienville|015Bossier|017Caddo|019Calcasieu|021Caldwell|023Cameron|025Catahoula|027Claiborne|029Concordia|031De Soto|033East Baton Rouge|035East Carroll|037East Feliciana|039Evangeline|041Franklin|043Grant|045Iberia|047Iberville|049Jackson|051Jefferson|053Jefferson Davis|059La Salle|055Lafayette|057Lafourche|061Lincoln|063Livingston|065Madison|067Morehouse|069Natchitoches|071Orleans|073Ouachita|075Plaquemines|077Pointe Coupee|079Rapides|081Red River|083Richland|085Sabine|087St. Bernard|089St. Charles|091St. Helena|093St. James|095St. John the Baptist|097St. Landry|099St. Martin|101St. Mary|103St. Tammany|105Tangipahoa|107Tensas|109Terrebonne|111Union|113Vermilion|115Vernon|117Washington|119Webster|121West Baton Rouge|123West Carroll|125West Feliciana|127Winn","23":"001Androscoggin|003Aroostook|005Cumberland|007Franklin|009Hancock|011Kennebec|013Knox|015Lincoln|017Oxford|019Penobscot|021Piscataquis|023Sagadahoc|025Somerset|027Waldo|029Washington|031York","24":"001Allegany|003Anne Arundel|005Baltimore|510Baltimore city|009Calvert|011Caroline|013Carroll|015Cecil|017Charles|019Dorchester|021Frederick|023Garrett|025Harford|027Howard|029Kent|031Montgomery|033Prince George's|035Queen Anne's|039Somerset|037St. Mary's|041Talbot|043Washington|045Wicomico|047Worcester","25":"001Barnstable|003Berkshire|005Bristol|007Dukes|009Essex|011Franklin|013Hampden|015Hampshire|017Middlesex|019Nantucket|021Norfolk|023Plymouth|025Suffolk|027Worcester","26":"001Alcona|003Alger|005Allegan|007Alpena|009Antrim|011Arenac|013Baraga|015Barry|017Bay|019Benzie|021Berrien|023Branch|025Calhoun|027Cass|029Charlevoix|031Cheboygan|033Chippewa|035Clare|037Clinton|039Crawford|041Delta|043Dickinson|045Eaton|047Emmet|049Genesee|051Gladwin|053Gogebic|055Grand Traverse|057Gratiot|059Hillsdale|061Houghton|063Huron|065Ingham|067Ionia|069Iosco|071Iron|073Isabella|075Jackson|077Kalamazoo|079Kalkaska|081Kent|083Keweenaw|085Lake|087Lapeer|089Leelanau|091Lenawee|093Livingston|095Luce|097Mackinac|099Macomb|101Manistee|103Marquette|105Mason|107Mecosta|109Menominee|111Midland|113Missaukee|115Monroe|117Montcalm|119Montmorency|121Muskegon|123Newaygo|125Oakland|127Oceana|129Ogemaw|131Ontonagon|133Osceola|135Oscoda|137Otsego|139Ottawa|141Presque Isle|143Roscommon|145Saginaw|151Sanilac|153Schoolcraft|155Shiawassee|147St. Clair|149St. Joseph|157Tuscola|159Van Buren|161Washtenaw|163Wayne|165Wexford","27":"001Aitkin|003Anoka|005Becker|007Beltrami|009Benton|011Big Stone|013Blue Earth|015Brown|017Carlton|019Carver|021Cass|023Chippewa|025Chisago|027Clay|029Clearwater|031Cook|033Cottonwood|035Crow Wing|037Dakota|039Dodge|041Douglas|043Faribault|045Fillmore|047Freeborn|049Goodhue|051Grant|053Hennepin|055Houston|057Hubbard|059Isanti|061Itasca|063Jackson|065Kanabec|067Kandiyohi|069Kittson|071Koochiching|073Lac qui Parle|075Lake|077Lake of the Woods|079Le Sueur|081Lincoln|083Lyon|087Mahnomen|089Marshall|091Martin|085McLeod|093Meeker|095Mille Lacs|097Morrison|099Mower|101Murray|103Nicollet|105Nobles|107Norman|109Olmsted|111Otter Tail|113Pennington|115Pine|117Pipestone|119Polk|121Pope|123Ramsey|125Red Lake|127Redwood|129Renville|131Rice|133Rock|135Roseau|139Scott|141Sherburne|143Sibley|137St. Louis|145Stearns|147Steele|149Stevens|151Swift|153Todd|155Traverse|157Wabasha|159Wadena|161Waseca|163Washington|165Watonwan|167Wilkin|169Winona|171Wright|173Yellow Medicine","28":"001Adams|003Alcorn|005Amite|007Attala|009Benton|011Bolivar|013Calhoun|015Carroll|017Chickasaw|019Choctaw|021Claiborne|023Clarke|025Clay|027Coahoma|029Copiah|031Covington|033DeSoto|035Forrest|037Franklin|039George|041Greene|043Grenada|045Hancock|047Harrison|049Hinds|051Holmes|053Humphreys|055Issaquena|057Itawamba|059Jackson|061Jasper|063Jefferson|065Jefferson Davis|067Jones|069Kemper|071Lafayette|073Lamar|075Lauderdale|077Lawrence|079Leake|081Lee|083Leflore|085Lincoln|087Lowndes|089Madison|091Marion|093Marshall|095Monroe|097Montgomery|099Neshoba|101Newton|103Noxubee|105Oktibbeha|107Panola|109Pearl River|111Perry|113Pike|115Pontotoc|117Prentiss|119Quitman|121Rankin|123Scott|125Sharkey|127Simpson|129Smith|131Stone|133Sunflower|135Tallahatchie|137Tate|139Tippah|141Tishomingo|143Tunica|145Union|147Walthall|149Warren|151Washington|153Wayne|155Webster|157Wilkinson|159Winston|161Yalobusha|163Yazoo","29":"001Adair|003Andrew|005Atchison|007Audrain|009Barry|011Barton|013Bates|015Benton|017Bollinger|019Boone|021Buchanan|023Butler|025Caldwell|027Callaway|029Camden|031Cape Girardeau|033Carroll|035Carter|037Cass|039Cedar|041Chariton|043Christian|045Clark|047Clay|049Clinton|051Cole|053Cooper|055Crawford|057Dade|059Dallas|061Daviess|063DeKalb|065Dent|067Douglas|069Dunklin|071Franklin|073Gasconade|075Gentry|077Greene|079Grundy|081Harrison|083Henry|085Hickory|087Holt|089Howard|091Howell|093Iron|095Jackson|097Jasper|099Jefferson|101Johnson|103Knox|105Laclede|107Lafayette|109Lawrence|111Lewis|113Lincoln|115Linn|117Livingston|121Macon|123Madison|125Maries|127Marion|119McDonald|129Mercer|131Miller|133Mississippi|135Moniteau|137Monroe|139Montgomery|141Morgan|143New Madrid|145Newton|147Nodaway|149Oregon|151Osage|153Ozark|155Pemiscot|157Perry|159Pettis|161Phelps|163Pike|165Platte|167Polk|169Pulaski|171Putnam|173Ralls|175Randolph|177Ray|179Reynolds|181Ripley|195Saline|197Schuyler|199Scotland|201Scott|203Shannon|205Shelby|183St. Charles|185St. Clair|187St. Francois|189St. Louis|510St. Louis city|186Ste. Genevieve|207Stoddard|209Stone|211Sullivan|213Taney|215Texas|217Vernon|219Warren|221Washington|223Wayne|225Webster|227Worth|229Wright","30":"001Beaverhead|003Big Horn|005Blaine|007Broadwater|009Carbon|011Carter|013Cascade|015Chouteau|017Custer|019Daniels|021Dawson|023Deer Lodge|025Fallon|027Fergus|029Flathead|031Gallatin|033Garfield|035Glacier|037Golden Valley|039Granite|041Hill|043Jefferson|045Judith Basin|047Lake|049Lewis and Clark|051Liberty|053Lincoln|057Madison|055McCone|059Meagher|061Mineral|063Missoula|065Musselshell|067Park|069Petroleum|071Phillips|073Pondera|075Powder River|077Powell|079Prairie|081Ravalli|083Richland|085Roosevelt|087Rosebud|089Sanders|091Sheridan|093Silver Bow|095Stillwater|097Sweet Grass|099Teton|101Toole|103Treasure|105Valley|107Wheatland|109Wibaux|111Yellowstone","31":"001Adams|003Antelope|005Arthur|007Banner|009Blaine|011Boone|013Box Butte|015Boyd|017Brown|019Buffalo|021Burt|023Butler|025Cass|027Cedar|029Chase|031Cherry|033Cheyenne|035Clay|037Colfax|039Cuming|041Custer|043Dakota|045Dawes|047Dawson|049Deuel|051Dixon|053Dodge|055Douglas|057Dundy|059Fillmore|061Franklin|063Frontier|065Furnas|067Gage|069Garden|071Garfield|073Gosper|075Grant|077Greeley|079Hall|081Hamilton|083Harlan|085Hayes|087Hitchcock|089Holt|091Hooker|093Howard|095Jefferson|097Johnson|099Kearney|101Keith|103Keya Paha|105Kimball|107Knox|109Lancaster|111Lincoln|113Logan|115Loup|119Madison|117McPherson|121Merrick|123Morrill|125Nance|127Nemaha|129Nuckolls|131Otoe|133Pawnee|135Perkins|137Phelps|139Pierce|141Platte|143Polk|145Red Willow|147Richardson|149Rock|151Saline|153Sarpy|155Saunders|157Scotts Bluff|159Seward|161Sheridan|163Sherman|165Sioux|167Stanton|169Thayer|171Thomas|173Thurston|175Valley|177Washington|179Wayne|181Webster|183Wheeler|185York","32":"510Carson City|001Churchill|003Clark|005Douglas|007Elko|009Esmeralda|011Eureka|013Humboldt|015Lander|017Lincoln|019Lyon|021Mineral|023Nye|027Pershing|029Storey|031Washoe|033White Pine","33":"001Belknap|003Carroll|005Cheshire|007Coos|009Grafton|011Hillsborough|013Merrimack|015Rockingham|017Strafford|019Sullivan","34":"001Atlantic|003Bergen|005Burlington|007Camden|009Cape May|011Cumberland|013Essex|015Gloucester|017Hudson|019Hunterdon|021Mercer|023Middlesex|025Monmouth|027Morris|029Ocean|031Passaic|033Salem|035Somerset|037Sussex|039Union|041Warren","35":"001Bernalillo|003Catron|005Chaves|006Cibola|007Colfax|009Curry|011De Baca|013Do\u00f1a Ana|015Eddy|017Grant|019Guadalupe|021Harding|023Hidalgo|025Lea|027Lincoln|028Los Alamos|029Luna|031McKinley|033Mora|035Otero|037Quay|039Rio Arriba|041Roosevelt|045San Juan|047San Miguel|043Sandoval|049Santa Fe|051Sierra|053Socorro|055Taos|057Torrance|059Union|061Valencia","36":"001Albany|003Allegany|005Bronx|047Brooklyn Borough|007Broome|009Cattaraugus|011Cayuga|013Chautauqua|015Chemung|017Chenango|019Clinton|021Columbia|023Cortland|025Delaware|027Dutchess|029Erie|031Essex|033Franklin|035Fulton|037Genesee|039Greene|041Hamilton|043Herkimer|045Jefferson|047Kings|049Lewis|051Livingston|053Madison|061Manhattan Borough|055Monroe|057Montgomery|059Nassau|061New York|063Niagara|065Oneida|067Onondaga|069Ontario|071Orange|073Orleans|075Oswego|077Otsego|079Putnam|081Queens|083Rensselaer|085Richmond|087Rockland|091Saratoga|093Schenectady|095Schoharie|097Schuyler|099Seneca|089St. Lawrence|085Staten Island Borough|101Steuben|103Suffolk|105Sullivan|107Tioga|109Tompkins|111Ulster|113Warren|115Washington|117Wayne|119Westchester|121Wyoming|123Yates|005the Bronx Borough","37":"001Alamance|003Alexander|005Alleghany|007Anson|009Ashe|011Avery|013Beaufort|015Bertie|017Bladen|019Brunswick|021Buncombe|023Burke|025Cabarrus|027Caldwell|029Camden|031Carteret|033Caswell|035Catawba|037Chatham|039Cherokee|041Chowan|043Clay|045Cleveland|047Columbus|049Craven|051Cumberland|053Currituck|055Dare|057Davidson|059Davie|061Duplin|063Durham|065Edgecombe|067Forsyth|069Franklin|071Gaston|073Gates|075Graham|077Granville|079Greene|081Guilford|083Halifax|085Harnett|087Haywood|089Henderson|091Hertford|093Hoke|095Hyde|097Iredell|099Jackson|101Johnston|103Jones|105Lee|107Lenoir|109Lincoln|113Macon|115Madison|117Martin|111McDowell|119Mecklenburg|121Mitchell|123Montgomery|125Moore|127Nash|129New Hanover|131Northampton|133Onslow|135Orange|137Pamlico|139Pasquotank|141Pender|143Perquimans|145Person|147Pitt|149Polk|151Randolph|153Richmond|155Robeson|157Rockingham|159Rowan|161Rutherford|163Sampson|165Scotland|167Stanly|169Stokes|171Surry|173Swain|175Transylvania|177Tyrrell|179Union|181Vance|183Wake|185Warren|187Washington|189Watauga|191Wayne|193Wilkes|195Wilson|197Yadkin|199Yancey","38":"001Adams|003Barnes|005Benson|007Billings|009Bottineau|011Bowman|013Burke|015Burleigh|017Cass|019Cavalier|021Dickey|023Divide|025Dunn|027Eddy|029Emmons|031Foster|033Golden Valley|035Grand Forks|037Grant|039Griggs|041Hettinger|043Kidder|045LaMoure|047Logan|049McHenry|051McIntosh|053McKenzie|055McLean|057Mercer|059Morton|061Mountrail|063Nelson|065Oliver|067Pembina|069Pierce|071Ramsey|073Ransom|075Renville|077Richland|079Rolette|081Sargent|083Sheridan|085Sioux|087Slope|089Stark|091Steele|093Stutsman|095Towner|097Traill|099Walsh|101Ward|103Wells|105Williams","39":"001Adams|003Allen|005Ashland|007Ashtabula|009Athens|011Auglaize|013Belmont|015Brown|017Butler|019Carroll|021Champaign|023Clark|025Clermont|027Clinton|029Columbiana|031Coshocton|033Crawford|035Cuyahoga|037Darke|039Defiance|041Delaware|043Erie|045Fairfield|047Fayette|049Franklin|051Fulton|053Gallia|055Geauga|057Greene|059Guernsey|061Hamilton|063Hancock|065Hardin|067Harrison|069Henry|071Highland|073Hocking|075Holmes|077Huron|079Jackson|081Jefferson|083Knox|085Lake|087Lawrence|089Licking|091Logan|093Lorain|095Lucas|097Madison|099Mahoning|101Marion|103Medina|105Meigs|107Mercer|109Miami|111Monroe|113Montgomery|115Morgan|117Morrow|119Muskingum|121Noble|123Ottawa|125Paulding|127Perry|129Pickaway|131Pike|133Portage|135Preble|137Putnam|139Richland|141Ross|143Sandusky|145Scioto|147Seneca|149Shelby|151Stark|153Summit|155Trumbull|157Tuscarawas|159Union|161Van Wert|163Vinton|165Warren|167Washington|169Wayne|171Williams|173Wood|175Wyandot","40":"001Adair|003Alfalfa|005Atoka|007Beaver|009Beckham|011Blaine|013Bryan|015Caddo|017Canadian|019Carter|021Cherokee|023Choctaw|025Cimarron|027Cleveland|029Coal|031Comanche|033Cotton|035Craig|037Creek|039Custer|041Delaware|043Dewey|045Ellis|047Garfield|049Garvin|051Grady|053Grant|055Greer|057Harmon|059Harper|061Haskell|063Hughes|065Jackson|067Jefferson|069Johnston|071Kay|073Kingfisher|075Kiowa|077Latimer|079Le Flore|081Lincoln|083Logan|085Love|093Major|095Marshall|097Mayes|087McClain|089McCurtain|091McIntosh|099Murray|101Muskogee|103Noble|105Nowata|107Okfuskee|109Oklahoma|111Okmulgee|113Osage|115Ottawa|117Pawnee|119Payne|121Pittsburg|123Pontotoc|125Pottawatomie|127Pushmataha|129Roger Mills|131Rogers|133Seminole|135Sequoyah|137Stephens|139Texas|141Tillman|143Tulsa|145Wagoner|147Washington|149Washita|151Woods|153Woodward","41":"001Baker|003Benton|005Clackamas|007Clatsop|009Columbia|011Coos|013Crook|015Curry|017Deschutes|019Douglas|021Gilliam|023Grant|025Harney|027Hood River|029Jackson|031Jefferson|033Josephine|035Klamath|037Lake|039Lane|041Lincoln|043Linn|045Malheur|047Marion|049Morrow|051Multnomah|053Polk|055Sherman|057Tillamook|059Umatilla|061Union|063Wallowa|065Wasco|067Washington|069Wheeler|071Yamhill","42":"001Adams|003Allegheny|005Armstrong|007Beaver|009Bedford|011Berks|013Blair|015Bradford|017Bucks|019Butler|021Cambria|023Cameron|025Carbon|027Centre|029Chester|031Clarion|033Clearfield|035Clinton|037Columbia|039Crawford|041Cumberland|043Dauphin|045Delaware|047Elk|049Erie|051Fayette|053Forest|055Franklin|057Fulton|059Greene|061Huntingdon|063Indiana|065Jefferson|067Juniata|069Lackawanna|071Lancaster|073Lawrence|075Lebanon|077Lehigh|079Luzerne|081Lycoming|083McKean|085Mercer|087Mifflin|089Monroe|091Montgomery|093Montour|095Northampton|097Northumberland|099Perry|101Philadelphia|103Pike|105Potter|107Schuylkill|109Snyder|111Somerset|113Sullivan|115Susquehanna|117Tioga|119Union|121Venango|123Warren|125Washington|127Wayne|129Westmoreland|131Wyoming|133York","44":"001Bristol|003Kent|005Newport|007Providence|009Washington","45":"001Abbeville|003Aiken|005Allendale|007Anderson|009Bamberg|011Barnwell|013Beaufort|015Berkeley|017Calhoun|019Charleston|021Cherokee|023Chester|025Chesterfield|027Clarendon|029Colleton|031Darlington|033Dillon|035Dorchester|037Edgefield|039Fairfield|041Florence|043Georgetown|045Greenville|047Greenwood|049Hampton|051Horry|053Jasper|055Kershaw|057Lancaster|059Laurens|061Lee|063Lexington|067Marion|069Marlboro|065McCormick|071Newberry|073Oconee|075Orangeburg|077Pickens|079Richland|081Saluda|083Spartanburg|085Sumter|087Union|089Williamsburg|091York","46":"003Aurora|005Beadle|007Bennett|009Bon Homme|011Brookings|013Brown|015Brule|017Buffalo|019Butte|021Campbell|023Charles Mix|025Clark|027Clay|029Codington|031Corson|033Custer|035Davison|037Day|039Deuel|041Dewey|043Douglas|045Edmunds|047Fall River|049Faulk|051Grant|053Gregory|055Haakon|057Hamlin|059Hand|061Hanson|063Harding|065Hughes|067Hutchinson|069Hyde|071Jackson|073Jerauld|075Jones|077Kingsbury|079Lake|081Lawrence|083Lincoln|085Lyman|091Marshall|087McCook|089McPherson|093Meade|095Mellette|097Miner|099Minnehaha|101Moody|102Oglala Lakota|103Pennington|105Perkins|107Potter|109Roberts|111Sanborn|102Shannon|115Spink|117Stanley|119Sully|121Todd|123Tripp|125Turner|127Union|129Walworth|135Yankton|137Ziebach","47":"001Anderson|003Bedford|005Benton|007Bledsoe|009Blount|011Bradley|013Campbell|015Cannon|017Carroll|019Carter|021Cheatham|023Chester|025Claiborne|027Clay|029Cocke|031Coffee|033Crockett|035Cumberland|037Davidson|041DeKalb|039Decatur|043Dickson|045Dyer|047Fayette|049Fentress|051Franklin|053Gibson|055Giles|057Grainger|059Greene|061Grundy|063Hamblen|065Hamilton|067Hancock|069Hardeman|071Hardin|073Hawkins|075Haywood|077Henderson|079Henry|081Hickman|083Houston|085Humphreys|087Jackson|089Jefferson|091Johnson|093Knox|095Lake|097Lauderdale|099Lawrence|101Lewis|103Lincoln|105Loudon|111Macon|113Madison|115Marion|117Marshall|119Maury|107McMinn|109McNairy|121Meigs|123Monroe|125Montgomery|127Moore|129Morgan|131Obion|133Overton|135Perry|137Pickett|139Polk|141Putnam|143Rhea|145Roane|147Robertson|149Rutherford|151Scott|153Sequatchie|155Sevier|157Shelby|159Smith|161Stewart|163Sullivan|165Sumner|167Tipton|169Trousdale|171Unicoi|173Union|175Van Buren|177Warren|179Washington|181Wayne|183Weakley|185White|187Williamson|189Wilson","48":"001Anderson|003Andrews|005Angelina|007Aransas|009Archer|011Armstrong|013Atascosa|015Austin|017Bailey|019Bandera|021Bastrop|023Baylor|025Bee|027Bell|029Bexar|031Blanco|033Borden|035Bosque|037Bowie|039Brazoria|041Brazos|043Brewster|045Briscoe|047Brooks|049Brown|051Burleson|053Burnet|055Caldwell|057Calhoun|059Callahan|061Cameron|063Camp|065Carson|067Cass|069Castro|071Chambers|073Cherokee|075Childress|077Clay|079Cochran|081Coke|083Coleman|085Collin|087Collingsworth|089Colorado|091Comal|093Comanche|095Concho|097Cooke|099Coryell|101Cottle|103Crane|105Crockett|107Crosby|109Culberson|111Dallam|113Dallas|115Dawson|123DeWitt|117Deaf Smith|119Delta|121Denton|125Dickens|127Dimmit|129Donley|131Duval|133Eastland|135Ector|137Edwards|141El Paso|139Ellis|143Erath|145Falls|147Fannin|149Fayette|151Fisher|153Floyd|155Foard|157Fort Bend|159Franklin|161Freestone|163Frio|165Gaines|167Galveston|169Garza|171Gillespie|173Glasscock|175Goliad|177Gonzales|179Gray|181Grayson|183Gregg|185Grimes|187Guadalupe|189Hale|191Hall|193Hamilton|195Hansford|197Hardeman|199Hardin|201Harris|203Harrison|205Hartley|207Haskell|209Hays|211Hemphill|213Henderson|215Hidalgo|217Hill|219Hockley|221Hood|223Hopkins|225Houston|227Howard|229Hudspeth|231Hunt|233Hutchinson|235Irion|237Jack|239Jackson|241Jasper|243Jeff Davis|245Jefferson|247Jim Hogg|249Jim Wells|251Johnson|253Jones|255Karnes|257Kaufman|259Kendall|261Kenedy|263Kent|265Kerr|267Kimble|269King|271Kinney|273Kleberg|275Knox|283La Salle|277Lamar|279Lamb|281Lampasas|285Lavaca|287Lee|289Leon|291Liberty|293Limestone|295Lipscomb|297Live Oak|299Llano|301Loving|303Lubbock|305Lynn|313Madison|315Marion|317Martin|319Mason|321Matagorda|323Maverick|307McCulloch|309McLennan|311McMullen|325Medina|327Menard|329Midland|331Milam|333Mills|335Mitchell|337Montague|339Montgomery|341Moore|343Morris|345Motley|347Nacogdoches|349Navarro|351Newton|353Nolan|355Nueces|357Ochiltree|359Oldham|361Orange|363Palo Pinto|365Panola|367Parker|369Parmer|371Pecos|373Polk|375Potter|377Presidio|379Rains|381Randall|383Reagan|385Real|387Red River|389Reeves|391Refugio|393Roberts|395Robertson|397Rockwall|399Runnels|401Rusk|403Sabine|405San Augustine|407San Jacinto|409San Patricio|411San Saba|413Schleicher|415Scurry|417Shackelford|419Shelby|421Sherman|423Smith|425Somervell|427Starr|429Stephens|431Sterling|433Stonewall|435Sutton|437Swisher|439Tarrant|441Taylor|443Terrell|445Terry|447Throckmorton|449Titus|451Tom Green|453Travis|455Trinity|457Tyler|459Upshur|461Upton|463Uvalde|465Val Verde|467Van Zandt|469Victoria|471Walker|473Waller|475Ward|477Washington|479Webb|481Wharton|483Wheeler|485Wichita|487Wilbarger|489Willacy|491Williamson|493Wilson|495Winkler|497Wise|499Wood|501Yoakum|503Young|505Zapata|507Zavala","49":"001Beaver|003Box Elder|005Cache|007Carbon|009Daggett|011Davis|013Duchesne|015Emery|017Garfield|019Grand|021Iron|023Juab|025Kane|027Millard|029Morgan|031Piute|033Rich|035Salt Lake|037San Juan|039Sanpete|041Sevier|043Summit|045Tooele|047Uintah|049Utah|051Wasatch|053Washington|055Wayne|057Weber","50":"001Addison|003Bennington|005Caledonia|007Chittenden|009Essex|011Franklin|013Grand Isle|015Lamoille|017Orange|019Orleans|021Rutland|023Washington|025Windham|027Windsor","51":"001Accomack|003Albemarle|510Alexandria city|005Alleghany|007Amelia|009Amherst|011Appomattox|013Arlington|015Augusta|017Bath|019Bedford|515Bedford city|021Bland|023Botetourt|520Bristol city|025Brunswick|027Buchanan|029Buckingham|530Buena Vista city|031Campbell|033Caroline|035Carroll|036Charles City|037Charlotte|540Charlottesville city|550Chesapeake city|041Chesterfield|043Clarke|570Colonial Heights city|580Covington city|045Craig|047Culpeper|049Cumberland|590Danville city|051Dickenson|053Dinwiddie|595Emporia city|057Essex|059Fairfax|600Fairfax city|610Falls Church city|061Fauquier|063Floyd|065Fluvanna|067Franklin|620Franklin city|069Frederick|630Fredericksburg city|640Galax city|071Giles|073Gloucester|075Goochland|077Grayson|079Greene|081Greensville|083Halifax|650Hampton city|085Hanover|660Harrisonburg city|087Henrico|089Henry|091Highland|670Hopewell city|093Isle of Wight|095James City|099King George|101King William|097King and Queen|103Lancaster|105Lee|678Lexington city|107Loudoun|109Louisa|111Lunenburg|680Lynchburg city|113Madison|685Manassas Park city|683Manassas city|690Martinsville city|115Mathews|117Mecklenburg|119Middlesex|121Montgomery|125Nelson|127New Kent|700Newport News city|710Norfolk city|131Northampton|133Northumberland|720Norton city|135Nottoway|137Orange|139Page|141Patrick|730Petersburg city|143Pittsylvania|735Poquoson city|740Portsmouth city|145Powhatan|147Prince Edward|149Prince George|153Prince William|155Pulaski|750Radford city|157Rappahannock|159Richmond|760Richmond city|161Roanoke|770Roanoke city|163Rockbridge|165Rockingham|167Russell|775Salem city|169Scott|171Shenandoah|173Smyth|175Southampton|177Spotsylvania|179Stafford|790Staunton city|800Suffolk city|181Surry|183Sussex|185Tazewell|810Virginia Beach city|187Warren|191Washington|820Waynesboro city|193Westmoreland|830Williamsburg city|840Winchester city|195Wise|197Wythe|199York","53":"001Adams|003Asotin|005Benton|007Chelan|009Clallam|011Clark|013Columbia|015Cowlitz|017Douglas|019Ferry|021Franklin|023Garfield|025Grant|027Grays Harbor|029Island|031Jefferson|033King|035Kitsap|037Kittitas|039Klickitat|041Lewis|043Lincoln|045Mason|047Okanogan|049Pacific|051Pend Oreille|053Pierce|055San Juan|057Skagit|059Skamania|061Snohomish|063Spokane|065Stevens|067Thurston|069Wahkiakum|071Walla Walla|073Whatcom|075Whitman|077Yakima","54":"001Barbour|003Berkeley|005Boone|007Braxton|009Brooke|011Cabell|013Calhoun|015Clay|017Doddridge|019Fayette|021Gilmer|023Grant|025Greenbrier|027Hampshire|029Hancock|031Hardy|033Harrison|035Jackson|037Jefferson|039Kanawha|041Lewis|043Lincoln|045Logan|049Marion|051Marshall|053Mason|047McDowell|055Mercer|057Mineral|059Mingo|061Monongalia|063Monroe|065Morgan|067Nicholas|069Ohio|071Pendleton|073Pleasants|075Pocahontas|077Preston|079Putnam|081Raleigh|083Randolph|085Ritchie|087Roane|089Summers|091Taylor|093Tucker|095Tyler|097Upshur|099Wayne|101Webster|103Wetzel|105Wirt|107Wood|109Wyoming","55":"001Adams|003Ashland|005Barron|007Bayfield|009Brown|011Buffalo|013Burnett|015Calumet|017Chippewa|019Clark|021Columbia|023Crawford|025Dane|027Dodge|029Door|031Douglas|033Dunn|035Eau Claire|037Florence|039Fond du Lac|041Forest|043Grant|045Green|047Green Lake|049Iowa|051Iron|053Jackson|055Jefferson|057Juneau|059Kenosha|061Kewaunee|063La Crosse|065Lafayette|067Langlade|069Lincoln|071Manitowoc|073Marathon|075Marinette|077Marquette|078Menominee|079Milwaukee|081Monroe|083Oconto|085Oneida|087Outagamie|089Ozaukee|091Pepin|093Pierce|095Polk|097Portage|099Price|101Racine|103Richland|105Rock|107Rusk|111Sauk|113Sawyer|115Shawano|117Sheboygan|109St. Croix|119Taylor|121Trempealeau|123Vernon|125Vilas|127Walworth|129Washburn|131Washington|133Waukesha|135Waupaca|137Waushara|139Winnebago|141Wood","56":"001Albany|003Big Horn|005Campbell|007Carbon|009Converse|011Crook|013Fremont|015Goshen|017Hot Springs|019Johnson|021Laramie|023Lincoln|025Natrona|027Niobrara|029Park|031Platte|033Sheridan|035Sublette|037Sweetwater|039Teton|041Uinta|043Washakie|045Weston"}};
+const MK_STATE_BY = Object.fromEntries(MK_GEO.states.map(s => [s[0], {fp:s[0], abbr:s[1], name:s[2]}]));
+const mkCounties = fp => (MK_GEO.counties[fp] || '').split('|').filter(Boolean).map(x => ({fips: fp + x.slice(0,3), name: x.slice(3)}));
+
+const MK = {states:null, counties:{}, loading:false, error:null};
+
+async function loadMarkets(){
+  if(MK.loading) return;
+  const sb = StorageAdapter.supabase;
+  if(!sb){ MK.states = []; MK.error = 'Not connected to the database.'; return; }
+  MK.loading = true;
+  try{
+    const [s, c] = await Promise.all([
+      sb.from('market_states').select('*').order('sort'),
+      sb.from('market_counties').select('*').limit(5000),
+    ]);
+    if(s.error) throw s.error;
+    if(c.error) throw c.error;
+    MK.states = s.data || [];
+    MK.counties = Object.fromEntries((c.data || []).map(r => [r.fips, r]));
+    MK.error = null;
+  }catch(e){
+    MK.states = MK.states || [];
+    MK.error = e.message || String(e);
+  }finally{
+    MK.loading = false;
+    if(state.activeView === 'markets') app.render();
+  }
+}
+
+function mkUi(){
+  if(!state.mk){
+    let open = [];
+    try{ open = Prefs.get('mkOpen', []) || []; }catch(e){}
+    state.mk = {open: Array.isArray(open) ? open : [], filter:{}, sort:{}};
+  }
+  return state.mk;
+}
+function toggleMkState(fp){
+  const ui = mkUi();
+  ui.open = ui.open.includes(fp) ? ui.open.filter(x => x !== fp) : [...ui.open, fp];
+  try{ Prefs.set('mkOpen', ui.open); }catch(e){}
+  app.render();
+}
+function setMkFilter(fp, f){ mkUi().filter[fp] = f; app.render(); }
+function setMkSort(fp, s){ mkUi().sort[fp] = s; app.render(); }
+
+const mkAbs = r => r && r.sold_12m != null && r.active_listings ? (r.sold_12m / 12) / r.active_listings * 100 : null;
+const mkSupply = r => r && r.sold_12m ? r.active_listings / (r.sold_12m / 12) : null;
+const mkMarketing = r => !!r && (r.flip === 'yes' || r.subdivide === 'yes');
+const mkFmtAbs = v => v == null ? '—' : v.toFixed(1) + '%';
+const mkFmtSupply = v => v == null ? '—' : v >= 100 ? '99+' : v.toFixed(1);
+const mkNum = v => v == null ? '—' : Number(v).toLocaleString();
+
+function mkTotals(fp){
+  const rows = mkCounties(fp).map(c => MK.counties[c.fips]).filter(Boolean);
+  const withStats = rows.filter(r => r.sold_12m != null && r.active_listings != null);
+  const sold = withStats.reduce((a, r) => a + r.sold_12m, 0), act = withStats.reduce((a, r) => a + r.active_listings, 0);
+  const asOf = withStats.map(r => r.stats_at).filter(Boolean).sort().pop();
+  return {
+    flips: rows.filter(r => r.flip === 'yes').length,
+    subs: rows.filter(r => r.subdivide === 'yes').length,
+    marketing: rows.filter(mkMarketing).length,
+    sold, act, hasStats: withStats.length > 0,
+    abs: act ? (sold / 12) / act * 100 : null,
+    asOf,
+  };
+}
+
+function renderMarkets(){
+  if(MK.states == null){ loadMarkets(); }
+  const ui = mkUi();
+  const tracked = (MK.states || []).map(s => s.state_fp).filter(fp => MK_STATE_BY[fp]);
+  const others = MK_GEO.states.map(s => s[0]).filter(fp => !tracked.includes(fp));
+  const addSel = `<select class="form-select" id="mk-add" style="width:auto;min-width:190px">
+      <option value="">Add a state to model…</option>
+      ${others.map(fp => `<option value="${fp}">${escape(MK_STATE_BY[fp].name)}</option>`).join('')}
+    </select>
+    <button class="btn btn-primary" onclick="addMkState()"><i class="ti ti-plus"></i> Add</button>`;
+  const head = pageHeader('Land', 'Markets', 'Every state and county: where we buy for flips and subdivides, and how fast land sells there.', '')
+    + `<div class="mk-addbar">${addSel}</div>`;
+
+  if(MK.states == null){
+    return head + `<div class="card debt-empty"><i class="ti ti-loader-2 spin"></i><p>Loading markets…</p></div>`;
+  }
+  const err = MK.error ? `<div class="card" style="margin-bottom:12px;color:var(--danger)"><i class="ti ti-alert-triangle"></i> ${escape(MK.error)}</div>` : '';
+  const trackedHtml = tracked.length
+    ? tracked.map(fp => renderMkState(fp, true)).join('')
+    : `<div class="card debt-empty"><i class="ti ti-map-2"></i><h3>No states yet</h3><p>Add the states you buy in from the menu above. They’ll show here first.</p></div>`;
+  const otherHtml = `<details class="mk-others" ${others.some(fp => ui.open.includes(fp)) ? 'open' : ''}>
+      <summary>All other states <span class="debt-muted">(${others.length})</span></summary>
+      <div class="mk-other-list">${others.map(fp => renderMkState(fp, false)).join('')}</div>
+    </details>`;
+  return head + err + `<div class="mk-section-label">Modeling in</div>` + trackedHtml + otherHtml + `
+    <p class="debt-source"><i class="ti ti-info-circle"></i> Sales and listings are Landportal MLS land listings (property type Land): sold in the last 12 months, and active now.
+      Absorption is the share of today’s listings that sell in a month: (sold ÷ 12) ÷ for sale. Months of supply is the inverse.</p>`;
+}
+
+function renderMkState(fp, tracked){
+  const ui = mkUi();
+  const st = MK_STATE_BY[fp];
+  const open = ui.open.includes(fp);
+  const n = mkCounties(fp).length;
+  const t = mkTotals(fp);
+  const summary = `<span class="mk-pill">${n} counties</span>`
+    + (t.flips ? `<span class="mk-pill yes">${t.flips} flip</span>` : '')
+    + (t.subs ? `<span class="mk-pill yes">${t.subs} subdivide</span>` : '');
+  const stats = t.hasStats ? `<div class="mk-head-stats">
+      <div><b>${mkNum(t.sold)}</b><span>sold, 12 mo</span></div>
+      <div><b>${mkNum(t.act)}</b><span>for sale</span></div>
+      <div><b>${mkFmtAbs(t.abs)}</b><span>absorption / mo</span></div>
+    </div>` : '';
+  return `<div class="card mk-state ${open?'open':''} ${tracked?'':'untracked'}">
+    <button type="button" class="mk-head" onclick="toggleMkState('${fp}')" aria-expanded="${open}">
+      <i class="ti ti-chevron-right mk-chev"></i>
+      <span class="mk-name">${escape(st.name)} <small>${st.abbr}</small></span>
+      <span class="mk-pills">${summary}</span>
+      ${stats}
+    </button>
+    ${open ? renderMkCounties(fp, tracked) : ''}
+  </div>`;
+}
+
+function renderMkCounties(fp, tracked){
+  const ui = mkUi();
+  const filter = ui.filter[fp] || 'all';
+  const sort = ui.sort[fp] || 'marketing';
+  let list = mkCounties(fp).map(c => ({...c, r: MK.counties[c.fips] || null}));
+  const counts = {
+    all: list.length,
+    marketing: list.filter(c => mkMarketing(c.r)).length,
+    flip: list.filter(c => c.r && c.r.flip === 'yes').length,
+    sub: list.filter(c => c.r && c.r.subdivide === 'yes').length,
+    no: list.filter(c => c.r && (c.r.flip === 'no' || c.r.subdivide === 'no') && !mkMarketing(c.r)).length,
+    unset: list.filter(c => !c.r || (!c.r.flip && !c.r.subdivide)).length,
+  };
+  if(filter === 'marketing') list = list.filter(c => mkMarketing(c.r));
+  else if(filter === 'flip') list = list.filter(c => c.r && c.r.flip === 'yes');
+  else if(filter === 'sub') list = list.filter(c => c.r && c.r.subdivide === 'yes');
+  else if(filter === 'no') list = list.filter(c => c.r && (c.r.flip === 'no' || c.r.subdivide === 'no') && !mkMarketing(c.r));
+  else if(filter === 'unset') list = list.filter(c => !c.r || (!c.r.flip && !c.r.subdivide));
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const desc = f => (a, b) => (f(b.r) ?? -1) - (f(a.r) ?? -1) || byName(a, b);
+  const sorters = {
+    marketing: (a, b) => (mkMarketing(b.r) - mkMarketing(a.r)) || byName(a, b),
+    name: byName,
+    sold: desc(r => r && r.sold_12m),
+    active: desc(r => r && r.active_listings),
+    abs: desc(mkAbs),
+  };
+  list.sort(sorters[sort] || sorters.marketing);
+
+  const chip = (k, label) => `<button class="seg-btn ${filter===k?'active':''}" onclick="setMkFilter('${fp}','${k}')">${label} <span class="seg-count">${counts[k]}</span></button>`;
+  const sortSel = `<select class="form-select mk-sort" onchange="setMkSort('${fp}', this.value)" aria-label="Sort counties">
+      ${[['marketing','Marketing first'],['name','A to Z'],['abs','Absorption, high to low'],['sold','Sold, high to low'],['active','For sale, high to low']]
+        .map(([k,l]) => `<option value="${k}" ${sort===k?'selected':''}>${l}</option>`).join('')}
+    </select>`;
+  const yn = (c, field) => {
+    const v = c.r ? c.r[field] : null;
+    return `<div class="mk-yn" role="group" aria-label="${field === 'flip' ? 'Flips' : 'Subdivides'} in ${escape(c.name)}">
+      <button type="button" class="${v==='yes'?'on yes':''}" aria-pressed="${v==='yes'}" onclick="setMkChoice('${c.fips}','${field}','yes')">Yes</button>
+      <button type="button" class="${v==='no'?'on no':''}" aria-pressed="${v==='no'}" onclick="setMkChoice('${c.fips}','${field}','no')">No</button>
+    </div>`;
+  };
+  // A marketing / not-marketing divider when sorted that way, so the split is visible.
+  let dividerDone = sort !== 'marketing' || !list.some(c => mkMarketing(c.r));
+  const rows = list.map(c => {
+    let pre = '';
+    if(!dividerDone && !mkMarketing(c.r)){ dividerDone = true; pre = `<tr class="mk-divider"><td colspan="8">Not marketing</td></tr>`; }
+    const r = c.r;
+    const abs = mkAbs(r);
+    return pre + `<tr class="${mkMarketing(r)?'mk-on':''}" data-name="${escape(c.name.toLowerCase())}">
+      <td class="mk-county"><b>${escape(c.name)}</b>${r && r.notes ? `<div class="debt-sub">${escape(r.notes)}</div>` : ''}</td>
+      <td>${yn(c, 'flip')}</td>
+      <td>${yn(c, 'subdivide')}</td>
+      <td class="num">${mkNum(r && r.sold_12m)}</td>
+      <td class="num">${mkNum(r && r.active_listings)}</td>
+      <td class="num"><div class="mk-abs"><span>${mkFmtAbs(abs)}</span>${abs != null ? `<i style="width:${Math.min(100, abs / 25 * 100).toFixed(0)}%"></i>` : ''}</div></td>
+      <td class="num">${mkFmtSupply(mkSupply(r))}</td>
+      <td class="debt-act"><div><button class="icon-btn" title="Notes" onclick="openMkNotes('${c.fips}')"><i class="ti ti-notes"></i></button></div></td>
+    </tr>`;
+  }).join('');
+  const t = mkTotals(fp);
+  const foot = tracked
+    ? `<button class="btn btn-sm btn-danger" onclick="removeMkState('${fp}')">Stop modeling ${escape(MK_STATE_BY[fp].name)}</button>`
+    : `<button class="btn btn-sm btn-primary" onclick="addMkState('${fp}')"><i class="ti ti-plus"></i> Model this state</button>`;
+  return `<div class="mk-body">
+    <div class="mk-tools">
+      <div class="seg-control mk-filters">${chip('all','All')}${chip('marketing','Marketing')}${chip('flip','Flip yes')}${chip('sub','Subdivide yes')}${chip('no','No')}${chip('unset','Not set')}</div>
+      <input class="form-input mk-search" type="search" placeholder="Find a county" oninput="mkSearch(this)" aria-label="Find a county">
+      ${sortSel}
+    </div>
+    <div class="mk-scroll"><table class="debt-table mk-table">
+      <colgroup><col style="width:24%"><col style="width:13%"><col style="width:13%"><col style="width:10%"><col style="width:10%"><col style="width:14%"><col style="width:10%"><col style="width:52px"></colgroup>
+      <thead><tr><th>County</th><th>Flips</th><th>Subdivides</th><th class="num">Sold, 12 mo</th><th class="num">For sale</th><th class="num">Absorption / mo</th><th class="num">Months supply</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="8" class="debt-muted">No counties match.</td></tr>`}</tbody>
+    </table></div>
+    <div class="mk-foot">
+      <span class="debt-muted">${t.asOf ? `Landportal data as of ${new Date(t.asOf).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}` : 'No Landportal data pulled for this state yet. Ask Claude to pull it.'}</span>
+      ${foot}
+    </div>
+  </div>`;
+}
+// Search hides rows in place rather than re-rendering, so typing never loses focus.
+function mkSearch(input){
+  const q = input.value.trim().toLowerCase();
+  const body = input.closest('.mk-body');
+  body.querySelectorAll('tbody tr[data-name]').forEach(tr => { tr.hidden = !!q && !tr.dataset.name.includes(q); });
+  body.querySelectorAll('tr.mk-divider').forEach(tr => { tr.hidden = !!q; });
+}
+
+async function mkUpsert(fips, patch){
+  const sb = StorageAdapter.supabase;
+  if(!sb){ toast('Not connected', 'err'); return false; }
+  const before = MK.counties[fips] ? {...MK.counties[fips]} : null;
+  const row = {...(before || {fips, state_fp: fips.slice(0,2)}), ...patch, updated_at: new Date().toISOString()};
+  MK.counties[fips] = row;
+  app.render();
+  const {data, error} = await sb.from('market_counties').upsert({fips, state_fp: fips.slice(0,2), ...patch, updated_at: row.updated_at}).select().single();
+  if(error){
+    if(before) MK.counties[fips] = before; else delete MK.counties[fips];
+    app.render();
+    toast('Could not save: ' + error.message, 'err');
+    return false;
+  }
+  MK.counties[fips] = data;
+  return true;
+}
+// Clicking the selected answer again clears it back to "not set".
+function setMkChoice(fips, field, v){
+  const cur = MK.counties[fips] ? MK.counties[fips][field] : null;
+  mkUpsert(fips, {[field]: cur === v ? null : v});
+}
+function openMkNotes(fips){
+  const r = MK.counties[fips];
+  const c = mkCounties(fips.slice(0,2)).find(x => x.fips === fips);
+  showModal(`<div class="modal" style="max-width:460px">
+    <div class="modal-header"><h2 class="modal-title">${escape(c ? c.name : fips)} County notes</h2>
+      <button class="icon-btn" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
+    <textarea class="form-textarea" id="mk-notes" rows="5" placeholder="Land character, why yes or no, what to watch...">${escape(r && r.notes || '')}</textarea>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveMkNotes('${fips}')">Save</button></div>
+  </div>`);
+}
+async function saveMkNotes(fips){
+  const v = (document.getElementById('mk-notes').value || '').trim();
+  closeModal();
+  if(await mkUpsert(fips, {notes: v || null})) toast('Notes saved');
+}
+async function addMkState(fp){
+  fp = fp || (document.getElementById('mk-add') || {}).value;
+  if(!fp) return toast('Pick a state first', 'err');
+  const sb = StorageAdapter.supabase;
+  if(!sb) return toast('Not connected', 'err');
+  const sort = Math.max(0, ...(MK.states || []).map(s => s.sort || 0)) + 1;
+  const {data, error} = await sb.from('market_states').upsert({state_fp: fp, sort}).select().single();
+  if(error) return toast('Could not add: ' + error.message, 'err');
+  MK.states = [...(MK.states || []).filter(s => s.state_fp !== fp), data];
+  const ui = mkUi();
+  if(!ui.open.includes(fp)){ ui.open.push(fp); try{ Prefs.set('mkOpen', ui.open); }catch(e){} }
+  const sel = document.getElementById('mk-add'); if(sel) sel.value = '';
+  toast(`${MK_STATE_BY[fp].name} added`);
+  app.render();
+}
+function removeMkState(fp){
+  showSubModal(`<div class="modal" style="max-width:400px">
+    <div class="modal-header"><h2 class="modal-title">Stop modeling ${escape(MK_STATE_BY[fp].name)}?</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button></div>
+    <p class="form-hint">It moves down to All other states. County yes / no choices, notes and stats are kept.</p>
+    <div class="modal-actions"><button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmRemoveMkState('${fp}')">Stop modeling</button></div>
+  </div>`);
+}
+async function confirmRemoveMkState(fp){
+  const {error} = await StorageAdapter.supabase.from('market_states').delete().eq('state_fp', fp);
+  if(error) return toast('Could not remove: ' + error.message, 'err');
+  MK.states = (MK.states || []).filter(s => s.state_fp !== fp);
+  closeSubModal();
+  app.render();
+}
 
 function userColor(id){
   const u = state.users.find(x=>x.id===id);
@@ -5047,6 +5392,7 @@ const app = {
       projects: renderTasksProjects,
       activity: renderKpiTracking,
       kpis: renderKpiTracking,
+      markets: renderMarkets,
       team: renderTeam,
       settings: renderSettings,
       'cre-dashboard': renderCreDashboard,
