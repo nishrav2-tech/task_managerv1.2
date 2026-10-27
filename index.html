@@ -202,6 +202,7 @@ input,select,textarea{font:inherit;color:inherit}
 @media (max-width:700px){.mk-dd>summary{min-width:0;max-width:100%}.mk-dd-panel{right:0}}
 .mk-dd>summary::after{content:"";position:absolute;right:12px;top:50%;width:7px;height:7px;border-right:1.5px solid var(--ink-3);border-bottom:1.5px solid var(--ink-3);transform:translateY(-70%) rotate(45deg)}
 .mk-dd>summary{position:relative;background-image:none}
+.mk-crit-count{font-size:12.5px;color:var(--ink-2);font-weight:600}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -3707,7 +3708,24 @@ function setMkCrit(k, v){
   mkSave('mkCrit', ui.crit);
   app.render();
 }
-function clearMkCrit(){ mkUi().crit = {}; mkSave('mkCrit', {}); app.render(); }
+function clearMkCrit(){ const ui = mkUi(); ui.crit = {}; ui.filter = {}; mkSave('mkCrit', {}); app.render(); }
+// Reads all three boxes at once and filters every state to the counties that
+// match. (Per-state chips can still switch back to All.)
+function applyMkCrit(){
+  const ui = mkUi();
+  const num = id => { const el = document.getElementById(id); const n = el && el.value !== '' ? parseFloat(el.value) : null; return Number.isFinite(n) ? n : null; };
+  ui.crit = {maxDom: num('mk-c-dom'), minAbs: num('mk-c-abs'), minSold: num('mk-c-sold')};
+  mkSave('mkCrit', ui.crit);
+  const on = ui.crit.maxDom != null || ui.crit.minAbs != null || ui.crit.minSold != null;
+  ui.filter = {};
+  if(on){
+    const fps = (MK.states || []).map(s => s.state_fp).filter(fp => MK_STATE_BY[fp]);
+    fps.forEach(fp => { if(!ui.open.includes(fp)) ui.open.push(fp); });
+    mkSave('mkOpen', ui.open);
+  }
+  app.render();
+}
+const mkCritKey = e => { if(e.key === 'Enter'){ e.preventDefault(); applyMkCrit(); } };
 
 /* ---- Stats under the current window and acreage ----------------------------- */
 function mkBinMask(){
@@ -3782,7 +3800,7 @@ function renderMarkets(){
       </select>
       <button class="btn" onclick="addMkState()"><i class="ti ti-plus"></i> Add state</button>
       <button class="btn btn-primary mk-refresh-all" onclick="refreshMkStates()" ${busy?'disabled':''}>
-        <i class="ti ti-refresh"></i> Refresh all from Landportal</button>
+        <i class="ti ti-refresh"></i> Refresh all marketing counties</button>
     </div>`;
   const err = MK.error ? `<div class="card" style="margin-bottom:12px;color:var(--danger)"><i class="ti ti-alert-triangle"></i> ${escape(MK.error)}</div>` : '';
   const trackedHtml = tracked.length
@@ -3817,15 +3835,21 @@ function renderMkControls(){
     <div class="mk-ctl-row">
       <div class="mk-ctl-label">Target criteria</div>
       <div class="mk-crit">
-        <label>Days on market at most <input class="form-input" type="number" step="1" min="0" value="${c.maxDom ?? ''}" placeholder="any" onchange="setMkCrit('maxDom', this.value)"></label>
-        <label>Absorption (${ui.win} mo) at least <input class="form-input" type="number" step="1" min="0" value="${c.minAbs ?? ''}" placeholder="any" onchange="setMkCrit('minAbs', this.value)"> %</label>
-        <label>Sold (${ui.win} mo) at least <input class="form-input" type="number" step="1" min="0" value="${c.minSold ?? ''}" placeholder="any" onchange="setMkCrit('minSold', this.value)"></label>
-        ${critOn ? `<button class="btn btn-sm" onclick="clearMkCrit()">Clear</button>` : ''}
+        <label>Days on market at most <input class="form-input" id="mk-c-dom" type="number" step="1" min="0" value="${c.maxDom ?? ''}" placeholder="any" onkeydown="mkCritKey(event)"></label>
+        <label>Absorption (${ui.win} mo) at least <input class="form-input" id="mk-c-abs" type="number" step="1" min="0" value="${c.minAbs ?? ''}" placeholder="any" onkeydown="mkCritKey(event)"> %</label>
+        <label>Sold (${ui.win} mo) at least <input class="form-input" id="mk-c-sold" type="number" step="1" min="0" value="${c.minSold ?? ''}" placeholder="any" onkeydown="mkCritKey(event)"></label>
+        <button class="btn btn-sm btn-primary" onclick="applyMkCrit()"><i class="ti ti-search"></i> Find counties</button>
+        ${critOn ? `<button class="btn btn-sm" onclick="clearMkCrit()">Clear</button><span class="mk-crit-count">${mkCritMatches()} counties match</span>` : ''}
       </div>
     </div>
   </div>`;
 }
 
+function mkCritMatches(){
+  const mask = mkBinMask();
+  return (MK.states || []).map(s => s.state_fp).filter(fp => MK_STATE_BY[fp])
+    .reduce((n, fp) => n + mkCounties(fp).filter(c => mkMeets(mkMetrics(MK.counties[c.fips] || null, mask))).length, 0);
+}
 // Acreage as a dropdown of checkboxes: presets plus any custom ranges, all
 // combinable. Its open state lives in ui.acOpen so a repaint doesn't shut it.
 function renderMkAcreDropdown(){
@@ -3901,10 +3925,10 @@ function renderMkState(fp, tracked){
 function renderMkCounties(fp, tracked){
   const ui = mkUi();
   const mask = mkBinMask();
-  let filter = ui.filter[fp] || 'all';
   const sort = ui.sort[fp] || 'marketing';
   let list = mkCounties(fp).map(c => { const r = MK.counties[c.fips] || null; const m = mkMetrics(r, mask); return {...c, r, m, meets: mkMeets(m)}; });
   const critOn = list.length && list[0].meets !== null;
+  let filter = ui.filter[fp] || (critOn ? 'meets' : 'all');
   if(filter === 'meets' && !critOn) filter = 'all';  // criteria cleared under that filter
   const counts = {
     all: list.length,
@@ -4006,11 +4030,12 @@ function mkSearch(input){
 // One Edge Function call per county, three at a time. The function does the
 // paging against Landportal and writes the county's row; we just collect the
 // rows as they come back and repaint every few.
-async function refreshMkState(fp){
+async function refreshMkState(fp, onlyMarketing){
   const sb = StorageAdapter.supabase;
   if(!sb) return toast('Not connected', 'err');
   if(MK.refresh[fp] && MK.refresh[fp].running) return;
-  const queue = mkCounties(fp).map(c => c.fips);
+  const queue = mkCounties(fp).map(c => c.fips).filter(f => !onlyMarketing || mkMarketing(MK.counties[f]));
+  if(!queue.length) return;
   const job = MK.refresh[fp] = {running:true, done:0, total:queue.length, failed:0, error:null, cancel:false};
   const ui = mkUi();
   if(!ui.open.includes(fp)){ ui.open.push(fp); mkSave('mkOpen', ui.open); }
@@ -4042,7 +4067,7 @@ function cancelMkRefresh(fp){ if(MK.refresh[fp]) MK.refresh[fp].cancel = true; }
 async function refreshMkStates(){
   const fps = (MK.states || []).map(s => s.state_fp).filter(fp => MK_STATE_BY[fp]);
   for(const fp of fps){
-    await refreshMkState(fp);
+    await refreshMkState(fp, true);
     if(MK.refresh[fp] && MK.refresh[fp].error && /not set up/.test(MK.refresh[fp].error)) break;
   }
 }
