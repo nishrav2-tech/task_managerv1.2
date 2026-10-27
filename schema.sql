@@ -984,3 +984,14 @@ create policy "members full access market_states" on public.market_states
 drop policy if exists "members full access market_counties" on public.market_counties;
 create policy "members full access market_counties" on public.market_counties
   for all to authenticated using (public.is_member()) with check (public.is_member());
+
+-- Markets v2 (2026-10-27): 1 / 6 / 12 month windows and acreage bins,
+-- written by the market-refresh Edge Function. bins = {e: edges,
+-- a / s1 / s6 / s12: counts per acreage bin, u: counts with no lot size}.
+alter table public.market_counties add column if not exists sold_1m int;
+alter table public.market_counties add column if not exists sold_6m int;
+alter table public.market_counties add column if not exists bins jsonb;
+-- Landportal credentials for market-refresh (server-side only):
+--   insert into public.app_secrets(key, value) values
+--     ('LANDPORTAL_API_URL', 'https://...'), ('LANDPORTAL_API_TOKEN', '...')
+--   on conflict (key) do update set value = excluded.value;
