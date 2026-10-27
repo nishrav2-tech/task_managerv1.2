@@ -997,3 +997,7 @@ alter table public.market_counties add column if not exists dom_days int;
 --   insert into public.app_secrets(key, value) values
 --     ('LANDPORTAL_API_URL', 'https://...'), ('LANDPORTAL_API_TOKEN', '...')
 --   on conflict (key) do update set value = excluded.value;
+-- Price per acre by lot size, pulled on request per county (market-refresh ppaOnly).
+-- ppa = {e: $/acre band edges, s1/s6/s12: [acreage bin][band] sale counts}.
+alter table public.market_counties add column if not exists ppa jsonb;
+alter table public.market_counties add column if not exists ppa_at timestamptz;
