@@ -257,6 +257,9 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .mkc-offer b{color:var(--accent)}
 .mkc-flag{font-size:11px;padding:2px 7px;border-radius:999px;background:var(--warn-soft);color:var(--warn-ink);white-space:nowrap}
 @media (max-width:700px){.mkc-summary{grid-template-columns:1fr}.mkc-inputs .form-input{width:84px}.mk-search-wrap{max-width:none;width:100%}}
+
+.mkc-flag-hot{background:var(--danger-soft,#fbe4e1);color:var(--danger,#b3261e)}
+.mkc-above{color:var(--danger,#b3261e)!important;font-weight:600;margin-top:2px}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -4435,11 +4438,10 @@ function mkCalcRows(fips){
     const d = mkPpaNear(p, L);
     if(!d.n) return;
     const net = ppa => N * L * ppa * (1 - disc) * (1 - cost);
-    // Never suggest paying more than the tract fetches sold whole: past that
-    // point the seller is better off listing it, and so are we.
-    let offerLow = net(d.p25) / cfg.mult, offerHigh = net(d.med) / cfg.mult, capped = false;
-    if(wholeVal != null && offerHigh > wholeVal){ offerHigh = wholeVal; capped = true; }
-    if(offerLow > offerHigh) offerLow = offerHigh;
+    // Offers may run above what the tract fetches sold whole; flag it instead
+    // of capping so the subdivide upside stays visible.
+    const offerLow = net(d.p25) / cfg.mult, offerHigh = net(d.med) / cfg.mult;
+    const capped = wholeVal != null && offerHigh > wholeVal;
     rows.push({N, L, d,
       grossMed: N * L * d.med,
       netLow: net(d.p25), netMed: net(d.med), netHigh: net(d.p75),
@@ -4480,7 +4482,7 @@ function renderMkCalc(c){
       const best = res.rows[0];
       const w = res.whole;
       const wholeVal = res.wholeVal;
-      const flag = row => row.capped ? '<span class="mkc-flag" title="The split math supports more than the tract is worth whole; the top of the range is held at its as-is value">capped at as-is value</span>'
+      const flag = row => row.capped ? `<span class="mkc-flag mkc-flag-hot" title="The split math supports paying more than the tract is worth sold whole today (${res.wholeVal != null ? mkUsd(res.wholeVal) : ''})">${row.offerLow > res.wholeVal ? 'above market value' : 'top end above market value'}</span>`
         : row.d.n < MK_CALC_MIN_N ? '<span class="mkc-flag" title="Fewer than 8 sales near this lot size">thin data</span>'
         : row.cv > 0.6 ? '<span class="mkc-flag" title="Prices for this lot size vary widely (standard deviation above 60% of the median)">wide spread</span>' : '';
       const tr = row => `<tr class="${row === best ? 'mkc-best' : ''}">
@@ -4491,7 +4493,7 @@ function renderMkCalc(c){
           <td>${flag(row)}</td>
         </tr>`;
       body = `<div class="mkc-summary">
-          <div><span>Suggested offer range</span><b>${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)}</b><small>${mkK(best.offerLow / res.A)} – ${mkK(best.offerHigh / res.A)} per acre · best split ${best.N} × ${best.L.toFixed(1)} ac</small></div>
+          <div><span>Suggested offer range</span><b>${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)}</b><small>${mkK(best.offerLow / res.A)} – ${mkK(best.offerHigh / res.A)} per acre · best split ${best.N} × ${best.L.toFixed(1)} ac</small>${best.capped ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> ${best.offerLow > wholeVal ? 'Whole range is' : 'Top of range is'} above market value (${mkUsd(wholeVal)} as-is)</small>` : ''}</div>
           <div><span>Resale after split (net)</span><b>${mkUsd(best.netLow)} – ${mkUsd(best.netHigh)}</b><small>25th to 75th percentile prices</small></div>
           <div><span>Tract sold whole today</span><b>${wholeVal != null ? '≈ ' + mkUsd(wholeVal) : '—'}</b><small>${w.n ? `median ${mkK(w.med)}/ac${cfg.discPct ? `, less ${cfg.discPct}%` : ''} · ${w.n} sales, ${w.label}` : 'no comparable sales'}</small></div>
         </div>
