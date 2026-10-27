@@ -4167,19 +4167,21 @@ const MK_PPA_MIN_N = 3;
 function mkPpaPoints(r){
   const w = r && r.ppa_sum && r.ppa_sum['s' + mkUi().win];
   if(!w) return null;
-  return MK_PPA_BUCKETS.map((range, i) => { const [med, n] = w[i] || [null, 0]; return {r: range, med, n: n || 0, ok: med != null && n >= MK_PPA_MIN_N}; });
+  // ppa_sum holds all 7 ranges; the 0–1 acre range is left off the charts
+  // (we never subdivide that small, and its very high $/acre skews the scale).
+  return MK_PPA_BUCKETS.map((range, i) => { const [med, n] = w[i] || [null, 0]; return {r: range, med, n: n || 0, ok: med != null && n >= MK_PPA_MIN_N}; })
+    .filter(p => p.r[0] >= 1);
 }
-// The row's thumbnail: bar heights only, on a ratio (log) scale within the
-// county, so the drop from small lots to big tracts reads clearly instead of
-// being flattened by the very high $/acre of sub-acre lots.
+// The row's thumbnail: bar heights only, from zero, scaled to the county's
+// own highest median, so its shape (how fast $/acre falls as tracts get
+// bigger) can be compared across rows at a glance.
 function renderMkPpaSpark(r){
   const pts = mkPpaPoints(r);
   if(!pts) return `<span class="mk-spark-none" title="Price per acre not pulled yet. Open the county to pull it.">not pulled</span>`;
   const ok = pts.filter(p => p.ok);
   if(!ok.length) return `<span class="mk-spark-none" title="Too few sales in this window to chart">too few sales</span>`;
-  const hi = Math.log(Math.max(...ok.map(p => p.med)));
-  const lo = Math.log(Math.min(...ok.map(p => p.med)) * 0.6);
-  const scale = v => hi > lo ? (Math.log(v) - lo) / (hi - lo) : 1;
+  const top = Math.max(...ok.map(p => p.med));
+  const scale = v => v / top;
   const W = 84, H = 24, gap = 2, bw = (W - gap * (pts.length - 1)) / pts.length;
   const bars = pts.map((p, i) => {
     const x = i * (bw + gap);
