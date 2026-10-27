@@ -181,6 +181,27 @@ input,select,textarea{font:inherit;color:inherit}
 .mk-pill.busy{background:var(--info-soft);color:var(--info-ink)}
 .mk-foot-btns{display:flex;gap:8px;flex-wrap:wrap}
 @media (max-width:700px){.mk-ctl-label{width:100%}.mk-addbar .mk-refresh-all{margin-left:0}.mk-custom{margin-left:0}}
+.mk-headrow{display:flex;align-items:center}
+.mk-headrow .mk-head{flex:1;min-width:0}
+.mk-head-btn{margin-right:14px;flex:none}
+.mk-dd{position:relative}
+.mk-dd>summary{list-style:none;cursor:pointer;min-width:220px;max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:30px}
+.mk-dd>summary::-webkit-details-marker{display:none}
+.mk-dd-panel{position:absolute;z-index:20;top:calc(100% + 4px);left:0;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-md);box-shadow:var(--shadow-lg);padding:6px;min-width:260px}
+.mk-dd-opt{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer}
+.mk-dd-opt:hover{background:var(--surface-2)}
+.mk-dd-opt input{accent-color:var(--accent);width:15px;height:15px}
+.mk-dd-opt small{margin-left:auto;color:var(--ink-3);font-size:11px}
+.mk-dd-sep{height:1px;background:var(--border);margin:4px 2px}
+.mk-dd-custom{display:flex;align-items:center;gap:6px;padding:6px 8px;font-size:12.5px;color:var(--ink-3)}
+.mk-dd-custom .form-select{width:auto;padding:4px 24px 4px 8px;font-size:12.5px}
+.mk-dom{all:unset;box-sizing:border-box;width:64px;text-align:right;padding:4px 6px;border:1px solid transparent;border-radius:6px;font-variant-numeric:tabular-nums;font-size:13px}
+.mk-dom:hover{border-color:var(--border)}
+.mk-dom:focus{border-color:var(--accent);background:var(--surface)}
+.mk-dom::placeholder{color:var(--ink-3)}
+@media (max-width:700px){.mk-dd>summary{min-width:0;max-width:100%}.mk-dd-panel{right:0}}
+.mk-dd>summary::after{content:"";position:absolute;right:12px;top:50%;width:7px;height:7px;border-right:1.5px solid var(--ink-3);border-bottom:1.5px solid var(--ink-3);transform:translateY(-70%) rotate(45deg)}
+.mk-dd>summary{position:relative;background-image:none}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -3588,8 +3609,8 @@ window.addEventListener('resize', () => {
             (edges in MK_EDGES), so any acreage range, or several combined,
             is just a sum here with no further API calls.
    From those, for the chosen window of W months:
-     absorption = (sold_W / W) / for sale    share of listings that sell per month
-     supply     = for sale / (sold_W / W)    months to clear what's listed now
+     absorption = sold_W / for sale    sales in the window as a share of today's listings
+   Days on market isn't in Landportal's API, so dom_days is entered by hand.
 
    States we model in (public.market_states) show first in saved order;
    every other state sits below, still clickable. Inside a state the counties
@@ -3712,38 +3733,33 @@ function mkSlice(r, mask){
 }
 function mkMetrics(r, mask){
   const {sold, active} = mkSlice(r, mask);
-  const months = +mkUi().win;
-  const perMo = sold == null ? null : sold / months;
   return {
-    sold, active,
-    abs: perMo != null && active ? perMo / active * 100 : (perMo > 0 && active === 0 ? Infinity : null),
-    supply: perMo ? active / perMo : null,
+    sold, active, dom: r && r.dom_days != null ? r.dom_days : null,
+    abs: sold != null && active ? sold / active * 100 : (sold > 0 && active === 0 ? Infinity : null),
   };
 }
 function mkMeets(m){
   const c = mkUi().crit;
-  const any = c.minAbs != null || c.minSold != null || c.maxSupply != null;
+  const any = c.minAbs != null || c.minSold != null || c.maxDom != null;
   if(!any) return null;
   if(c.minAbs != null && !(m.abs != null && m.abs >= c.minAbs)) return false;
   if(c.minSold != null && !(m.sold != null && m.sold >= c.minSold)) return false;
-  if(c.maxSupply != null && !(m.supply != null && m.supply <= c.maxSupply)) return false;
+  if(c.maxDom != null && !(m.dom != null && m.dom <= c.maxDom)) return false;
   return true;
 }
 const mkMarketing = r => !!r && (r.flip === 'yes' || r.subdivide === 'yes');
-const mkFmtAbs = v => v == null ? '—' : v === Infinity ? '100%+' : v.toFixed(1) + '%';
-const mkFmtSupply = v => v == null ? '—' : v >= 100 ? '99+' : v.toFixed(1);
+const mkFmtAbs = v => v == null ? '—' : v === Infinity ? 'all sold' : (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + '%';
 const mkNum = v => v == null ? '—' : Number(v).toLocaleString();
 
 function mkTotals(fp, mask){
   const rows = mkCounties(fp).map(c => MK.counties[c.fips]).filter(Boolean);
   let sold = 0, act = 0, n = 0;
   rows.forEach(r => { const s = mkSlice(r, mask); if(s.sold != null && s.active != null){ sold += s.sold; act += s.active; n++; } });
-  const months = +mkUi().win;
   return {
     flips: rows.filter(r => r.flip === 'yes').length,
     subs: rows.filter(r => r.subdivide === 'yes').length,
     sold, act, hasStats: n > 0,
-    abs: act ? (sold / months) / act * 100 : null,
+    abs: act ? sold / act * 100 : null,
     asOf: rows.map(r => r.stats_at).filter(Boolean).sort().pop(),
   };
 }
@@ -3777,27 +3793,16 @@ function renderMarkets(){
       <div>${others.map(fp => renderMkState(fp, false)).join('')}</div>
     </details>`;
   return head + addBar + renderMkControls() + err + `<div class="mk-section-label">Modeling in</div>` + trackedHtml + otherHtml + `
-    <p class="debt-source"><i class="ti ti-info-circle"></i> Landportal MLS listings with property type Land. Absorption is the share of today’s listings that sell in a month:
-      (sold in the window ÷ months in the window) ÷ for sale. Months of supply is the inverse. Acreage uses each parcel’s lot size; a listing with no lot size on record counts in the all-acreage totals only.</p>`;
+    <p class="debt-source"><i class="ti ti-info-circle"></i> Landportal MLS listings with property type Land. Absorption is sales in the chosen window as a share of today’s listings:
+      sold ÷ for sale. Days on market isn’t available from Landportal’s API, so it’s entered by hand (click the cell). Acreage uses each parcel’s lot size; a listing with no lot size on record counts in the all-acreage totals only.</p>`;
 }
 
 function renderMkControls(){
   const ui = mkUi();
   const mask = mkBinMask();
   const winBtns = MK_WINDOWS.map(([k, l]) => `<button class="seg-btn ${ui.win===k?'active':''}" onclick="setMkWin('${k}')">${l}</button>`).join('');
-  const presetKeys = MK_PRESETS.map(mkRangeKey);
-  const chip = (r, custom) => {
-    const on = ui.acres.some(x => mkRangeKey(x) === mkRangeKey(r));
-    const hi = r[1] === Infinity ? 'null' : r[1];
-    return `<button type="button" class="mk-chip ${on?'on':''} ${custom?'custom':''}" aria-pressed="${on}" onclick="toggleMkAcres(${r[0]}, ${hi})">
-      ${mkRangeLabel(r)}${custom ? ' <i class="ti ti-x"></i>' : ''}</button>`;
-  };
-  const customs = ui.acres.filter(r => !presetKeys.includes(mkRangeKey(r)));
-  const edgeOpts = (sel, withInf) => MK_EDGES.map(e => `<option value="${e}" ${String(e)===String(sel)?'selected':''}>${e}</option>`).join('')
-    + (withInf ? `<option value="inf" ${sel==='inf'?'selected':''}>no max</option>` : '');
-  const hiEdges = MK_EDGES.slice(1);
   const c = ui.crit || {};
-  const critOn = c.minAbs != null || c.minSold != null || c.maxSupply != null;
+  const critOn = c.minAbs != null || c.minSold != null || c.maxDom != null;
   const noBins = mask && Object.values(MK.counties).some(r => r.sold_12m != null && !r.bins);
   return `<div class="card mk-controls">
     <div class="mk-ctl-row">
@@ -3806,31 +3811,59 @@ function renderMkControls(){
     </div>
     <div class="mk-ctl-row">
       <div class="mk-ctl-label">Acreage</div>
-      <div class="mk-chips">
-        <button type="button" class="mk-chip ${!ui.acres.length?'on':''}" onclick="clearMkAcres()">All sizes</button>
-        ${MK_PRESETS.map(r => chip(r, false)).join('')}
-        ${customs.map(r => chip(r, true)).join('')}
-        <span class="mk-custom">
-          <select class="form-select" id="mk-ac-lo" aria-label="Custom range from">${edgeOpts(ui.customLo, false)}</select>
-          <span>to</span>
-          <select class="form-select" id="mk-ac-hi" aria-label="Custom range to">${hiEdges.map(e => `<option value="${e}" ${String(e)===String(ui.customHi)?'selected':''}>${e}</option>`).join('')}<option value="inf" ${ui.customHi==='inf'?'selected':''}>no max</option></select>
-          <span>ac</span>
-          <button class="btn btn-sm" onclick="addMkCustomAcres()"><i class="ti ti-plus"></i> Add range</button>
-        </span>
-      </div>
+      ${renderMkAcreDropdown()}
     </div>
     ${noBins ? `<p class="mk-warn"><i class="ti ti-info-circle"></i> Counties that haven’t been refreshed from Landportal yet have no acreage breakdown, so they show a dash until you press Refresh.</p>` : ''}
     <div class="mk-ctl-row">
       <div class="mk-ctl-label">Target criteria</div>
       <div class="mk-crit">
-        <label>Absorption at least <input class="form-input" type="number" step="0.5" min="0" value="${c.minAbs ?? ''}" placeholder="any" onchange="setMkCrit('minAbs', this.value)"> %/mo</label>
-        <label>Sold at least <input class="form-input" type="number" step="1" min="0" value="${c.minSold ?? ''}" placeholder="any" onchange="setMkCrit('minSold', this.value)"></label>
-        <label>Months supply at most <input class="form-input" type="number" step="1" min="0" value="${c.maxSupply ?? ''}" placeholder="any" onchange="setMkCrit('maxSupply', this.value)"></label>
+        <label>Days on market at most <input class="form-input" type="number" step="1" min="0" value="${c.maxDom ?? ''}" placeholder="any" onchange="setMkCrit('maxDom', this.value)"></label>
+        <label>Absorption (${ui.win} mo) at least <input class="form-input" type="number" step="1" min="0" value="${c.minAbs ?? ''}" placeholder="any" onchange="setMkCrit('minAbs', this.value)"> %</label>
+        <label>Sold (${ui.win} mo) at least <input class="form-input" type="number" step="1" min="0" value="${c.minSold ?? ''}" placeholder="any" onchange="setMkCrit('minSold', this.value)"></label>
         ${critOn ? `<button class="btn btn-sm" onclick="clearMkCrit()">Clear</button>` : ''}
       </div>
     </div>
   </div>`;
 }
+
+// Acreage as a dropdown of checkboxes: presets plus any custom ranges, all
+// combinable. Its open state lives in ui.acOpen so a repaint doesn't shut it.
+function renderMkAcreDropdown(){
+  const ui = mkUi();
+  const presetKeys = MK_PRESETS.map(mkRangeKey);
+  const customs = ui.acres.filter(r => !presetKeys.includes(mkRangeKey(r)));
+  const isOn = r => ui.acres.some(x => mkRangeKey(x) === mkRangeKey(r));
+  const label = !ui.acres.length ? 'All sizes'
+    : [...ui.acres].sort((a, b) => a[0] - b[0]).map(mkRangeLabel).join(', ');
+  const opt = (r, custom) => {
+    const hi = r[1] === Infinity ? 'null' : r[1];
+    return `<label class="mk-dd-opt"><input type="checkbox" ${isOn(r)?'checked':''} onchange="toggleMkAcres(${r[0]}, ${hi})">
+      <span>${mkRangeLabel(r)}</span>${custom ? '<small>custom</small>' : ''}</label>`;
+  };
+  return `<details class="mk-dd" ${ui.acOpen?'open':''} ontoggle="mkUi().acOpen=this.open">
+    <summary class="form-select mk-dd-sum" title="${escape(label)}">${escape(label)}</summary>
+    <div class="mk-dd-panel">
+      <label class="mk-dd-opt"><input type="checkbox" ${!ui.acres.length?'checked':''} onchange="clearMkAcres()"><span>All sizes</span></label>
+      <div class="mk-dd-sep"></div>
+      ${MK_PRESETS.map(r => opt(r, false)).join('')}
+      ${customs.map(r => opt(r, true)).join('')}
+      <div class="mk-dd-sep"></div>
+      <div class="mk-dd-custom">
+        <span>Custom</span>
+        <select class="form-select" id="mk-ac-lo" aria-label="Custom range from">${MK_EDGES.map(e => `<option value="${e}" ${String(e)===String(ui.customLo)?'selected':''}>${e}</option>`).join('')}</select>
+        <span>to</span>
+        <select class="form-select" id="mk-ac-hi" aria-label="Custom range to">${MK_EDGES.slice(1).map(e => `<option value="${e}" ${String(e)===String(ui.customHi)?'selected':''}>${e}</option>`).join('')}<option value="inf" ${ui.customHi==='inf'?'selected':''}>no max</option></select>
+        <span>ac</span>
+        <button type="button" class="btn btn-sm" onclick="addMkCustomAcres()">Add</button>
+      </div>
+    </div>
+  </details>`;
+}
+document.addEventListener('click', e => {
+  if(!state.mk || !state.mk.acOpen || (e.target.closest && e.target.closest('.mk-dd'))) return;
+  state.mk.acOpen = false;
+  document.querySelectorAll('details.mk-dd[open]').forEach(d => d.open = false);
+});
 
 function renderMkState(fp, tracked){
   const ui = mkUi();
@@ -3847,15 +3880,20 @@ function renderMkState(fp, tracked){
   const stats = t.hasStats ? `<div class="mk-head-stats">
       <div><b>${mkNum(t.sold)}</b><span>sold, ${w} mo</span></div>
       <div><b>${mkNum(t.act)}</b><span>for sale</span></div>
-      <div><b>${mkFmtAbs(t.abs)}</b><span>absorption / mo</span></div>
+      <div><b>${mkFmtAbs(t.abs)}</b><span>absorption, ${w} mo</span></div>
     </div>` : '';
   return `<div class="card mk-state ${open?'open':''} ${tracked?'':'untracked'}">
-    <button type="button" class="mk-head" onclick="toggleMkState('${fp}')" aria-expanded="${open}">
-      <i class="ti ti-chevron-right mk-chev"></i>
-      <span class="mk-name">${escape(st.name)} <small>${st.abbr}</small></span>
-      <span class="mk-pills">${summary}</span>
-      ${stats}
-    </button>
+    <div class="mk-headrow">
+      <button type="button" class="mk-head" onclick="toggleMkState('${fp}')" aria-expanded="${open}">
+        <i class="ti ti-chevron-right mk-chev"></i>
+        <span class="mk-name">${escape(st.name)} <small>${st.abbr}</small></span>
+        <span class="mk-pills">${summary}</span>
+        ${stats}
+      </button>
+      ${rf && rf.running
+        ? `<button type="button" class="btn btn-sm mk-head-btn" onclick="cancelMkRefresh('${fp}')" title="Stop refreshing"><i class="ti ti-player-stop"></i> Stop</button>`
+        : `<button type="button" class="btn btn-sm mk-head-btn" onclick="refreshMkState('${fp}')" title="Pull the latest Landportal data for ${escape(st.name)}"><i class="ti ti-refresh"></i> Refresh</button>`}
+    </div>
     ${open ? renderMkCounties(fp, tracked) : ''}
   </div>`;
 }
@@ -3895,15 +3933,15 @@ function renderMkCounties(fp, tracked){
     marketing: (a, b) => (mkMarketing(b.r) - mkMarketing(a.r)) || byName(a, b),
     name: byName,
     abs: desc(c => c.m.abs === Infinity ? 1e9 : c.m.abs),
+    dom: (a, b) => (a.m.dom ?? 1e9) - (b.m.dom ?? 1e9) || byName(a, b),
     sold: desc(c => c.m.sold),
     active: desc(c => c.m.active),
-    supply: (a, b) => (a.m.supply ?? 1e9) - (b.m.supply ?? 1e9) || byName(a, b),
   };
   list.sort(sorters[sort] || sorters.marketing);
 
   const chip = (k, label) => `<button class="seg-btn ${filter===k?'active':''}" onclick="setMkFilter('${fp}','${k}')">${label} <span class="seg-count">${counts[k]}</span></button>`;
   const sortSel = `<select class="form-select mk-sort" onchange="setMkSort('${fp}', this.value)" aria-label="Sort counties">
-      ${[['marketing','Marketing first'],['name','A to Z'],['abs','Absorption, high to low'],['supply','Months supply, low to high'],['sold','Sold, high to low'],['active','For sale, high to low']]
+      ${[['marketing','Marketing first'],['name','A to Z'],['dom','Days on market, low to high'],['abs','Absorption, high to low'],['sold','Sold, high to low'],['active','For sale, high to low']]
         .map(([k,l]) => `<option value="${k}" ${sort===k?'selected':''}>${l}</option>`).join('')}
     </select>`;
   const yn = (c, field) => {
@@ -3918,27 +3956,27 @@ function renderMkCounties(fp, tracked){
     let pre = '';
     if(!dividerDone && !mkMarketing(c.r)){ dividerDone = true; pre = `<tr class="mk-divider"><td colspan="8">Not marketing</td></tr>`; }
     const r = c.r, m = c.m;
-    const barW = m.abs == null ? 0 : Math.min(100, (m.abs === Infinity ? 25 : m.abs) / 25 * 100);
+    // Bar scale: a 25%-a-month pace fills it, whatever the window.
+    const full = 25 * +ui.win;
+    const barW = m.abs == null ? 0 : Math.min(100, (m.abs === Infinity ? full : m.abs) / full * 100);
     return pre + `<tr class="${mkMarketing(r)?'mk-on':''}" data-name="${escape(c.name.toLowerCase())}">
       <td class="mk-county"><button type="button" class="mk-cname" onclick="openMkNotes('${c.fips}')" title="Notes">${escape(c.name)}</button>
         ${r && r.notes ? `<div class="debt-sub">${escape(r.notes)}</div>` : ''}</td>
       <td>${yn(c, 'flip')}</td>
       <td>${yn(c, 'subdivide')}</td>
+      <td class="num"><input class="mk-dom" type="number" min="0" step="1" inputmode="numeric" value="${m.dom ?? ''}" placeholder="—"
+        aria-label="Days on market in ${escape(c.name)}" onchange="setMkDom('${c.fips}', this.value)"></td>
       <td class="num">${mkNum(m.sold)}</td>
       <td class="num">${mkNum(m.active)}</td>
       <td class="num"><div class="mk-abs"><span>${mkFmtAbs(m.abs)}</span>${barW ? `<i style="width:${barW.toFixed(0)}%"></i>` : ''}</div></td>
-      <td class="num">${mkFmtSupply(m.supply)}</td>
       <td class="mk-meets">${c.meets ? '<i class="ti ti-target-arrow" title="Meets your target criteria"></i>' : ''}</td>
     </tr>`;
   }).join('');
   const t = mkTotals(fp, mask);
   const rf = MK.refresh[fp];
-  const refreshBtn = rf && rf.running
-    ? `<button class="btn btn-sm" onclick="cancelMkRefresh('${fp}')"><i class="ti ti-player-stop"></i> Stop (${rf.done} / ${rf.total})</button>`
-    : `<button class="btn btn-sm" onclick="refreshMkState('${fp}')"><i class="ti ti-refresh"></i> Refresh from Landportal</button>`;
   const foot = tracked
-    ? `${refreshBtn}<button class="btn btn-sm btn-danger" onclick="removeMkState('${fp}')">Stop modeling</button>`
-    : `${refreshBtn}<button class="btn btn-sm btn-primary" onclick="addMkState('${fp}')"><i class="ti ti-plus"></i> Model this state</button>`;
+    ? `<button class="btn btn-sm btn-danger" onclick="removeMkState('${fp}')">Stop modeling</button>`
+    : `<button class="btn btn-sm btn-primary" onclick="addMkState('${fp}')"><i class="ti ti-plus"></i> Model this state</button>`;
   const asOf = t.asOf ? `Landportal data as of ${new Date(t.asOf).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'})}` : 'No Landportal data for this state yet. Press Refresh.';
   return `<div class="mk-body">
     <div class="mk-tools">
@@ -3947,8 +3985,8 @@ function renderMkCounties(fp, tracked){
       ${sortSel}
     </div>
     <div class="mk-scroll"><table class="debt-table mk-table">
-      <colgroup><col style="width:25%"><col style="width:13%"><col style="width:13%"><col style="width:10%"><col style="width:10%"><col style="width:13%"><col style="width:10%"><col style="width:40px"></colgroup>
-      <thead><tr><th>County</th><th>Flips</th><th>Subdivides</th><th class="num">Sold, ${ui.win} mo</th><th class="num">For sale</th><th class="num">Absorption / mo</th><th class="num">Months supply</th><th></th></tr></thead>
+      <colgroup><col style="width:26%"><col style="width:13%"><col style="width:13%"><col style="width:11%"><col style="width:11%"><col style="width:11%"><col style="width:15%"><col style="width:40px"></colgroup>
+      <thead><tr><th>County</th><th>Flips</th><th>Subdivides</th><th class="num">Days on market</th><th class="num">Sold, ${ui.win} mo</th><th class="num">For sale</th><th class="num">Absorption, ${ui.win} mo</th><th></th></tr></thead>
       <tbody>${rows || `<tr><td colspan="8" class="debt-muted">No counties match.</td></tr>`}</tbody>
     </table></div>
     <div class="mk-foot">
@@ -4036,6 +4074,11 @@ async function mkUpsert(fips, patch){
   }
   MK.counties[fips] = data;
   return true;
+}
+function setMkDom(fips, v){
+  const n = v === '' ? null : Math.round(parseFloat(v));
+  if(v !== '' && !(n >= 0)) return toast('Enter days as a whole number', 'err');
+  mkUpsert(fips, {dom_days: n});
 }
 function setMkChoice(fips, field, v){
   const cur = MK.counties[fips] ? MK.counties[fips][field] : null;

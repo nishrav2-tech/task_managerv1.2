@@ -991,6 +991,8 @@ create policy "members full access market_counties" on public.market_counties
 alter table public.market_counties add column if not exists sold_1m int;
 alter table public.market_counties add column if not exists sold_6m int;
 alter table public.market_counties add column if not exists bins jsonb;
+-- Days on market, entered by hand (Landportal's API doesn't expose it).
+alter table public.market_counties add column if not exists dom_days int;
 -- Landportal credentials for market-refresh (server-side only):
 --   insert into public.app_secrets(key, value) values
 --     ('LANDPORTAL_API_URL', 'https://...'), ('LANDPORTAL_API_TOKEN', '...')
