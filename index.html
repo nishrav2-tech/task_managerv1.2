@@ -226,6 +226,7 @@ tr.mk-open td{border-bottom-color:transparent}
 .mk-spark{display:block}
 .mk-spark-h{padding-left:14px!important}
 .mk-spark-none{color:var(--ink-3)}
+.mk-spark-none{font-size:11px;color:var(--ink-3)}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -4173,9 +4174,9 @@ function mkPpaPoints(r){
 // being flattened by the very high $/acre of sub-acre lots.
 function renderMkPpaSpark(r){
   const pts = mkPpaPoints(r);
-  if(!pts) return '';
+  if(!pts) return `<span class="mk-spark-none" title="Price per acre not pulled yet. Open the county to pull it.">not pulled</span>`;
   const ok = pts.filter(p => p.ok);
-  if(!ok.length) return `<span class="mk-spark-none" title="Too few sales to chart">·</span>`;
+  if(!ok.length) return `<span class="mk-spark-none" title="Too few sales in this window to chart">too few sales</span>`;
   const hi = Math.log(Math.max(...ok.map(p => p.med)));
   const lo = Math.log(Math.min(...ok.map(p => p.med)) * 0.6);
   const scale = v => hi > lo ? (Math.log(v) - lo) / (hi - lo) : 1;
