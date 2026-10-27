@@ -251,7 +251,7 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .mkc-summary b{font-size:17px;font-variant-numeric:tabular-nums}
 .mkc-summary small{font-size:11.5px;color:var(--ink-3)}
 .mkc-summary>div:first-child{border-color:var(--accent);background:var(--accent-soft)}
-.mkc-table{min-width:860px}
+.mkc-table{min-width:960px}
 .mkc-table td{vertical-align:top}
 .mkc-best td{background:var(--accent-soft)}
 .mkc-offer b{color:var(--accent)}
@@ -262,6 +262,7 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .mkc-above{color:var(--danger,#b3261e)!important;font-weight:600;margin-top:2px}
 .mkc-implied{background:var(--accent-soft)!important;font-weight:700;color:var(--accent)}
 .mkc-short{color:var(--danger)!important}
+.mkc-table td .mkc-flag{display:inline-block;margin-top:4px}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -4511,15 +4512,25 @@ function renderMkCalc(c){
       const best = res.rows[0];
       const w = res.whole;
       const wholeVal = res.wholeVal;
-      const flag = row => res.ask ? (row.d.n < MK_CALC_MIN_N ? '<span class="mkc-flag" title="Fewer than 8 sales near this lot size">thin data</span>' : row.cv > 0.6 ? '<span class="mkc-flag" title="Prices for this lot size vary widely">wide spread</span>' : '') : row.capped ? `<span class="mkc-flag mkc-flag-hot" title="The split math supports paying more than the tract is worth sold whole today (${res.wholeVal != null ? mkUsd(res.wholeVal) : ''})">${row.offerLow > res.wholeVal ? 'above market value' : 'top end above market value'}</span>`
-        : row.d.n < MK_CALC_MIN_N ? '<span class="mkc-flag" title="Fewer than 8 sales near this lot size">thin data</span>'
-        : row.cv > 0.6 ? '<span class="mkc-flag" title="Prices for this lot size vary widely (standard deviation above 60% of the median)">wide spread</span>' : '';
+      const flag = row => [
+        !res.ask && row.capped ? `<span class="mkc-flag mkc-flag-hot" title="The split math supports paying more than the tract is worth sold whole today (${res.wholeVal != null ? mkUsd(res.wholeVal) : ''})">${row.offerLow > res.wholeVal ? 'above market value' : 'top end above market value'}</span>` : '',
+        row.d.n < MK_CALC_MIN_N ? '<span class="mkc-flag" title="Fewer than 8 sales near this lot size">thin data</span>' : ''
+      ].join(' ');
+      const spread = row => row.cv > 0.6 ? '<div><span class="mkc-flag" title="Lot prices at this size vary widely: standard deviation is more than 60% of the median">wide spread</span></div>' : '';
+      // Profit: with an asking price, net resale (25th pct to median) less asking;
+      // otherwise net resale at median less the offer (high to low end).
+      const profit = row => {
+        const [lo, hi] = res.ask ? [row.netLow - res.ask, row.netMed - res.ask] : [row.netMed - row.offerHigh, row.netMed - row.offerLow];
+        const f = v => `<span class="${v < 0 ? 'mkc-short' : ''}">${mkK(v)}</span>`;
+        return `<b>${f(lo)} – ${f(hi)}</b>`;
+      };
       const tr = row => `<tr class="${row === best ? 'mkc-best' : ''}">
           <td><b>${row.N} lots</b> × ${row.L.toFixed(row.L < 10 ? 1 : 0)} ac</td>
           <td class="num">${mkK(row.d.p25)} – <b>${mkK(row.d.med)}</b> – ${mkK(row.d.p75)}<div class="debt-sub" title="${row.d.n} sales, ${row.d.label}">±${mkK(row.d.sd)} SD</div></td>
-          <td class="num">${mkK(row.netLow)} – ${mkK(row.netHigh)}</td>
+          <td class="num">${mkK(row.netLow)} – ${mkK(row.netHigh)}${spread(row)}</td>
           ${res.ask ? `<td class="num mkc-offer"><b class="${row.multMed >= cfg.mult ? '' : 'mkc-short'}">${row.multLow.toFixed(2)}x – ${row.multMed.toFixed(2)}x</b></td>`
             : `<td class="num mkc-offer"><b>${mkK(row.offerLow)} – ${mkK(row.offerHigh)}</b></td>`}
+          <td class="num">${profit(row)}</td>
           <td class="num">${mkTimeline(row)}</td>
           <td>${flag(row)}</td>
         </tr>`;
@@ -4529,7 +4540,7 @@ function renderMkCalc(c){
           <div><span>Tract sold whole today</span><b>${wholeVal != null ? '≈ ' + mkUsd(wholeVal) : '—'}</b><small>${w.n ? `${mkK(w.med)}/ac median` : 'No sales'}</small></div>
         </div>
         <div class="debt-table-wrap"><table class="debt-table mkc-table">
-          <thead><tr><th>Split (${res.A} ac)</th><th class="num">Lot $/ac: 25th – median – 75th</th><th class="num">Net resale</th><th class="num">${res.ask ? 'Multiple at asking' : 'Offer range'}</th><th class="num">Time to sell</th><th></th></tr></thead>
+          <thead><tr><th>Split (${res.A} ac)</th><th class="num">Lot $/ac: 25th – median – 75th</th><th class="num">Net resale</th><th class="num">${res.ask ? 'Multiple at asking' : 'Offer range'}</th><th class="num" title="${res.ask ? 'Net resale at 25th percentile to median prices, less asking' : 'Net resale at median prices, less the offer (high to low end of range)'}">Profit</th><th class="num">Time to sell</th><th></th></tr></thead>
           <tbody>${res.rows.map(tr).join('')}</tbody>
         </table></div>`;
     }
