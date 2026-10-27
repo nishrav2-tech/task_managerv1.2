@@ -4168,21 +4168,26 @@ function mkPpaPoints(r){
   if(!w) return null;
   return MK_PPA_BUCKETS.map((range, i) => { const [med, n] = w[i] || [null, 0]; return {r: range, med, n: n || 0, ok: med != null && n >= MK_PPA_MIN_N}; });
 }
-// The row's thumbnail: bar heights only, scaled to the county's own peak.
+// The row's thumbnail: bar heights only, on a ratio (log) scale within the
+// county, so the drop from small lots to big tracts reads clearly instead of
+// being flattened by the very high $/acre of sub-acre lots.
 function renderMkPpaSpark(r){
   const pts = mkPpaPoints(r);
   if(!pts) return '';
   const ok = pts.filter(p => p.ok);
   if(!ok.length) return `<span class="mk-spark-none" title="Too few sales to chart">·</span>`;
-  const max = Math.max(...ok.map(p => p.med));
+  const hi = Math.log(Math.max(...ok.map(p => p.med)));
+  const lo = Math.log(Math.min(...ok.map(p => p.med)) * 0.6);
+  const scale = v => hi > lo ? (Math.log(v) - lo) / (hi - lo) : 1;
   const W = 84, H = 24, gap = 2, bw = (W - gap * (pts.length - 1)) / pts.length;
   const bars = pts.map((p, i) => {
     const x = i * (bw + gap);
     if(!p.ok) return `<rect x="${x.toFixed(1)}" y="${H-2}" width="${bw.toFixed(1)}" height="2" rx="1" fill="var(--border-strong)"/>`;
-    const h = Math.max(3, p.med / max * H);
+    const h = Math.max(3, scale(p.med) * H);
     return `<rect x="${x.toFixed(1)}" y="${(H-h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="var(--accent)"/>`;
   }).join('');
-  return `<svg class="mk-spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">${bars}</svg>`;
+  const tip = pts.map(p => `${mkRangeLabel(p.r)}: ${p.ok ? mkMoney(p.med) : '—'}`).join('\n');
+  return `<svg class="mk-spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Median $/acre by lot size"><title>${escape(tip)}</title>${bars}</svg>`;
 }
 const mkMoney = v => v >= 1000 ? '$' + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : '$' + Math.round(v);
 function renderMkPpaChart(fips){
