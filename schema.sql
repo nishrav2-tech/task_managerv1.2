@@ -950,3 +950,37 @@ create policy "members full access cre_loan_quotes" on public.cre_loan_quotes
 --     headers := jsonb_build_object('Content-Type','application/json','x-rates-secret',
 --       (select value from public.app_secrets where key='RATES_SECRET')),
 --     timeout_milliseconds := 120000)$$);
+
+-- ============================================================================
+-- Markets tab (2026-10-27)
+--   market_states    states we model in, in display order
+--   market_counties  per county: flip / subdivide yes-no, notes, and
+--                    Landportal MLS land stats (sold last 12 months, active
+--                    listings now). County names come from the app's
+--                    embedded Census list; rows exist only once touched.
+-- ============================================================================
+create table if not exists public.market_states (
+  state_fp text primary key,          -- 2-digit state FIPS, e.g. '47'
+  sort     int default 0,
+  added_at timestamptz default now()
+);
+create table if not exists public.market_counties (
+  fips            text primary key,   -- 5-digit county FIPS
+  state_fp        text not null,
+  flip            text check (flip in ('yes','no')),
+  subdivide       text check (subdivide in ('yes','no')),
+  notes           text,
+  sold_12m        int,
+  active_listings int,
+  stats_at        timestamptz,
+  updated_at      timestamptz default now()
+);
+create index if not exists market_counties_state_idx on public.market_counties (state_fp);
+alter table public.market_states enable row level security;
+alter table public.market_counties enable row level security;
+drop policy if exists "members full access market_states" on public.market_states;
+create policy "members full access market_states" on public.market_states
+  for all to authenticated using (public.is_member()) with check (public.is_member());
+drop policy if exists "members full access market_counties" on public.market_counties;
+create policy "members full access market_counties" on public.market_counties
+  for all to authenticated using (public.is_member()) with check (public.is_member());
