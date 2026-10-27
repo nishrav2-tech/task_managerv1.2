@@ -227,6 +227,36 @@ tr.mk-open td{border-bottom-color:transparent}
 .mk-spark-h{padding-left:14px!important}
 .mk-spark-none{color:var(--ink-3)}
 .mk-spark-none{font-size:11px;color:var(--ink-3)}
+
+.mk-search-wrap{display:flex;gap:8px;align-items:center;flex:1;min-width:0;max-width:560px}
+.mk-search-wrap .form-select.mk-search-st{width:auto;flex:0 0 auto;max-width:170px}
+.mk-find{position:relative;flex:1;min-width:0}
+.mk-find>i{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ink-3);font-size:15px;pointer-events:none}
+.mk-find .form-input{padding-left:32px;width:100%}
+.mk-find-results{position:absolute;z-index:30;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-md);box-shadow:var(--shadow-lg);padding:4px;max-height:340px;overflow:auto}
+.mk-find-item{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:7px 10px;border-radius:6px;font-size:13px}
+.mk-find-item small{color:var(--ink-3);margin-left:4px}
+.mk-find-item.on,.mk-find-item:hover{background:var(--surface-2)}
+.mk-find-empty{padding:8px 10px;font-size:13px;color:var(--ink-3)}
+tr.mk-flash td{animation:mkflash 1.6s ease}
+@keyframes mkflash{0%,40%{background:var(--warn-soft)}100%{background:transparent}}
+.mkc{margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+.mkc-inputs{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;margin:8px 0 12px}
+.mkc-inputs label{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--ink-3);font-weight:600}
+.mkc-inputs .form-input{width:110px;padding:6px 8px;font-size:13px}
+.mkc-note{font-size:12.5px;margin:4px 0}
+.mkc-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.mkc-summary>div{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.mkc-summary span{font-size:11px;color:var(--ink-3);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.mkc-summary b{font-size:17px;font-variant-numeric:tabular-nums}
+.mkc-summary small{font-size:11.5px;color:var(--ink-3)}
+.mkc-summary>div:first-child{border-color:var(--accent);background:var(--accent-soft)}
+.mkc-table{min-width:720px}
+.mkc-table td{vertical-align:top}
+.mkc-best td{background:var(--accent-soft)}
+.mkc-offer b{color:var(--accent)}
+.mkc-flag{font-size:11px;padding:2px 7px;border-radius:999px;background:var(--warn-soft);color:var(--warn-ink);white-space:nowrap}
+@media (max-width:700px){.mkc-summary{grid-template-columns:1fr}.mkc-inputs .form-input{width:84px}.mk-search-wrap{max-width:none;width:100%}}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -3651,7 +3681,7 @@ const MK_WINDOWS = [['1','1 month'],['6','6 months'],['12','12 months']];
 const mkRangeLabel = ([lo, hi]) => hi === Infinity ? `${lo}+ ac` : `${lo}–${hi} ac`;
 const mkRangeKey = ([lo, hi]) => `${lo}-${hi === Infinity ? 'inf' : hi}`;
 
-const MK = {states:null, counties:{}, loading:false, error:null, refresh:{}, ppa:{}, ppaBusy:{}};
+const MK = {states:null, counties:{}, loading:false, error:null, refresh:{}, ppa:{}, ppaBusy:{}, ppaFull:{}};
 // Columns loaded up front. ppa (the $/acre breakdown) is fetched per county
 // only when its row is opened, so the tab stays light.
 const MK_COLS = 'fips,state_fp,flip,subdivide,notes,sold_1m,sold_6m,sold_12m,active_listings,bins,stats_at,updated_at,ppa_at,ppa_sum';
@@ -3818,19 +3848,26 @@ function renderMarkets(){
     return head + `<div class="card debt-empty"><i class="ti ti-loader-2 spin"></i><p>Loading markets…</p></div>`;
   }
   const busy = Object.values(MK.refresh).some(r => r.running);
+  const stOpts = [...tracked, ...others].map(fp => `<option value="${fp}" ${ui.searchSt===fp?'selected':''}>${escape(MK_STATE_BY[fp].name)}</option>`).join('');
   const addBar = `<div class="mk-addbar">
-      <select class="form-select" id="mk-add">
-        <option value="">Add a state to model…</option>
-        ${others.map(fp => `<option value="${fp}">${escape(MK_STATE_BY[fp].name)}</option>`).join('')}
-      </select>
-      <button class="btn" onclick="addMkState()"><i class="ti ti-plus"></i> Add state</button>
+      <div class="mk-search-wrap">
+        <select class="form-select mk-search-st" id="mk-find-st" aria-label="State" onchange="mkUi().searchSt=this.value; mkFind()">
+          <option value="">All states</option>${stOpts}
+        </select>
+        <div class="mk-find">
+          <i class="ti ti-search"></i>
+          <input class="form-input" id="mk-find" type="search" autocomplete="off" placeholder="Find a county, e.g. Bedford"
+            oninput="mkFind()" onkeydown="mkFindKey(event)" onfocus="mkFind()" aria-label="Find a county">
+          <div class="mk-find-results" id="mk-find-results" hidden></div>
+        </div>
+      </div>
       <button class="btn btn-primary mk-refresh-all" onclick="refreshMkStates()" ${busy?'disabled':''}>
         <i class="ti ti-refresh"></i> Refresh all marketing counties</button>
     </div>`;
   const err = MK.error ? `<div class="card" style="margin-bottom:12px;color:var(--danger)"><i class="ti ti-alert-triangle"></i> ${escape(MK.error)}</div>` : '';
   const trackedHtml = tracked.length
     ? tracked.map(fp => renderMkState(fp, true)).join('')
-    : `<div class="card debt-empty"><i class="ti ti-map-2"></i><h3>No states yet</h3><p>Add the states you buy in from the menu above. They’ll show here first.</p></div>`;
+    : `<div class="card debt-empty"><i class="ti ti-map-2"></i><h3>No states yet</h3><p>Open a state under All other states and choose Model this state. Modeled states show here first.</p></div>`;
   const otherHtml = `<details class="mk-others" ${others.some(fp => ui.open.includes(fp)) ? 'open' : ''}>
       <summary>All other states <span class="debt-muted">(${others.length})</span></summary>
       <div>${others.map(fp => renderMkState(fp, false)).join('')}</div>
@@ -3838,6 +3875,78 @@ function renderMarkets(){
   return head + addBar + renderMkControls() + err + `<div class="mk-section-label">Modeling in</div>` + trackedHtml + otherHtml + `
     <p class="debt-source"><i class="ti ti-info-circle"></i> Landportal MLS listings with property type Land. Absorption is sales in the chosen window as a share of today’s listings:
       sold ÷ for sale. Acreage uses each parcel’s lot size; a listing with no lot size on record counts in the all-acreage totals only.</p>`;
+}
+
+/* ---- County search ----------------------------------------------------------
+   Type a county (optionally pick a state first) and jump straight to it: its
+   state opens, the county row opens with its chart and calculator, and the
+   page scrolls there. Results are drawn into the dropdown directly, not via a
+   repaint, so typing never loses focus. */
+function mkFindMatches(q){
+  const ui = mkUi();
+  q = q.trim().toLowerCase().replace(/ county$/, '');
+  if(!q) return [];
+  const tracked = (MK.states || []).map(s => s.state_fp);
+  const fps = ui.searchSt ? [ui.searchSt] : MK_GEO.states.map(s => s[0]);
+  const out = [];
+  fps.forEach(fp => mkCounties(fp).forEach(c => {
+    const n = c.name.toLowerCase();
+    const score = n === q ? 0 : n.startsWith(q) ? 1 : n.includes(q) ? 2 : -1;
+    if(score >= 0) out.push({...c, fp, score, tracked: tracked.includes(fp)});
+  }));
+  out.sort((a, b) => a.score - b.score || (b.tracked - a.tracked) || a.name.localeCompare(b.name));
+  return out.slice(0, 10);
+}
+function mkFind(){
+  const el = document.getElementById('mk-find'), box = document.getElementById('mk-find-results');
+  if(!el || !box) return;
+  const ms = mkFindMatches(el.value);
+  if(!el.value.trim()){ box.hidden = true; box.innerHTML = ''; return; }
+  box.innerHTML = ms.length ? ms.map((c, i) => {
+    const r = MK.counties[c.fips];
+    const tag = r && r.flip === 'yes' ? '<span class="mk-pill yes">flip</span>' : r && r.flip === 'no' ? '<span class="mk-pill">no</span>' : '';
+    return `<button type="button" class="mk-find-item ${i===0?'on':''}" onmousedown="event.preventDefault()" onclick="goMkCounty('${c.fips}')">
+      <span><b>${escape(c.name)}</b> <small>${MK_STATE_BY[c.fp].abbr}</small></span>${tag}</button>`;
+  }).join('') : `<div class="mk-find-empty">No county matches.</div>`;
+  box.hidden = false;
+}
+function mkFindKey(e){
+  const box = document.getElementById('mk-find-results');
+  if(!box) return;
+  const items = [...box.querySelectorAll('.mk-find-item')];
+  let i = items.findIndex(x => x.classList.contains('on'));
+  if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    if(!items.length) return;
+    items[i]?.classList.remove('on');
+    i = (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[i].classList.add('on'); items[i].scrollIntoView({block:'nearest'});
+  }else if(e.key === 'Enter'){
+    e.preventDefault();
+    if(items[i >= 0 ? i : 0]) items[i >= 0 ? i : 0].click();
+  }else if(e.key === 'Escape'){ box.hidden = true; }
+}
+document.addEventListener('click', e => {
+  if(e.target.closest && e.target.closest('.mk-find')) return;
+  const box = document.getElementById('mk-find-results'); if(box) box.hidden = true;
+});
+function goMkCounty(fips){
+  const ui = mkUi();
+  const fp = fips.slice(0, 2);
+  if(!ui.open.includes(fp)){ ui.open.push(fp); mkSave('mkOpen', ui.open); }
+  ui.filter[fp] = 'all';                 // make sure no filter hides it
+  ui.exp = ui.exp || [];
+  if(!ui.exp.includes(fips)) ui.exp.push(fips);
+  loadMkPpaFull(fips);
+  const el = document.getElementById('mk-find'); if(el) el.value = '';
+  const box = document.getElementById('mk-find-results'); if(box){ box.hidden = true; box.innerHTML = ''; }
+  app.render();
+  requestAnimationFrame(() => {
+    const row = document.querySelector(`tr[data-fips="${fips}"]`);
+    if(!row) return;
+    row.scrollIntoView({behavior:'smooth', block:'center'});
+    row.classList.add('mk-flash'); setTimeout(() => row.classList.remove('mk-flash'), 1600);
+  });
 }
 
 function renderMkControls(){
@@ -4007,7 +4116,7 @@ function renderMkCounties(fp, tracked){
     const full = 25 * +ui.win;
     const barW = m.abs == null ? 0 : Math.min(100, (m.abs === Infinity ? full : m.abs) / full * 100);
     const open = !!ui.exp && ui.exp.includes(c.fips);
-    return pre + `<tr class="${mkMarketing(r)?'mk-on':''} ${open?'mk-open':''}" data-name="${escape(c.name.toLowerCase())}">
+    return pre + `<tr class="${mkMarketing(r)?'mk-on':''} ${open?'mk-open':''}" data-name="${escape(c.name.toLowerCase())}" data-fips="${c.fips}">
       <td class="mk-county"><button type="button" class="mk-cname" onclick="toggleMkCounty('${c.fips}')" aria-expanded="${open}">
           <i class="ti ti-chevron-right mk-cchev"></i>${escape(c.name)}</button>
         ${r && r.notes ? `<div class="debt-sub">${escape(r.notes)}</div>` : ''}</td>
@@ -4139,6 +4248,21 @@ function toggleMkCounty(fips){
   const ui = mkUi();
   ui.exp = ui.exp || [];
   ui.exp = ui.exp.includes(fips) ? ui.exp.filter(x => x !== fips) : [...ui.exp, fips];
+  if(ui.exp.includes(fips)) loadMkPpaFull(fips);
+  app.render();
+}
+// The full $/acre breakdown (acreage bin x price band counts) for one county,
+// fetched when the county is opened; the subdivide calculator needs the
+// spread, not just the medians.
+async function loadMkPpaFull(fips){
+  const r = MK.counties[fips];
+  if(!r || !r.ppa_sum || MK.ppaFull[fips] !== undefined) return;
+  MK.ppaFull[fips] = 'loading';
+  try{
+    const {data, error} = await StorageAdapter.supabase.from('market_counties').select('ppa').eq('fips', fips).single();
+    if(error) throw error;
+    MK.ppaFull[fips] = data.ppa || null;
+  }catch(e){ MK.ppaFull[fips] = null; }
   app.render();
 }
 async function pullMkPpa(fips){
@@ -4153,6 +4277,8 @@ async function pullMkPpa(fips){
     if(data && data.code === 'not_configured'){ openMkSetup(); throw new Error('Landportal is not connected'); }
     if(!data || !data.ok) throw new Error((data && data.error) || 'Pull failed');
     MK.counties[fips] = {...(MK.counties[fips] || {fips, state_fp: fips.slice(0,2)}), ppa_at: data.ppa_at, ppa_sum: data.ppa_sum};
+    delete MK.ppaFull[fips];
+    loadMkPpaFull(fips);
     toast('Price per acre pulled');
   }catch(e){
     toast('Could not pull price per acre: ' + (e.message || e), 'err');
@@ -4224,6 +4350,163 @@ function renderMkPpaChart(fips){
   }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="mk-ppa-svg" role="img" aria-label="Median sold price per acre by lot size">${grid}${bars}</svg>`;
 }
+/* ---- Subdivide calculator ---------------------------------------------------
+   For a tract of A acres: split the usable acreage into N equal lots for a
+   range of lot sizes, price each lot from this county's sold $/acre at about
+   that lot size (last 12 months), take off selling costs and per-lot survey /
+   split costs, and back into what we could pay for the whole tract to resell
+   at the target multiple (2x by default).
+
+   Spread, not just the middle: for each lot size the $/acre distribution
+   gives the 25th percentile, median and 75th percentile (interpolated inside
+   the price bands) plus a standard deviation from band midpoints.
+     offer low  = net resale at the 25th percentile / multiple
+     offer high = net resale at the median / multiple
+   so the bottom of the range still works if lots sell in the weaker quarter
+   of the market. Lot sizes with few sales borrow neighbouring sizes until
+   there are at least 8 sales; thin or very spread-out data is flagged. */
+const MK_CALC_SIZES = [1, 2, 3, 4, 5, 7.5, 10, 15, 20, 25, 30, 40, 50, 75, 100];
+const MK_CALC_MIN_N = 8;
+function mkCalcCfg(fips){
+  const ui = mkUi();
+  ui.calc = ui.calc || {};
+  return ui.calc[fips] || (ui.calc[fips] = {acres:'', usable:90, lotCost:2500, sellPct:8, mult:2, maxLots:8});
+}
+function setMkCalc(fips){
+  const cfg = mkCalcCfg(fips);
+  const num = (id, d) => { const el = document.getElementById(id + fips); const n = el ? parseFloat(el.value) : NaN; return Number.isFinite(n) ? n : d; };
+  cfg.acres = num('mkc-ac-', '');
+  cfg.usable = Math.min(100, Math.max(10, num('mkc-us-', 90)));
+  cfg.lotCost = Math.max(0, num('mkc-lc-', 0));
+  cfg.sellPct = Math.min(50, Math.max(0, num('mkc-sp-', 0)));
+  cfg.mult = Math.max(1, num('mkc-mu-', 2));
+  cfg.maxLots = Math.min(60, Math.max(2, Math.round(num('mkc-ml-', 8))));
+  app.render();
+}
+const mkCalcKey = (e, fips) => { if(e.key === 'Enter'){ e.preventDefault(); setMkCalc(fips); } };
+// $/acre distribution for sales whose lot size falls in fine bins [i0..i1].
+function mkPpaDist(p, i0, i1){
+  const e = p.e, grid = p.s12 || [];
+  const counts = e.map(() => 0);
+  for(let i = i0; i <= i1; i++) (grid[i] || []).forEach((v, b) => { counts[b] += v; });
+  const n = counts.reduce((a, b) => a + b, 0);
+  if(!n) return {n:0};
+  const hiOf = b => b + 1 < e.length ? e[b + 1] : e[b] * 1.5;
+  const q = f => {
+    let cum = 0;
+    for(let b = 0; b < counts.length; b++){
+      if(cum + counts[b] >= n * f){ return e[b] + (counts[b] ? (n * f - cum) / counts[b] : 0) * (hiOf(b) - e[b]); }
+      cum += counts[b];
+    }
+    return e[e.length - 1];
+  };
+  const mid = b => (e[b] + hiOf(b)) / 2;
+  const mean = counts.reduce((a, c, b) => a + c * mid(b), 0) / n;
+  const sd = Math.sqrt(counts.reduce((a, c, b) => a + c * (mid(b) - mean) ** 2, 0) / n);
+  return {n, p25: q(0.25), med: q(0.5), p75: q(0.75), mean, sd};
+}
+// Sales near a given lot size: start at its fine bin, widen to neighbours
+// (never below 1 acre) until there are enough sales.
+function mkPpaNear(p, acres){
+  let i = 0; while(i + 1 < MK_EDGES.length && acres >= MK_EDGES[i + 1]) i++;
+  let lo = Math.max(1, i), hi = Math.max(1, i);
+  let d = mkPpaDist(p, lo, hi);
+  while(d.n < MK_CALC_MIN_N && (lo > 1 || hi < MK_EDGES.length - 1)){
+    if(lo > 1 && (hi >= MK_EDGES.length - 1 || (hi - i) >= (i - lo))) lo--; else hi++;
+    d = mkPpaDist(p, lo, hi);
+  }
+  const hiEdge = hi + 1 < MK_EDGES.length ? MK_EDGES[hi + 1] : null;
+  return {...d, label: hiEdge == null ? `${MK_EDGES[lo]}+ ac` : `${MK_EDGES[lo]}–${hiEdge} ac`};
+}
+function mkCalcRows(fips){
+  const p = MK.ppaFull[fips], cfg = mkCalcCfg(fips);
+  const A = +cfg.acres;
+  if(!p || !p.e || !(A > 0)) return null;
+  const U = A * cfg.usable / 100;
+  const sell = cfg.sellPct / 100;
+  const whole = mkPpaNear(p, A);
+  const wholeVal = whole.n ? A * whole.med : null;
+  const seen = new Set(), rows = [];
+  MK_CALC_SIZES.forEach(s => {
+    if(s > A / 2) return;
+    const N = Math.floor(U / s);
+    if(N < 2 || N > (cfg.maxLots || 8) || seen.has(N)) return;
+    seen.add(N);
+    const L = U / N;
+    const d = mkPpaNear(p, L);
+    if(!d.n) return;
+    const net = ppa => N * L * ppa * (1 - sell) - N * cfg.lotCost;
+    // Never suggest paying more than the tract fetches sold whole: past that
+    // point the seller is better off listing it, and so are we.
+    let offerLow = net(d.p25) / cfg.mult, offerHigh = net(d.med) / cfg.mult, capped = false;
+    if(wholeVal != null && offerHigh > wholeVal){ offerHigh = wholeVal; capped = true; }
+    if(offerLow > offerHigh) offerLow = offerHigh;
+    rows.push({N, L, d,
+      grossMed: N * L * d.med,
+      netLow: net(d.p25), netMed: net(d.med), netHigh: net(d.p75),
+      offerLow, offerHigh, capped,
+      cv: d.med ? d.sd / d.med : 0});
+  });
+  // Best = most we can justify paying at median prices, then the stronger low end.
+  rows.sort((a, b) => b.offerHigh - a.offerHigh || b.offerLow - a.offerLow);
+  return {A, U, whole, wholeVal, rows};
+}
+const mkUsd = v => (v < 0 ? '−$' : '$') + Math.round(Math.abs(v)).toLocaleString();
+const mkK = v => (v < 0 ? '−' : '') + mkMoney(Math.abs(v));
+function renderMkCalc(c){
+  const fips = c.fips, r = c.r || {}, cfg = mkCalcCfg(fips);
+  const inputs = `<div class="mkc-inputs">
+      <label>Tract acres<input class="form-input" id="mkc-ac-${fips}" type="number" min="1" step="0.1" value="${cfg.acres}" placeholder="e.g. 40" onkeydown="mkCalcKey(event,'${fips}')"></label>
+      <label>Usable %<input class="form-input" id="mkc-us-${fips}" type="number" min="10" max="100" step="1" value="${cfg.usable}" onkeydown="mkCalcKey(event,'${fips}')"></label>
+      <label>Survey + split / lot<input class="form-input" id="mkc-lc-${fips}" type="number" min="0" step="100" value="${cfg.lotCost}" onkeydown="mkCalcKey(event,'${fips}')"></label>
+      <label>Selling costs %<input class="form-input" id="mkc-sp-${fips}" type="number" min="0" max="50" step="0.5" value="${cfg.sellPct}" onkeydown="mkCalcKey(event,'${fips}')"></label>
+      <label>Resale multiple<input class="form-input" id="mkc-mu-${fips}" type="number" min="1" step="0.1" value="${cfg.mult}" onkeydown="mkCalcKey(event,'${fips}')"></label>
+      <label>Max lots<input class="form-input" id="mkc-ml-${fips}" type="number" min="2" max="60" step="1" value="${cfg.maxLots || 8}" onkeydown="mkCalcKey(event,'${fips}')"></label>
+      <button class="btn btn-sm btn-primary" onclick="setMkCalc('${fips}')"><i class="ti ti-calculator"></i> Calculate</button>
+    </div>`;
+  let body;
+  if(!r.ppa_sum){
+    body = `<p class="debt-muted mkc-note">Pull price per acre for this county first (above), then enter a tract size.</p>`;
+  }else if(MK.ppaFull[fips] === undefined || MK.ppaFull[fips] === 'loading'){
+    if(MK.ppaFull[fips] === undefined) loadMkPpaFull(fips);
+    body = `<p class="debt-muted mkc-note"><i class="ti ti-loader-2 spin"></i> Loading sales data…</p>`;
+  }else if(!MK.ppaFull[fips]){
+    body = `<p class="debt-muted mkc-note">Couldn’t load this county’s sales data. Try Pull again above.</p>`;
+  }else if(!(+cfg.acres > 0)){
+    body = `<p class="debt-muted mkc-note">Enter the tract’s acreage and press Calculate to see split options and an offer range.</p>`;
+  }else{
+    const res = mkCalcRows(fips);
+    if(!res.rows.length){
+      body = `<p class="debt-muted mkc-note">No split options for ${res.A} acres within ${cfg.maxLots || 8} lots (lots must be at least 1 acre and you need two or more).</p>`;
+    }else{
+      const best = res.rows[0];
+      const w = res.whole;
+      const wholeVal = res.wholeVal;
+      const flag = row => row.capped ? '<span class="mkc-flag" title="The split math supports more than the tract is worth whole; the top of the range is held at its as-is value">capped at as-is value</span>'
+        : row.d.n < MK_CALC_MIN_N ? '<span class="mkc-flag" title="Fewer than 8 sales near this lot size">thin data</span>'
+        : row.cv > 0.6 ? '<span class="mkc-flag" title="Prices for this lot size vary widely (standard deviation above 60% of the median)">wide spread</span>' : '';
+      const tr = row => `<tr class="${row === best ? 'mkc-best' : ''}">
+          <td><b>${row.N} lots</b> × ${row.L.toFixed(row.L < 10 ? 1 : 0)} ac</td>
+          <td class="num">${mkK(row.d.p25)} – <b>${mkK(row.d.med)}</b> – ${mkK(row.d.p75)}<div class="debt-sub">±${mkK(row.d.sd)} SD · ${row.d.n} sales, ${row.d.label}</div></td>
+          <td class="num">${mkK(row.netLow)} – ${mkK(row.netHigh)}<div class="debt-sub">median ${mkK(row.netMed)}</div></td>
+          <td class="num mkc-offer"><b>${mkK(row.offerLow)} – ${mkK(row.offerHigh)}</b><div class="debt-sub">${mkK(row.offerLow / res.A)} – ${mkK(row.offerHigh / res.A)} / ac</div></td>
+          <td>${flag(row)}</td>
+        </tr>`;
+      body = `<div class="mkc-summary">
+          <div><span>Suggested offer range</span><b>${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)}</b><small>${mkK(best.offerLow / res.A)} – ${mkK(best.offerHigh / res.A)} per acre · best split ${best.N} × ${best.L.toFixed(1)} ac</small></div>
+          <div><span>Resale after split (net)</span><b>${mkUsd(best.netLow)} – ${mkUsd(best.netHigh)}</b><small>25th to 75th percentile prices</small></div>
+          <div><span>Tract sold whole today</span><b>${wholeVal != null ? '≈ ' + mkUsd(wholeVal) : '—'}</b><small>${w.n ? `median ${mkK(w.med)}/ac · ${w.n} sales, ${w.label}` : 'no comparable sales'}</small></div>
+        </div>
+        <div class="debt-table-wrap"><table class="debt-table mkc-table">
+          <thead><tr><th>Split (${res.U.toFixed(1)} usable ac)</th><th class="num">Lot $/ac: 25th – median – 75th</th><th class="num">Net resale</th><th class="num">Offer range</th><th></th></tr></thead>
+          <tbody>${res.rows.map(tr).join('')}</tbody>
+        </table></div>
+        <p class="mkc-note debt-muted">Offer low = net resale at 25th percentile prices ÷ ${cfg.mult}; offer high = net resale at median prices ÷ ${cfg.mult}, never above the tract’s as-is value. Up to ${cfg.maxLots || 8} lots. Net resale = lots × size × $/acre, less ${cfg.sellPct}% selling costs and ${mkUsd(cfg.lotCost)} per lot. Uses the last 12 months of sold land in this county. Rough guide only: check road frontage, access, perc and local subdivision rules before offering.</p>`;
+    }
+  }
+  return `<div class="mkc"><div class="mk-ctl-label">Subdivide calculator</div>${inputs}${body}</div>`;
+}
+
 function renderMkCountyDetail(c){
   const r = c.r || {};
   const ui = mkUi();
@@ -4253,7 +4536,8 @@ function renderMkCountyDetail(c){
       <div class="mk-ctl-label">Price per acre by lot size</div>
       ${ppa}
     </div>
-  </div>`;
+  </div>
+  ${renderMkCalc(c)}`;
 }
 
 function openMkNotes(fips){
