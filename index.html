@@ -3611,7 +3611,6 @@ window.addEventListener('resize', () => {
             is just a sum here with no further API calls.
    From those, for the chosen window of W months:
      absorption = sold_W / for sale    sales in the window as a share of today's listings
-   Days on market isn't in Landportal's API, so dom_days is entered by hand.
 
    States we model in (public.market_states) show first in saved order;
    every other state sits below, still clickable. Inside a state the counties
@@ -3714,9 +3713,9 @@ function clearMkCrit(){ const ui = mkUi(); ui.crit = {}; ui.filter = {}; mkSave(
 function applyMkCrit(){
   const ui = mkUi();
   const num = id => { const el = document.getElementById(id); const n = el && el.value !== '' ? parseFloat(el.value) : null; return Number.isFinite(n) ? n : null; };
-  ui.crit = {maxDom: num('mk-c-dom'), minAbs: num('mk-c-abs'), minSold: num('mk-c-sold')};
+  ui.crit = {minAbs: num('mk-c-abs'), minSold: num('mk-c-sold')};
   mkSave('mkCrit', ui.crit);
-  const on = ui.crit.maxDom != null || ui.crit.minAbs != null || ui.crit.minSold != null;
+  const on = ui.crit.minAbs != null || ui.crit.minSold != null;
   ui.filter = {};
   if(on){
     const fps = (MK.states || []).map(s => s.state_fp).filter(fp => MK_STATE_BY[fp]);
@@ -3752,17 +3751,16 @@ function mkSlice(r, mask){
 function mkMetrics(r, mask){
   const {sold, active} = mkSlice(r, mask);
   return {
-    sold, active, dom: r && r.dom_days != null ? r.dom_days : null,
+    sold, active,
     abs: sold != null && active ? sold / active * 100 : (sold > 0 && active === 0 ? Infinity : null),
   };
 }
 function mkMeets(m){
   const c = mkUi().crit;
-  const any = c.minAbs != null || c.minSold != null || c.maxDom != null;
+  const any = c.minAbs != null || c.minSold != null;
   if(!any) return null;
   if(c.minAbs != null && !(m.abs != null && m.abs >= c.minAbs)) return false;
   if(c.minSold != null && !(m.sold != null && m.sold >= c.minSold)) return false;
-  if(c.maxDom != null && !(m.dom != null && m.dom <= c.maxDom)) return false;
   return true;
 }
 const mkMarketing = r => !!r && (r.flip === 'yes' || r.subdivide === 'yes');
@@ -3812,7 +3810,7 @@ function renderMarkets(){
     </details>`;
   return head + addBar + renderMkControls() + err + `<div class="mk-section-label">Modeling in</div>` + trackedHtml + otherHtml + `
     <p class="debt-source"><i class="ti ti-info-circle"></i> Landportal MLS listings with property type Land. Absorption is sales in the chosen window as a share of today’s listings:
-      sold ÷ for sale. Days on market isn’t available from Landportal’s API, so it’s entered by hand (click the cell). Acreage uses each parcel’s lot size; a listing with no lot size on record counts in the all-acreage totals only.</p>`;
+      sold ÷ for sale. Acreage uses each parcel’s lot size; a listing with no lot size on record counts in the all-acreage totals only.</p>`;
 }
 
 function renderMkControls(){
@@ -3820,7 +3818,7 @@ function renderMkControls(){
   const mask = mkBinMask();
   const winBtns = MK_WINDOWS.map(([k, l]) => `<button class="seg-btn ${ui.win===k?'active':''}" onclick="setMkWin('${k}')">${l}</button>`).join('');
   const c = ui.crit || {};
-  const critOn = c.minAbs != null || c.minSold != null || c.maxDom != null;
+  const critOn = c.minAbs != null || c.minSold != null;
   const noBins = mask && Object.values(MK.counties).some(r => r.sold_12m != null && !r.bins);
   return `<div class="card mk-controls">
     <div class="mk-ctl-row">
@@ -3835,7 +3833,6 @@ function renderMkControls(){
     <div class="mk-ctl-row">
       <div class="mk-ctl-label">Target criteria</div>
       <div class="mk-crit">
-        <label>Days on market at most <input class="form-input" id="mk-c-dom" type="number" step="1" min="0" value="${c.maxDom ?? ''}" placeholder="any" onkeydown="mkCritKey(event)"></label>
         <label>Absorption (${ui.win} mo) at least <input class="form-input" id="mk-c-abs" type="number" step="1" min="0" value="${c.minAbs ?? ''}" placeholder="any" onkeydown="mkCritKey(event)"> %</label>
         <label>Sold (${ui.win} mo) at least <input class="form-input" id="mk-c-sold" type="number" step="1" min="0" value="${c.minSold ?? ''}" placeholder="any" onkeydown="mkCritKey(event)"></label>
         <button class="btn btn-sm btn-primary" onclick="applyMkCrit()"><i class="ti ti-search"></i> Find counties</button>
@@ -3957,7 +3954,6 @@ function renderMkCounties(fp, tracked){
     marketing: (a, b) => (mkMarketing(b.r) - mkMarketing(a.r)) || byName(a, b),
     name: byName,
     abs: desc(c => c.m.abs === Infinity ? 1e9 : c.m.abs),
-    dom: (a, b) => (a.m.dom ?? 1e9) - (b.m.dom ?? 1e9) || byName(a, b),
     sold: desc(c => c.m.sold),
     active: desc(c => c.m.active),
   };
@@ -3965,7 +3961,7 @@ function renderMkCounties(fp, tracked){
 
   const chip = (k, label) => `<button class="seg-btn ${filter===k?'active':''}" onclick="setMkFilter('${fp}','${k}')">${label} <span class="seg-count">${counts[k]}</span></button>`;
   const sortSel = `<select class="form-select mk-sort" onchange="setMkSort('${fp}', this.value)" aria-label="Sort counties">
-      ${[['marketing','Marketing first'],['name','A to Z'],['dom','Days on market, low to high'],['abs','Absorption, high to low'],['sold','Sold, high to low'],['active','For sale, high to low']]
+      ${[['marketing','Marketing first'],['name','A to Z'],['abs','Absorption, high to low'],['sold','Sold, high to low'],['active','For sale, high to low']]
         .map(([k,l]) => `<option value="${k}" ${sort===k?'selected':''}>${l}</option>`).join('')}
     </select>`;
   const yn = (c, field) => {
@@ -3978,7 +3974,7 @@ function renderMkCounties(fp, tracked){
   let dividerDone = sort !== 'marketing' || !list.some(c => mkMarketing(c.r));
   const rows = list.map(c => {
     let pre = '';
-    if(!dividerDone && !mkMarketing(c.r)){ dividerDone = true; pre = `<tr class="mk-divider"><td colspan="8">Not marketing</td></tr>`; }
+    if(!dividerDone && !mkMarketing(c.r)){ dividerDone = true; pre = `<tr class="mk-divider"><td colspan="7">Not marketing</td></tr>`; }
     const r = c.r, m = c.m;
     // Bar scale: a 25%-a-month pace fills it, whatever the window.
     const full = 25 * +ui.win;
@@ -3988,8 +3984,6 @@ function renderMkCounties(fp, tracked){
         ${r && r.notes ? `<div class="debt-sub">${escape(r.notes)}</div>` : ''}</td>
       <td>${yn(c, 'flip')}</td>
       <td>${yn(c, 'subdivide')}</td>
-      <td class="num"><input class="mk-dom" type="number" min="0" step="1" inputmode="numeric" value="${m.dom ?? ''}" placeholder="—"
-        aria-label="Days on market in ${escape(c.name)}" onchange="setMkDom('${c.fips}', this.value)"></td>
       <td class="num">${mkNum(m.sold)}</td>
       <td class="num">${mkNum(m.active)}</td>
       <td class="num"><div class="mk-abs"><span>${mkFmtAbs(m.abs)}</span>${barW ? `<i style="width:${barW.toFixed(0)}%"></i>` : ''}</div></td>
@@ -4009,9 +4003,9 @@ function renderMkCounties(fp, tracked){
       ${sortSel}
     </div>
     <div class="mk-scroll"><table class="debt-table mk-table">
-      <colgroup><col style="width:26%"><col style="width:13%"><col style="width:13%"><col style="width:11%"><col style="width:11%"><col style="width:11%"><col style="width:15%"><col style="width:40px"></colgroup>
-      <thead><tr><th>County</th><th>Flips</th><th>Subdivides</th><th class="num">Days on market</th><th class="num">Sold, ${ui.win} mo</th><th class="num">For sale</th><th class="num">Absorption, ${ui.win} mo</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="8" class="debt-muted">No counties match.</td></tr>`}</tbody>
+      <colgroup><col style="width:28%"><col style="width:14%"><col style="width:14%"><col style="width:13%"><col style="width:13%"><col style="width:16%"><col style="width:40px"></colgroup>
+      <thead><tr><th>County</th><th>Flips</th><th>Subdivides</th><th class="num">Sold, ${ui.win} mo</th><th class="num">For sale</th><th class="num">Absorption, ${ui.win} mo</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="7" class="debt-muted">No counties match.</td></tr>`}</tbody>
     </table></div>
     <div class="mk-foot">
       <span class="debt-muted">${rf && rf.error ? `<span style="color:var(--danger)">${escape(rf.error)}</span>` : asOf}</span>
@@ -4099,11 +4093,6 @@ async function mkUpsert(fips, patch){
   }
   MK.counties[fips] = data;
   return true;
-}
-function setMkDom(fips, v){
-  const n = v === '' ? null : Math.round(parseFloat(v));
-  if(v !== '' && !(n >= 0)) return toast('Enter days as a whole number', 'err');
-  mkUpsert(fips, {dom_days: n});
 }
 function setMkChoice(fips, field, v){
   const cur = MK.counties[fips] ? MK.counties[fips][field] : null;
