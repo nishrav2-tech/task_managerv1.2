@@ -136,6 +136,33 @@ async function pullPpa(base: string, token: string, fips: string, s1: Set<string
   return { e: PPA, ...out, pages };
 }
 
+// Median $/acre per size bucket (the app's presets), per window, as
+// [median, sales]. Interpolated inside the band holding the middle sale.
+// Small enough to load for every county, so rows can show the curve's shape.
+const BUCKETS: [number, number][] = [[0, 1], [1, 5], [5, 10], [10, 20], [20, 50], [50, 100], [100, Infinity]];
+function ppaSummary(ppa: { s1: number[][]; s6: number[][]; s12: number[][] }) {
+  const one = (grid: number[][]) => BUCKETS.map(([lo, hi]) => {
+    const counts = PPA.map(() => 0);
+    grid.forEach((row, i) => {
+      const aLo = EDGES[i], aHi = i + 1 < EDGES.length ? EDGES[i + 1] : Infinity;
+      if (aLo >= lo && aHi <= hi) row.forEach((v, b) => { counts[b] += v; });
+    });
+    const n = counts.reduce((a, b) => a + b, 0);
+    if (!n) return [null, 0];
+    let cum = 0;
+    for (let b = 0; b < counts.length; b++) {
+      if (cum + counts[b] >= n / 2) {
+        const bLo = PPA[b], bHi = b + 1 < PPA.length ? PPA[b + 1] : PPA[b] * 1.5;
+        const frac = counts[b] ? (n / 2 - cum) / counts[b] : 0;
+        return [Math.round(bLo + frac * (bHi - bLo)), n];
+      }
+      cum += counts[b];
+    }
+    return [null, n];
+  });
+  return { s1: one(ppa.s1), s6: one(ppa.s6), s12: one(ppa.s12) };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const admin = createClient(URL_, SERVICE, { auth: { persistSession: false } });
@@ -175,12 +202,13 @@ Deno.serve(async (req) => {
       const s6 = await pullSet(base, s.LANDPORTAL_API_TOKEN, fips, SETS.s6);
       const ppa = await pullPpa(base, s.LANDPORTAL_API_TOKEN, fips, s1.seen, s6.seen);
       const ppaJson = { e: ppa.e, s1: ppa.s1, s6: ppa.s6, s12: ppa.s12 };
+      const ppaSum = ppaSummary(ppa);
       const at = new Date().toISOString();
       const { error } = await admin.from("market_counties").upsert({
-        fips, state_fp: fips.slice(0, 2), ppa: ppaJson, ppa_at: at,
+        fips, state_fp: fips.slice(0, 2), ppa: ppaJson, ppa_sum: ppaSum, ppa_at: at,
       }, { onConflict: "fips" });
       if (error) throw new Error(error.message);
-      return json(200, { ok: true, ppa: ppaJson, ppa_at: at, pages: s1.pages + s6.pages + ppa.pages });
+      return json(200, { ok: true, ppa_sum: ppaSum, ppa_at: at, pages: s1.pages + s6.pages + ppa.pages });
     } catch (e) {
       return json(200, { ok: false, code: "landportal_error", error: (e as Error).message });
     }

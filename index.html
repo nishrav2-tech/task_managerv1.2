@@ -221,6 +221,11 @@ tr.mk-open td{border-bottom-color:transparent}
 @media (max-width:800px){.mk-detail-grid{grid-template-columns:1fr}}
 .mk-detail .mk-ctl-label{width:auto}
 @media (max-width:900px){.mk-detail-grid{position:sticky;left:0;max-width:calc(100vw - 72px)}}
+
+.mk-spark-cell{cursor:pointer;padding-left:14px!important}
+.mk-spark{display:block}
+.mk-spark-h{padding-left:14px!important}
+.mk-spark-none{color:var(--ink-3)}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -3648,7 +3653,7 @@ const mkRangeKey = ([lo, hi]) => `${lo}-${hi === Infinity ? 'inf' : hi}`;
 const MK = {states:null, counties:{}, loading:false, error:null, refresh:{}, ppa:{}, ppaBusy:{}};
 // Columns loaded up front. ppa (the $/acre breakdown) is fetched per county
 // only when its row is opened, so the tab stays light.
-const MK_COLS = 'fips,state_fp,flip,subdivide,notes,sold_1m,sold_6m,sold_12m,active_listings,bins,stats_at,updated_at,ppa_at';
+const MK_COLS = 'fips,state_fp,flip,subdivide,notes,sold_1m,sold_6m,sold_12m,active_listings,bins,stats_at,updated_at,ppa_at,ppa_sum';
 
 async function loadMarkets(){
   if(MK.loading) return;
@@ -3995,7 +4000,7 @@ function renderMkCounties(fp, tracked){
   let dividerDone = sort !== 'marketing' || !list.some(c => mkMarketing(c.r));
   const rows = list.map(c => {
     let pre = '';
-    if(!dividerDone && !mkMarketing(c.r)){ dividerDone = true; pre = `<tr class="mk-divider"><td colspan="7">Not marketing</td></tr>`; }
+    if(!dividerDone && !mkMarketing(c.r)){ dividerDone = true; pre = `<tr class="mk-divider"><td colspan="8">Not marketing</td></tr>`; }
     const r = c.r, m = c.m;
     // Bar scale: a 25%-a-month pace fills it, whatever the window.
     const full = 25 * +ui.win;
@@ -4003,15 +4008,16 @@ function renderMkCounties(fp, tracked){
     const open = !!ui.exp && ui.exp.includes(c.fips);
     return pre + `<tr class="${mkMarketing(r)?'mk-on':''} ${open?'mk-open':''}" data-name="${escape(c.name.toLowerCase())}">
       <td class="mk-county"><button type="button" class="mk-cname" onclick="toggleMkCounty('${c.fips}')" aria-expanded="${open}">
-          <i class="ti ti-chevron-right mk-cchev"></i>${escape(c.name)}${r && r.ppa_at ? ' <i class="ti ti-chart-bar mk-has-ppa" title="Price per acre pulled"></i>' : ''}</button>
+          <i class="ti ti-chevron-right mk-cchev"></i>${escape(c.name)}</button>
         ${r && r.notes ? `<div class="debt-sub">${escape(r.notes)}</div>` : ''}</td>
       <td>${yn(c, 'flip')}</td>
       <td>${yn(c, 'subdivide')}</td>
       <td class="num">${mkNum(m.sold)}</td>
       <td class="num">${mkNum(m.active)}</td>
       <td class="num"><div class="mk-abs"><span>${mkFmtAbs(m.abs)}</span>${barW ? `<i style="width:${barW.toFixed(0)}%"></i>` : ''}</div></td>
+      <td class="mk-spark-cell" onclick="toggleMkCounty('${c.fips}')" title="Median $/acre by lot size, smallest to largest. Open the county for figures.">${renderMkPpaSpark(r)}</td>
       <td class="mk-meets">${c.meets ? '<i class="ti ti-target-arrow" title="Meets your target criteria"></i>' : ''}</td>
-    </tr>${open ? `<tr class="mk-detail" data-detail="${escape(c.name.toLowerCase())}"><td colspan="7">${renderMkCountyDetail(c)}</td></tr>` : ''}`;
+    </tr>${open ? `<tr class="mk-detail" data-detail="${escape(c.name.toLowerCase())}"><td colspan="8">${renderMkCountyDetail(c)}</td></tr>` : ''}`;
   }).join('');
   const t = mkTotals(fp, mask);
   const rf = MK.refresh[fp];
@@ -4026,9 +4032,9 @@ function renderMkCounties(fp, tracked){
       ${sortSel}
     </div>
     <div class="mk-scroll"><table class="debt-table mk-table">
-      <colgroup><col style="width:28%"><col style="width:14%"><col style="width:14%"><col style="width:13%"><col style="width:13%"><col style="width:16%"><col style="width:40px"></colgroup>
-      <thead><tr><th>County</th><th>Flips</th><th>Subdivides</th><th class="num">Sold, ${ui.win} mo</th><th class="num">For sale</th><th class="num">Absorption, ${ui.win} mo</th><th></th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="7" class="debt-muted">No counties match.</td></tr>`}</tbody>
+      <colgroup><col style="width:25%"><col style="width:13%"><col style="width:13%"><col style="width:11%"><col style="width:10%"><col style="width:14%"><col style="width:110px"><col style="width:36px"></colgroup>
+      <thead><tr><th>County</th><th>Flips</th><th>Subdivides</th><th class="num">Sold, ${ui.win} mo</th><th class="num">For sale</th><th class="num">Absorption, ${ui.win} mo</th><th class="mk-spark-h">$/ac by size</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="8" class="debt-muted">No counties match.</td></tr>`}</tbody>
     </table></div>
     <div class="mk-foot">
       <span class="debt-muted">${rf && rf.error ? `<span style="color:var(--danger)">${escape(rf.error)}</span>` : asOf}</span>
@@ -4132,19 +4138,6 @@ function toggleMkCounty(fips){
   const ui = mkUi();
   ui.exp = ui.exp || [];
   ui.exp = ui.exp.includes(fips) ? ui.exp.filter(x => x !== fips) : [...ui.exp, fips];
-  if(ui.exp.includes(fips)) loadMkPpa(fips);
-  app.render();
-}
-async function loadMkPpa(fips){
-  const r = MK.counties[fips];
-  if(!r || !r.ppa_at || MK.ppa[fips] !== undefined || MK.ppaBusy[fips]) return;
-  MK.ppaBusy[fips] = 'loading';
-  try{
-    const {data, error} = await StorageAdapter.supabase.from('market_counties').select('ppa').eq('fips', fips).single();
-    if(error) throw error;
-    MK.ppa[fips] = data.ppa || null;
-  }catch(e){ MK.ppa[fips] = null; }
-  delete MK.ppaBusy[fips];
   app.render();
 }
 async function pullMkPpa(fips){
@@ -4158,8 +4151,7 @@ async function pullMkPpa(fips){
     if(error) throw error;
     if(data && data.code === 'not_configured'){ openMkSetup(); throw new Error('Landportal is not connected'); }
     if(!data || !data.ok) throw new Error((data && data.error) || 'Pull failed');
-    MK.ppa[fips] = data.ppa;
-    MK.counties[fips] = {...(MK.counties[fips] || {fips, state_fp: fips.slice(0,2)}), ppa_at: data.ppa_at};
+    MK.counties[fips] = {...(MK.counties[fips] || {fips, state_fp: fips.slice(0,2)}), ppa_at: data.ppa_at, ppa_sum: data.ppa_sum};
     toast('Price per acre pulled');
   }catch(e){
     toast('Could not pull price per acre: ' + (e.message || e), 'err');
@@ -4167,37 +4159,37 @@ async function pullMkPpa(fips){
   delete MK.ppaBusy[fips];
   app.render();
 }
-// Median $/acre for one acreage range in the current window, interpolated
-// inside the $/acre band where the middle sale falls.
-function mkPpaMedian(p, [lo, hi]){
-  const w = p && p['s' + mkUi().win];
-  if(!w || !w.length) return {n:0, med:null};
-  const e = p.e;
-  const counts = e.map(() => 0);
-  w.forEach((row, i) => {
-    const aLo = MK_EDGES[i], aHi = i + 1 < MK_EDGES.length ? MK_EDGES[i + 1] : Infinity;
-    if(aLo >= lo && aHi <= hi) row.forEach((v, b) => { counts[b] += v; });
-  });
-  const n = counts.reduce((a, b) => a + b, 0);
-  if(!n) return {n, med:null};
-  let cum = 0;
-  for(let b = 0; b < counts.length; b++){
-    if(cum + counts[b] >= n / 2){
-      const bLo = e[b], bHi = b + 1 < e.length ? e[b + 1] : e[b] * 1.5;
-      const frac = counts[b] ? (n / 2 - cum) / counts[b] : 0;
-      return {n, med: bLo + frac * (bHi - bLo), top: b === e.length - 1};
-    }
-    cum += counts[b];
-  }
-  return {n, med:null};
+// Median $/acre per size bucket for the current window, from the compact
+// summary (ppa_sum: {s1|s6|s12: [[median, sales] x 7 buckets]}) the refresh
+// function computes, so every row can draw its curve without extra loading.
+const MK_PPA_MIN_N = 3;
+function mkPpaPoints(r){
+  const w = r && r.ppa_sum && r.ppa_sum['s' + mkUi().win];
+  if(!w) return null;
+  return MK_PPA_BUCKETS.map((range, i) => { const [med, n] = w[i] || [null, 0]; return {r: range, med, n: n || 0, ok: med != null && n >= MK_PPA_MIN_N}; });
+}
+// The row's thumbnail: bar heights only, scaled to the county's own peak.
+function renderMkPpaSpark(r){
+  const pts = mkPpaPoints(r);
+  if(!pts) return '';
+  const ok = pts.filter(p => p.ok);
+  if(!ok.length) return `<span class="mk-spark-none" title="Too few sales to chart">·</span>`;
+  const max = Math.max(...ok.map(p => p.med));
+  const W = 84, H = 24, gap = 2, bw = (W - gap * (pts.length - 1)) / pts.length;
+  const bars = pts.map((p, i) => {
+    const x = i * (bw + gap);
+    if(!p.ok) return `<rect x="${x.toFixed(1)}" y="${H-2}" width="${bw.toFixed(1)}" height="2" rx="1" fill="var(--border-strong)"/>`;
+    const h = Math.max(3, p.med / max * H);
+    return `<rect x="${x.toFixed(1)}" y="${(H-h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="var(--accent)"/>`;
+  }).join('');
+  return `<svg class="mk-spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">${bars}</svg>`;
 }
 const mkMoney = v => v >= 1000 ? '$' + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : '$' + Math.round(v);
 function renderMkPpaChart(fips){
-  const p = MK.ppa[fips];
   const ui = mkUi();
-  const pts = MK_PPA_BUCKETS.map(r => ({r, ...mkPpaMedian(p, r)}));
-  const MIN_N = 3;
-  const shown = pts.filter(x => x.med != null && x.n >= MIN_N);
+  const pts = mkPpaPoints(MK.counties[fips]) || [];
+  const MIN_N = MK_PPA_MIN_N;
+  const shown = pts.filter(x => x.ok);
   if(!shown.length) return `<p class="debt-muted" style="margin:6px 0">Not enough sales in the last ${ui.win} month${ui.win==='1'?'':'s'} to chart (needs ${MIN_N}+ sales in a size range). Try a longer window.</p>`;
   const W = 520, H = 190, padL = 46, padR = 8, padT = 18, padB = 34;
   const plotW = W - padL - padR, plotH = H - padT - padB;
@@ -4220,7 +4212,7 @@ function renderMkPpaChart(fips){
     const y = Y(x.med), h = padT + plotH - y;
     return `<g><title>${mkRangeLabel(x.r)}: median about ${mkMoney(x.med)}/ac from ${x.n} sales</title>
       <rect x="${(cx-bw/2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="var(--accent)" ${isSel(x.r)?'':'fill-opacity="0.35"'}/>
-      <text x="${cx.toFixed(1)}" y="${(y-5).toFixed(1)}" font-size="11" font-weight="600" fill="var(--ink)" text-anchor="middle">${x.top?'≥':''}${mkMoney(x.med)}</text></g>` + lbl;
+      <text x="${cx.toFixed(1)}" y="${(y-5).toFixed(1)}" font-size="11" font-weight="600" fill="var(--ink)" text-anchor="middle">${mkMoney(x.med)}</text></g>` + lbl;
   }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="mk-ppa-svg" role="img" aria-label="Median sold price per acre by lot size">${grid}${bars}</svg>`;
 }
@@ -4231,14 +4223,12 @@ function renderMkCountyDetail(c){
   let ppa;
   if(busy === 'pulling'){
     ppa = `<div class="mk-ppa-empty"><i class="ti ti-loader-2 spin"></i> Pulling sold prices from Landportal…</div>`;
-  }else if(!r.ppa_at){
+  }else if(!r.ppa_sum){
     ppa = `<div class="mk-ppa-empty">
       <p>See median sold $/acre by lot size to judge subdivide spreads, e.g. whether 5–10 acre lots sell for far more per acre than 20–50 acre tracts.</p>
       <button class="btn btn-sm btn-primary" onclick="pullMkPpa('${c.fips}')"><i class="ti ti-chart-bar"></i> Pull price per acre</button>
       <span class="debt-muted">About 15 to 30 Landportal lookups for this county.</span>
     </div>`;
-  }else if(MK.ppa[c.fips] === undefined || busy === 'loading'){
-    ppa = `<div class="mk-ppa-empty"><i class="ti ti-loader-2 spin"></i> Loading…</div>`;
   }else{
     ppa = `${renderMkPpaChart(c.fips)}
       <div class="mk-ppa-foot">Median sold $/acre, last ${ui.win} month${ui.win==='1'?'':'s'}, Landportal MLS land. Estimates within price bands.

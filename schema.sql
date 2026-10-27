@@ -1001,3 +1001,5 @@ alter table public.market_counties add column if not exists dom_days int;
 -- ppa = {e: $/acre band edges, s1/s6/s12: [acreage bin][band] sale counts}.
 alter table public.market_counties add column if not exists ppa jsonb;
 alter table public.market_counties add column if not exists ppa_at timestamptz;
+-- Compact median $/acre per size bucket per window, for row thumbnails.
+alter table public.market_counties add column if not exists ppa_sum jsonb;
