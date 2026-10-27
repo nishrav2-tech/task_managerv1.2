@@ -4375,7 +4375,7 @@ const MK_CALC_MIN_N = 8;
 function mkCalcCfg(fips){
   const ui = mkUi();
   ui.calc = ui.calc || {};
-  return ui.calc[fips] || (ui.calc[fips] = {acres:'', ask:'', discPct:10, costPct:12, mult:2, maxLots:8, splitMo:3});
+  return ui.calc[fips] || (ui.calc[fips] = {acres:'', ask:'', discPct:10, costPct:12, mult:2, maxLots:8});
 }
 function setMkCalc(fips){
   const cfg = mkCalcCfg(fips);
@@ -4385,7 +4385,6 @@ function setMkCalc(fips){
   cfg.discPct = Math.min(90, Math.max(0, num('mkc-dp-', 0)));
   cfg.costPct = Math.min(90, Math.max(0, num('mkc-cp-', 0)));
   cfg.mult = Math.max(1, num('mkc-mu-', 2));
-  cfg.splitMo = Math.min(36, Math.max(0, num('mkc-sm-', 3)));
   cfg.maxLots = Math.min(60, Math.max(2, Math.round(num('mkc-ml-', 8))));
   app.render();
 }
@@ -4471,14 +4470,12 @@ function mkCalcRows(fips){
   return {A, U, whole, wholeVal, rows, ask};
 }
 const mkMo = m => m >= 100 ? '99+' : m < 10 ? m.toFixed(1).replace(/\.0$/, '') : String(Math.round(m));
-function mkTimeline(row, cfg){
-  const t = row.sell, sm = +cfg.splitMo || 0;
+function mkTimeline(row){
+  const t = row.sell;
   if(!t) return '<span class="debt-muted">—</span>';
-  if(t.lo == null) return `<span class="mkc-short">No sales</span><div class="debt-sub">${t.active} for sale, none sold in 12 mo</div>`;
-  const lo = t.lo + sm, hi = t.hi + sm;
-  const txt = Math.round(lo) === Math.round(hi) ? `${mkMo(lo)} mo` : `${mkMo(lo)}–${mkMo(hi)} mo`;
-  const pace = Math.max(t.r6, t.r12);
-  return `<b class="${hi > 24 ? 'mkc-short' : ''}">${txt}</b><div class="debt-sub">${sm ? sm + ' mo split + ' : ''}${mkMo(t.lo) === mkMo(t.hi) ? mkMo(t.lo) : mkMo(t.lo) + '–' + mkMo(t.hi)} mo to sell · ${t.active} listed, ${pace.toFixed(1)} sold/mo</div>`;
+  if(t.lo == null) return `<span class="mkc-short">No sales</span><div class="debt-sub">0 sold/mo</div>`;
+  const txt = mkMo(t.lo) === mkMo(t.hi) ? `${mkMo(t.lo)} mo` : `${mkMo(t.lo)}–${mkMo(t.hi)} mo`;
+  return `<b class="${t.hi > 24 ? 'mkc-short' : ''}" title="${t.active} listed now + ${row.N} new lots, at ${t.r6.toFixed(1)} sold/mo (6 mo) and ${t.r12.toFixed(1)} sold/mo (12 mo)">${txt}</b><div class="debt-sub">${Math.max(t.r6, t.r12).toFixed(1)} sold/mo</div>`;
 }
 const mkUsd = v => (v < 0 ? '−$' : '$') + Math.round(Math.abs(v)).toLocaleString();
 const mkK = v => (v < 0 ? '−' : '') + mkMoney(Math.abs(v));
@@ -4493,7 +4490,6 @@ function renderMkCalc(c){
       <label title="Survey, split, closing and sales commissions as a share of resale">Subdivide &amp; sale costs %<input class="form-input" id="mkc-cp-${fips}" type="number" min="0" max="90" step="0.5" value="${cfg.costPct}" onkeydown="mkCalcKey(event,'${fips}')"></label>
       ${askRes ? `<label title="Net resale at median prices ÷ asking price, best split. Clear the asking price to set your own multiple.">Multiple at asking<input class="form-input mkc-implied" id="mkc-mu-${fips}" type="text" readonly value="${askRes.rows.length ? askRes.rows[0].multMed.toFixed(2) + 'x' : '—'}"></label>`
         : `<label>Resale multiple<input class="form-input" id="mkc-mu-${fips}" type="number" min="1" step="0.1" value="${cfg.mult}" onkeydown="mkCalcKey(event,'${fips}')"></label>`}
-      <label title="Months to survey, plat and record the split before lots can list">Split time (mo)<input class="form-input" id="mkc-sm-${fips}" type="number" min="0" max="36" step="1" value="${cfg.splitMo ?? 3}" onkeydown="mkCalcKey(event,'${fips}')"></label>
       <label>Max lots<input class="form-input" id="mkc-ml-${fips}" type="number" min="2" max="60" step="1" value="${cfg.maxLots || 8}" onkeydown="mkCalcKey(event,'${fips}')"></label>
       <button class="btn btn-sm btn-primary" onclick="setMkCalc('${fips}')"><i class="ti ti-calculator"></i> Calculate</button>
     </div>`;
@@ -4520,20 +4516,20 @@ function renderMkCalc(c){
         : row.cv > 0.6 ? '<span class="mkc-flag" title="Prices for this lot size vary widely (standard deviation above 60% of the median)">wide spread</span>' : '';
       const tr = row => `<tr class="${row === best ? 'mkc-best' : ''}">
           <td><b>${row.N} lots</b> × ${row.L.toFixed(row.L < 10 ? 1 : 0)} ac</td>
-          <td class="num">${mkK(row.d.p25)} – <b>${mkK(row.d.med)}</b> – ${mkK(row.d.p75)}<div class="debt-sub">±${mkK(row.d.sd)} SD · ${row.d.n} sales, ${row.d.label}</div></td>
-          <td class="num">${mkK(row.netLow)} – ${mkK(row.netHigh)}<div class="debt-sub">median ${mkK(row.netMed)}</div></td>
-          ${res.ask ? `<td class="num mkc-offer"><b class="${row.multMed >= cfg.mult ? '' : 'mkc-short'}">${row.multLow.toFixed(2)}x – ${row.multMed.toFixed(2)}x</b><div class="debt-sub">high ${row.multHigh.toFixed(2)}x · profit ${mkK(row.netMed - res.ask)} at median</div></td>`
-            : `<td class="num mkc-offer"><b>${mkK(row.offerLow)} – ${mkK(row.offerHigh)}</b><div class="debt-sub">${mkK(row.offerLow / res.A)} – ${mkK(row.offerHigh / res.A)} / ac</div></td>`}
-          <td class="num">${mkTimeline(row, cfg)}</td>
+          <td class="num">${mkK(row.d.p25)} – <b>${mkK(row.d.med)}</b> – ${mkK(row.d.p75)}<div class="debt-sub" title="${row.d.n} sales, ${row.d.label}">±${mkK(row.d.sd)} SD</div></td>
+          <td class="num">${mkK(row.netLow)} – ${mkK(row.netHigh)}</td>
+          ${res.ask ? `<td class="num mkc-offer"><b class="${row.multMed >= cfg.mult ? '' : 'mkc-short'}">${row.multLow.toFixed(2)}x – ${row.multMed.toFixed(2)}x</b></td>`
+            : `<td class="num mkc-offer"><b>${mkK(row.offerLow)} – ${mkK(row.offerHigh)}</b></td>`}
+          <td class="num">${mkTimeline(row)}</td>
           <td>${flag(row)}</td>
         </tr>`;
       body = `<div class="mkc-summary">
-          ${res.ask ? `<div><span>Multiple at ${mkUsd(res.ask)} asking</span><b>${best.multLow.toFixed(2)}x – ${best.multMed.toFixed(2)}x</b><small>25th percentile to median prices · best split ${best.N} × ${best.L.toFixed(1)} ac · ${mkK(res.ask / res.A)}/ac asking</small>${best.multMed < cfg.mult ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Under your ${cfg.mult}x target. Offer ${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)} to hit it</small>` : ''}${wholeVal != null && res.ask > wholeVal ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Asking is above market value (${mkUsd(wholeVal)} as-is)</small>` : ''}</div>` : `<div><span>Suggested offer range</span><b>${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)}</b><small>${mkK(best.offerLow / res.A)} – ${mkK(best.offerHigh / res.A)} per acre · best split ${best.N} × ${best.L.toFixed(1)} ac</small>${best.capped ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> ${best.offerLow > wholeVal ? 'Whole range is' : 'Top of range is'} above market value (${mkUsd(wholeVal)} as-is)</small>` : ''}</div>`}
-          <div><span>Resale after split (net)</span><b>${mkUsd(best.netLow)} – ${mkUsd(best.netHigh)}</b><small>25th to 75th percentile prices${best.sell && best.sell.lo != null ? ` · about ${mkMo(best.sell.lo + (+cfg.splitMo || 0)) === mkMo(best.sell.hi + (+cfg.splitMo || 0)) ? mkMo(best.sell.lo + (+cfg.splitMo || 0)) : mkMo(best.sell.lo + (+cfg.splitMo || 0)) + '–' + mkMo(best.sell.hi + (+cfg.splitMo || 0))} months start to finish` : ''}</small></div>
-          <div><span>Tract sold whole today</span><b>${wholeVal != null ? '≈ ' + mkUsd(wholeVal) : '—'}</b><small>${w.n ? `median ${mkK(w.med)}/ac${cfg.discPct ? `, less ${cfg.discPct}%` : ''} · ${w.n} sales, ${w.label}` : 'no comparable sales'}</small></div>
+          ${res.ask ? `<div><span>Multiple at ${mkUsd(res.ask)} asking</span><b>${best.multLow.toFixed(2)}x – ${best.multMed.toFixed(2)}x</b><small>Best: ${best.N} × ${best.L.toFixed(1)} ac</small>${best.multMed < cfg.mult ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Below ${cfg.mult}x: offer ${mkK(best.offerLow)}–${mkK(best.offerHigh)} instead</small>` : ''}${wholeVal != null && res.ask > wholeVal ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Asking above market (${mkK(wholeVal)})</small>` : ''}</div>` : `<div><span>Suggested offer range</span><b>${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)}</b><small>Best: ${best.N} × ${best.L.toFixed(1)} ac</small>${best.capped ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Above market (${mkK(wholeVal)})</small>` : ''}</div>`}
+          <div><span>Resale after split (net)</span><b>${mkUsd(best.netLow)} – ${mkUsd(best.netHigh)}</b><small>${best.sell && best.sell.lo != null ? (mkMo(best.sell.lo) === mkMo(best.sell.hi) ? mkMo(best.sell.lo) : mkMo(best.sell.lo) + '–' + mkMo(best.sell.hi)) + ' mo to sell out' : ''}</small></div>
+          <div><span>Tract sold whole today</span><b>${wholeVal != null ? '≈ ' + mkUsd(wholeVal) : '—'}</b><small>${w.n ? `${mkK(w.med)}/ac median` : 'No sales'}</small></div>
         </div>
         <div class="debt-table-wrap"><table class="debt-table mkc-table">
-          <thead><tr><th>Split (${res.A} ac)</th><th class="num">Lot $/ac: 25th – median – 75th</th><th class="num">Net resale</th><th class="num">${res.ask ? 'Multiple at asking' : 'Offer range'}</th><th class="num">Project timeline</th><th></th></tr></thead>
+          <thead><tr><th>Split (${res.A} ac)</th><th class="num">Lot $/ac: 25th – median – 75th</th><th class="num">Net resale</th><th class="num">${res.ask ? 'Multiple at asking' : 'Offer range'}</th><th class="num">Time to sell</th><th></th></tr></thead>
           <tbody>${res.rows.map(tr).join('')}</tbody>
         </table></div>`;
     }
