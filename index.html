@@ -247,7 +247,7 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .mkc-note{font-size:12.5px;margin:4px 0}
 .mkc-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
 .mkc-summary>div{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px;display:flex;flex-direction:column;gap:2px}
-.mkc-summary span{font-size:11px;color:var(--ink-3);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.mkc-summary>div>span{font-size:11px;color:var(--ink-3);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
 .mkc-summary b{font-size:17px;font-variant-numeric:tabular-nums}
 .mkc-summary small{font-size:11.5px;color:var(--ink-3)}
 .mkc-summary>div:first-child{border-color:var(--accent);background:var(--accent-soft)}
@@ -263,6 +263,7 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .mkc-implied{background:var(--accent-soft)!important;font-weight:700;color:var(--accent)}
 .mkc-short{color:var(--danger)!important}
 .mkc-table td .mkc-flag{display:inline-block;margin-top:4px}
+.mkc-profit{color:var(--accent);font-weight:600}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -4478,6 +4479,7 @@ function mkTimeline(row){
   const txt = mkMo(t.lo) === mkMo(t.hi) ? `${mkMo(t.lo)} mo` : `${mkMo(t.lo)}–${mkMo(t.hi)} mo`;
   return `<b class="${t.hi > 24 ? 'mkc-short' : ''}" title="${t.active} listed now + ${row.N} new lots, at ${t.r6.toFixed(1)} sold/mo (6 mo) and ${t.r12.toFixed(1)} sold/mo (12 mo)">${txt}</b><div class="debt-sub">${Math.max(t.r6, t.r12).toFixed(1)} sold/mo</div>`;
 }
+const mkProfitTxt = (lo, hi) => [lo, hi].map(v => `<span class="${v < 0 ? 'mkc-short' : 'mkc-profit'}">${mkK(v)}</span>`).join(' – ');
 const mkUsd = v => (v < 0 ? '−$' : '$') + Math.round(Math.abs(v)).toLocaleString();
 const mkK = v => (v < 0 ? '−' : '') + mkMoney(Math.abs(v));
 function renderMkCalc(c){
@@ -4535,7 +4537,7 @@ function renderMkCalc(c){
           <td>${flag(row)}</td>
         </tr>`;
       body = `<div class="mkc-summary">
-          ${res.ask ? `<div><span>Multiple at ${mkUsd(res.ask)} asking</span><b>${best.multLow.toFixed(2)}x – ${best.multMed.toFixed(2)}x</b><small>Best: ${best.N} × ${best.L.toFixed(1)} ac</small>${best.multMed < cfg.mult ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Below ${cfg.mult}x: offer ${mkK(best.offerLow)}–${mkK(best.offerHigh)} instead</small>` : ''}${wholeVal != null && res.ask > wholeVal ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Asking above market (${mkK(wholeVal)})</small>` : ''}</div>` : `<div><span>Suggested offer range</span><b>${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)}</b><small>Best: ${best.N} × ${best.L.toFixed(1)} ac</small>${best.capped ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Above market (${mkK(wholeVal)})</small>` : ''}</div>`}
+          ${res.ask ? `<div><span>Multiple at ${mkUsd(res.ask)} asking</span><b>${best.multLow.toFixed(2)}x – ${best.multMed.toFixed(2)}x</b><small>Profit ${mkProfitTxt(best.netLow - res.ask, best.netMed - res.ask)} · best: ${best.N} × ${best.L.toFixed(1)} ac</small>${best.multMed < cfg.mult ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Below ${cfg.mult}x: offer ${mkK(best.offerLow)}–${mkK(best.offerHigh)} instead</small>` : ''}${wholeVal != null && res.ask > wholeVal ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Asking above market (${mkK(wholeVal)})</small>` : ''}</div>` : `<div><span>Suggested offer range</span><b>${mkUsd(best.offerLow)} – ${mkUsd(best.offerHigh)}</b><small>Profit ${mkProfitTxt(best.netMed - best.offerHigh, best.netMed - best.offerLow)} · best: ${best.N} × ${best.L.toFixed(1)} ac</small>${best.capped ? `<small class="mkc-above"><i class="ti ti-alert-triangle"></i> Above market (${mkK(wholeVal)})</small>` : ''}</div>`}
           <div><span>Resale after split (net)</span><b>${mkUsd(best.netLow)} – ${mkUsd(best.netHigh)}</b><small>${best.sell && best.sell.lo != null ? (mkMo(best.sell.lo) === mkMo(best.sell.hi) ? mkMo(best.sell.lo) : mkMo(best.sell.lo) + '–' + mkMo(best.sell.hi)) + ' mo to sell out' : ''}</small></div>
           <div><span>Tract sold whole today</span><b>${wholeVal != null ? '≈ ' + mkUsd(wholeVal) : '—'}</b><small>${w.n ? `${mkK(w.med)}/ac median` : 'No sales'}</small></div>
         </div>
