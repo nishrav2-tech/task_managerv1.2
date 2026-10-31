@@ -1003,3 +1003,7 @@ alter table public.market_counties add column if not exists ppa jsonb;
 alter table public.market_counties add column if not exists ppa_at timestamptz;
 -- Compact median $/acre per size bucket per window, for row thumbnails.
 alter table public.market_counties add column if not exists ppa_sum jsonb;
+
+-- Markets: separate flip and subdivide notes per county
+alter table public.market_counties add column if not exists notes_flip text;
+alter table public.market_counties add column if not exists notes_sub text;

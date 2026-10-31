@@ -154,7 +154,9 @@ input,select,textarea{font:inherit;color:inherit}
 @media (max-width:700px){.mk-head-stats{margin-left:28px;width:100%;justify-content:flex-start}.mk-head-stats div{align-items:flex-start}.mk-tools .form-input.mk-search{margin-left:0;width:100%}}
 .mk-addbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-4px 0 16px}
 .mk-addbar .form-select{flex:0 1 240px}
-.mk-addbar .mk-refresh-all{margin-left:auto}
+.mk-addbar .mk-undo{margin-left:auto}
+.mk-undo-what{font-weight:400;color:var(--ink-3);margin-left:4px}
+.mk-undo .seg-count{margin-left:6px}
 .mk-controls{padding:12px 16px;margin-bottom:16px;display:flex;flex-direction:column;gap:10px}
 .mk-controls:hover{box-shadow:none}
 .mk-ctl-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -180,7 +182,7 @@ input,select,textarea{font:inherit;color:inherit}
 .mk-meets{text-align:center;color:var(--accent);font-size:16px}
 .mk-pill.busy{background:var(--info-soft);color:var(--info-ink)}
 .mk-foot-btns{display:flex;gap:8px;flex-wrap:wrap}
-@media (max-width:700px){.mk-ctl-label{width:100%}.mk-addbar .mk-refresh-all{margin-left:0}.mk-custom{margin-left:0}}
+@media (max-width:700px){.mk-ctl-label{width:100%}.mk-addbar .mk-undo{margin-left:0}.mk-custom{margin-left:0}}
 .mk-headrow{display:flex;align-items:center}
 .mk-headrow .mk-head{flex:1;min-width:0}
 .mk-head-btn{margin-right:14px;flex:none}
@@ -264,6 +266,8 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .mkc-short{color:var(--danger)!important}
 .mkc-table td .mkc-flag{display:inline-block;margin-top:4px}
 .mkc-profit{color:var(--accent);font-weight:600}
+.mk-note-block+.mk-note-block{margin-top:8px}
+.mk-note-input{margin-bottom:12px}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -3691,7 +3695,7 @@ const mkRangeKey = ([lo, hi]) => `${lo}-${hi === Infinity ? 'inf' : hi}`;
 const MK = {states:null, counties:{}, loading:false, error:null, refresh:{}, ppa:{}, ppaBusy:{}, ppaFull:{}};
 // Columns loaded up front. ppa (the $/acre breakdown) is fetched per county
 // only when its row is opened, so the tab stays light.
-const MK_COLS = 'fips,state_fp,flip,subdivide,notes,sold_1m,sold_6m,sold_12m,active_listings,bins,stats_at,updated_at,ppa_at,ppa_sum';
+const MK_COLS = 'fips,state_fp,flip,subdivide,notes,notes_flip,notes_sub,sold_1m,sold_6m,sold_12m,active_listings,bins,stats_at,updated_at,ppa_at,ppa_sum';
 
 async function loadMarkets(){
   if(MK.loading) return;
@@ -3868,6 +3872,9 @@ function renderMarkets(){
           <div class="mk-find-results" id="mk-find-results" hidden></div>
         </div>
       </div>
+      ${(() => { const u = MK.undo && MK.undo[MK.undo.length - 1];
+        return `<button class="btn mk-undo" onclick="undoMkChoice()" ${u ? '' : 'disabled'} title="${u ? escape(mkUndoLabel(u)) + ' (Ctrl or Cmd + Z)' : 'Nothing to undo yet'}">
+        <i class="ti ti-arrow-back-up"></i> Undo${u ? `<span class="mk-undo-what">${escape(mkCountyName(u.fips).split(',')[0])} ${u.field === 'flip' ? 'flip' : 'subdivide'}</span>` : ''}${MK.undo.length > 1 ? `<span class="seg-count">${MK.undo.length}</span>` : ''}</button>`; })()}
       <button class="btn btn-primary mk-refresh-all" onclick="refreshMkStates()" ${busy?'disabled':''}>
         <i class="ti ti-refresh"></i> Refresh all marketing counties</button>
     </div>`;
@@ -4241,10 +4248,40 @@ async function mkUpsert(fips, patch){
   MK.counties[fips] = data;
   return true;
 }
-function setMkChoice(fips, field, v){
-  const cur = MK.counties[fips] ? MK.counties[fips][field] : null;
-  mkUpsert(fips, {[field]: cur === v ? null : v});
+// Yes / no choices keep an undo history (this session only, last 50).
+MK.undo = MK.undo || [];
+function mkCountyName(fips){
+  const c = mkCounties(fips.slice(0,2)).find(x => x.fips === fips);
+  return `${c ? c.name : fips}, ${(MK_STATE_BY[fips.slice(0,2)] || {}).abbr || ''}`;
 }
+function setMkChoice(fips, field, v){
+  const cur = MK.counties[fips] ? (MK.counties[fips][field] || null) : null;
+  const next = cur === v ? null : v;
+  MK.undo.push({fips, field, prev: cur, next});
+  if(MK.undo.length > 50) MK.undo.shift();
+  mkUpsert(fips, {[field]: next});
+}
+async function undoMkChoice(){
+  const u = MK.undo.pop();
+  if(!u) return;
+  const ok = await mkUpsert(u.fips, {[u.field]: u.prev});
+  if(!ok){ MK.undo.push(u); return; }
+  toast(`Undid ${u.field === 'flip' ? 'Flips' : 'Subdivides'} for ${mkCountyName(u.fips)}`);
+}
+function mkUndoLabel(u){
+  const f = u.field === 'flip' ? 'Flips' : 'Subdivides';
+  const t = v => v ? v[0].toUpperCase() + v.slice(1) : 'blank';
+  return `Undo ${f} ${t(u.next)} for ${mkCountyName(u.fips)} (back to ${t(u.prev)})`;
+}
+document.addEventListener('keydown', e => {
+  if(!(e.metaKey || e.ctrlKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return;
+  if(!document.querySelector('.mk-addbar') || !MK.undo.length) return;
+  const t = e.target;
+  if(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  if(document.querySelector('.modal')) return;
+  e.preventDefault();
+  undoMkChoice();
+});
 /* ---- County detail: notes + price per acre by lot size --------------------
    Opening a county shows its notes and a small chart of median sold $/acre
    for each acreage range in the chosen window. The $/acre breakdown costs
@@ -4571,8 +4608,10 @@ function renderMkCountyDetail(c){
   }
   return `<div class="mk-detail-grid">
     <div class="mk-detail-notes">
-      <div class="mk-ctl-label">Notes</div>
-      <p>${r.notes ? escape(r.notes) : '<span class="debt-muted">No notes yet.</span>'}</p>
+      ${MK_NOTE_KINDS.filter(([k]) => k !== 'notes').map(([k, label]) => `<div class="mk-note-block">
+        <div class="mk-ctl-label">${label}</div>
+        <p>${r[k] ? escape(r[k]) : '<span class="debt-muted">None yet</span>'}</p>
+      </div>`).join('')}
       <button class="btn btn-sm" onclick="openMkNotes('${c.fips}')"><i class="ti ti-pencil"></i> Edit notes</button>
     </div>
     <div class="mk-detail-ppa">
@@ -4583,23 +4622,26 @@ function renderMkCountyDetail(c){
   ${renderMkCalc(c)}`;
 }
 
+const MK_NOTE_KINDS = [['notes', 'General notes'], ['notes_flip', 'Flip notes'], ['notes_sub', 'Subdivide notes']];
 function openMkNotes(fips){
-  const r = MK.counties[fips];
+  const r = MK.counties[fips] || {};
   const c = mkCounties(fips.slice(0,2)).find(x => x.fips === fips);
   const st = MK_STATE_BY[fips.slice(0,2)];
-  showModal(`<div class="modal" style="max-width:480px">
+  const ph = {notes: 'Shows on the county row. Land character, why yes or no, what to watch...', notes_flip: 'Pricing, buyers, what sells as a flip here...', notes_sub: 'Lot sizes that sell, survey and road rules, county split process...'};
+  showModal(`<div class="modal" style="max-width:520px">
     <div class="modal-header"><h2 class="modal-title">${escape(c ? c.name : fips)}, ${st ? st.abbr : ''}</h2>
       <button class="icon-btn" onclick="closeModal()"><i class="ti ti-x"></i></button></div>
-    <label class="form-label" for="mk-notes">Notes</label>
-    <textarea class="form-textarea" id="mk-notes" rows="6" placeholder="Land character, why yes or no, what to watch...">${escape(r && r.notes || '')}</textarea>
+    ${MK_NOTE_KINDS.map(([k, label]) => `<label class="form-label" for="mk-${k}">${label}</label>
+    <textarea class="form-textarea mk-note-input" id="mk-${k}" rows="4" placeholder="${ph[k]}">${escape(r[k] || '')}</textarea>`).join('')}
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveMkNotes('${fips}')">Save</button></div>
   </div>`);
 }
 async function saveMkNotes(fips){
-  const v = (document.getElementById('mk-notes').value || '').trim();
+  const patch = {};
+  MK_NOTE_KINDS.forEach(([k]) => { const el = document.getElementById('mk-' + k); patch[k] = (el && el.value || '').trim() || null; });
   closeModal();
-  if(await mkUpsert(fips, {notes: v || null})) toast('Notes saved');
+  if(await mkUpsert(fips, patch)) toast('Notes saved');
 }
 async function addMkState(fp){
   fp = fp || (document.getElementById('mk-add') || {}).value;
