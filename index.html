@@ -268,6 +268,15 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .mkc-profit{color:var(--accent);font-weight:600}
 .mk-note-block+.mk-note-block{margin-top:8px}
 .mk-note-input{margin-bottom:12px}
+/* ---- Google Calendar events on the dashboard calendar ---- */
+.gcal-item{background:var(--surface)!important;border:1px solid var(--border)!important;border-left:3px solid var(--gcal,#4285F4)!important;color:var(--ink)!important}
+.gcal-item.gcal-locked{cursor:pointer;opacity:.85}
+.gcal-time{font-weight:600;color:var(--ink-2)}
+.gcal-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:999px;padding:4px 10px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.gcal-chip i{color:#4285F4}
+.gcal-chip-off{cursor:default;color:var(--ink-3)}
+.gcal-chip-off i{color:var(--ink-3)}
+.prop-status-pill.prop-status-under-contract{background-color:#F3E8FF;color:#5B2A86}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -2102,6 +2111,7 @@ const StorageAdapter = {
       fb_listing_url:p.fbListingUrl||null,
       fb_listing_stats:normalizeListingStats(p.fbListingStats),
       sold_date:p.soldDate||null,
+      under_contract_date:p.underContractDate||null,
       fb_info:(p.fbInfo||'').trim()||null}),
     fundingTemplates: t => ({id:t.id, name:t.name, tiers:normalizeFunding(t.tiers, {})}),
     tasks: t => ({id:t.id, title:t.title, linked_id:t.linkedId||null,
@@ -2178,6 +2188,7 @@ const StorageAdapter = {
       fbListingUrl:p.fb_listing_url||'',
       fbListingStats:normalizeListingStats(p.fb_listing_stats),
       soldDate:p.sold_date||'',
+      underContractDate:p.under_contract_date||'',
       fbInfo:p.fb_info||'',
       created:p.created_at?p.created_at.split('T')[0]:''}),
     tasks: t => ({id:t.id, title:t.title, linkedId:t.linked_id||'',
@@ -2750,8 +2761,8 @@ const PROJECT_CATEGORIES = ['Marketing','SOPs & Processes','Tools & Software','T
 const PROJECT_STATUSES = ['ideas','planned','in-progress','done'];
 // Where a deal sits, for the Properties filter. Kept deliberately small —
 // three stages a person glances at, not a full pipeline.
-const PROP_STATUSES = ['pre-closing','closed','listed','sold'];
-const PROP_STATUS_LABEL = {'pre-closing':'Pre-closing', closed:'Closed', listed:'Listed', sold:'Sold'};
+const PROP_STATUSES = ['pre-closing','closed','listed','under-contract','sold'];
+const PROP_STATUS_LABEL = {'pre-closing':'Pre-closing', closed:'Closed', listed:'Listed', 'under-contract':'Under contract', sold:'Sold'};
 const CAMPAIGN_CHANNELS = ['Direct Mail','Cold Call','SMS','PPC','Facebook','Email','Referral','Other'];
 
 const state = {
@@ -4675,6 +4686,292 @@ async function confirmRemoveMkState(fp){
   app.render();
 }
 
+/* ============ GOOGLE CALENDAR (2026-11-01) ============
+   Each teammate can link their OWN Google Calendar from Settings. Their events
+   then sit on the Dashboard calendar beside their CRM tasks, and dragging one
+   to another day moves it in Google too.
+
+   Privacy: everything goes through the gcal Edge Function, which works only on
+   the signed-in person's own connection (taken from their session, never from
+   anything the page sends). Google events are drawn only when the calendar is
+   showing you or Everyone; picking a teammate shows their CRM tasks and never
+   anyone's Google events. Nothing from Google is stored in the database. */
+const GCAL = {status:null, statusBusy:false, cache:{}, busy:{}, idx:{}, seq:0, keyOf:{}};
+const GCAL_TTL = 5 * 60 * 1000;
+const gcalTz = () => { try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago'; }catch(e){ return 'America/Chicago'; } };
+
+async function gcalCall(body){
+  const sb = StorageAdapter.supabase;
+  if(!sb) throw new Error('Not connected');
+  const {data, error} = await sb.functions.invoke('gcal', {body});
+  if(error) throw error;
+  if(data && data.code === 'not_connected'){ GCAL.status = {...(GCAL.status||{}), connected:false}; GCAL.cache = {}; }
+  return data || {};
+}
+async function gcalLoadStatus(force){
+  if(GCAL.statusBusy || (GCAL.status && !force) || !StorageAdapter.supabase) return;
+  GCAL.statusBusy = true;
+  try{ GCAL.status = await gcalCall({action:'status'}); }
+  catch(e){ GCAL.status = {error: e.message || String(e)}; }
+  GCAL.statusBusy = false;
+  app.render();
+}
+const gcalOn = () => !!(GCAL.status && GCAL.status.connected);
+
+// Google events only on your own view (or Everyone), never a teammate's.
+function gcalShowsFor(calUserId){
+  return !calUserId || (state.me && calUserId === state.me.id);
+}
+
+// A short id per event, safe to put in an onclick / drag payload.
+function gcalKey(ev){
+  const k = ev.calendarId + '|' + ev.id;
+  if(!GCAL.keyOf[k]) GCAL.keyOf[k] = 'g' + (++GCAL.seq);
+  GCAL.idx[GCAL.keyOf[k]] = ev;
+  return GCAL.keyOf[k];
+}
+const gcalYmd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function gcalAddDays(ymd, n){ const d = new Date(ymd + 'T00:00:00'); d.setDate(d.getDate() + n); return gcalYmd(d); }
+const gcalUtc = s => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+const gcalDayDiff = (a, b) => Math.round((gcalUtc(b) - gcalUtc(a)) / 864e5);
+// Every local date an event covers (all-day end dates are exclusive in Google).
+function gcalDays(ev){
+  if(ev.start && ev.start.date){
+    const out = []; let d = ev.start.date; const end = ev.end && ev.end.date ? ev.end.date : gcalAddDays(d, 1);
+    while(d < end && out.length < 62){ out.push(d); d = gcalAddDays(d, 1); }
+    return out.length ? out : [ev.start.date];
+  }
+  const s = new Date(ev.start.dateTime), e = new Date(ev.end && ev.end.dateTime || ev.start.dateTime);
+  const last = gcalYmd(new Date(e.getTime() - 1));
+  const out = []; let d = gcalYmd(s);
+  while(d <= last && out.length < 62){ out.push(d); d = gcalAddDays(d, 1); }
+  return out.length ? out : [gcalYmd(s)];
+}
+function gcalTimeLabel(ev){
+  if(!ev.start || ev.start.date) return '';
+  const d = new Date(ev.start.dateTime);
+  let h = d.getHours(), m = d.getMinutes();
+  const ap = h < 12 ? 'a' : 'p'; h = h % 12 || 12;
+  return `${h}${m ? ':' + String(m).padStart(2,'0') : ''}${ap}`;
+}
+
+// Fetch (in the background) the events for one visible range; cached 5 min.
+function gcalEnsure(from, to){
+  const key = from + '|' + to, c = GCAL.cache[key];
+  if((c && Date.now() - c.at < GCAL_TTL) || GCAL.busy[key]) return c ? c.events : null;
+  GCAL.busy[key] = true;
+  gcalCall({action:'events', timeMin: new Date(from + 'T00:00:00').toISOString(), timeMax: new Date(gcalAddDays(to, 1) + 'T00:00:00').toISOString()})
+    .then(d => {
+      if(d.error){ GCAL.lastError = d.error; if(!c) GCAL.cache[key] = {at: Date.now(), events: []}; }
+      else { GCAL.lastError = null; GCAL.cache[key] = {at: Date.now(), events: d.events || []}; }
+    })
+    .catch(e => { GCAL.lastError = e.message || String(e); })
+    .finally(() => { delete GCAL.busy[key]; app.render(); });
+  return c ? c.events : null;
+}
+
+// Called by the month and week cards after they bucket tasks by date.
+function gcalMerge(byDate, from, to, calUserId){
+  if(!StorageAdapter.supabase || !gcalShowsFor(calUserId)) return;
+  if(!GCAL.status){ gcalLoadStatus(); return; }
+  if(!gcalOn()) return;
+  const events = gcalEnsure(from, to) || [];
+  events.forEach(ev => {
+    const key = gcalKey(ev);
+    gcalDays(ev).forEach(ds => {
+      if(ds < from || ds > to) return;
+      (byDate[ds] = byDate[ds] || []).push({_kind:'gcal', id:key, title:ev.title, ev, _day:ds});
+    });
+  });
+}
+// Google events first in a day, in start-time order; tasks keep their order.
+function gcalSort(a, b){
+  const ga = a._kind === 'gcal', gb = b._kind === 'gcal';
+  if(ga && gb){
+    const ta = a.ev.start.date ? '' : a.ev.start.dateTime, tb = b.ev.start.date ? '' : b.ev.start.dateTime;
+    return ta < tb ? -1 : ta > tb ? 1 : 0;
+  }
+  return ga ? -1 : gb ? 1 : null;
+}
+
+function gcalItemAttrs(item){
+  const ev = item.ev;
+  const time = gcalTimeLabel(ev);
+  const tip = `${ev.title}${time ? ' · ' + time : ' · all day'} · Google Calendar${ev.calendar ? ' (' + ev.calendar + ')' : ''}${ev.canMove ? ' · drag to another day to move it in Google too' : ' · someone else organizes this, so it can only be moved in Google'}`;
+  return `${ev.canMove ? `draggable="true" ondragstart="dragStartCalItem(event,'${item.id}@${item._day}','gcal')" ondragend="dragEndCalItem(event)"` : ''}
+    onclick="gcalOpen('${item.id}')" title="${escape(tip)}" style="--gcal:${escape(ev.color || '#4285F4')}"`;
+}
+function gcalMonthItem(item){
+  const time = gcalTimeLabel(item.ev);
+  return `<div class="month-item gcal-item ${item.ev.canMove ? '' : 'gcal-locked'}" ${gcalItemAttrs(item)}>
+    <i class="ti ti-brand-google" style="font-size:10px;flex-shrink:0"></i>
+    <span class="month-item-title">${time ? `<b class="gcal-time">${time}</b> ` : ''}${escape(item.title)}</span>
+  </div>`;
+}
+function gcalWeekItem(item){
+  const time = gcalTimeLabel(item.ev);
+  return `<div class="week-item gcal-item ${item.ev.canMove ? '' : 'gcal-locked'}" ${gcalItemAttrs(item)}>
+    <div class="week-item-title">${escape(item.title)}</div>
+    <div class="week-item-meta"><span><i class="ti ti-brand-google" style="font-size:11px"></i> ${time || 'All day'}</span>${item.ev.canMove ? '' : '<i class="ti ti-lock" style="font-size:11px" title="Only the organizer can move this"></i>'}</div>
+  </div>`;
+}
+function gcalOpen(key){
+  const ev = GCAL.idx[key];
+  if(ev && ev.link) window.open(ev.link, '_blank', 'noopener');
+}
+
+// Drag onto another day: shift the whole event by that many days, keeping its
+// time of day and length. Shown moved right away, put back if Google says no.
+async function gcalDrop(payload, dateStr){
+  const [key, fromDay] = String(payload).split('@');
+  const ev = GCAL.idx[key];
+  if(!ev || !ev.canMove || !fromDay) return;
+  const delta = gcalDayDiff(fromDay, dateStr);
+  if(!delta) return;
+  const before = {start: ev.start, end: ev.end};
+  let start, end;
+  if(ev.start.date){
+    start = {date: gcalAddDays(ev.start.date, delta)};
+    end = {date: gcalAddDays(ev.end && ev.end.date ? ev.end.date : gcalAddDays(ev.start.date, 1), delta)};
+  }else{
+    const tz = ev.start.timeZone || gcalTz();
+    const shift = iso => { const d = new Date(iso); d.setDate(d.getDate() + delta);
+      return `${gcalYmd(d)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:00`; };
+    start = {dateTime: shift(ev.start.dateTime), timeZone: tz};
+    end = {dateTime: shift(ev.end && ev.end.dateTime || ev.start.dateTime), timeZone: (ev.end && ev.end.timeZone) || tz};
+  }
+  // Optimistic: show it on the new day now (local wall-clock strings parse in
+  // the browser's own time zone, which is how the grid buckets them).
+  ev.start = start; ev.end = end;
+  app.render();
+  try{
+    const d = await gcalCall({action:'move', calendarId: ev.calendarId, eventId: ev.id, start, end});
+    if(d.error) throw new Error(d.error);
+    if(d.event){ ev.start = d.event.start; ev.end = d.event.end; }
+    toast(`${ev.title} → ${fmtLong(dateStr)} (Google Calendar)`);
+    Object.values(GCAL.cache).forEach(c => { c.at = 0; });
+  }catch(e){
+    ev.start = before.start; ev.end = before.end;
+    toast('Could not move it in Google: ' + (e.message || e), 'err');
+  }
+  app.render();
+}
+
+// ---- connect / disconnect ----
+async function gcalConnect(){
+  try{
+    const url = new URL(location.href); url.searchParams.delete('gcal');
+    const d = await gcalCall({action:'auth_url', returnTo: url.toString()});
+    if(d.code === 'not_configured'){ toast(d.error, 'err'); return; }
+    if(!d.url) throw new Error(d.error || 'No sign-in link');
+    location.href = d.url;
+  }catch(e){ toast('Could not start Google sign-in: ' + (e.message || e), 'err'); }
+}
+async function gcalDisconnect(){
+  if(!confirm('Disconnect your Google Calendar from the CRM? Your Google events stay in Google; they just stop showing here.')) return;
+  try{
+    const d = await gcalCall({action:'disconnect'});
+    if(d.error) throw new Error(d.error);
+    GCAL.status = {...(GCAL.status||{}), connected:false, email:null}; GCAL.cache = {};
+    toast('Google Calendar disconnected');
+  }catch(e){ toast('Could not disconnect: ' + (e.message || e), 'err'); }
+  app.render();
+}
+function gcalRefresh(){ GCAL.cache = {}; app.render(); }
+
+// Small control in the calendar card header.
+function gcalHeaderBtn(){
+  if(!StorageAdapter.supabase) return '';
+  const calUserId = getCalendarUserId();
+  if(!GCAL.status) return '';
+  if(!GCAL.status.configured) return '';
+  if(!gcalOn()) return `<button class="btn btn-sm" onclick="gcalConnect()" title="Show your Google Calendar events here. Only you will see them."><i class="ti ti-brand-google"></i> Connect Google Calendar</button>`;
+  if(!gcalShowsFor(calUserId)) return `<span class="gcal-chip gcal-chip-off" title="Google events show only on your own calendar or Everyone, never on a teammate's"><i class="ti ti-brand-google"></i> Hidden on teammates</span>`;
+  const busy = Object.keys(GCAL.busy).length;
+  return `<button class="gcal-chip" onclick="gcalRefresh()" title="${escape(GCAL.lastError ? 'Google Calendar error: ' + GCAL.lastError : 'Google Calendar (' + (GCAL.status.email || 'connected') + '). Only you see these. Click to refresh.')}">
+    <i class="ti ti-${busy ? 'loader-2 spin' : GCAL.lastError ? 'alert-triangle' : 'brand-google'}"></i> Google</button>`;
+}
+
+// Settings section.
+function gcalSettingsSection(){
+  if(StorageAdapter.backend !== 'supabase') return '';
+  if(!GCAL.status) gcalLoadStatus();
+  const s = GCAL.status;
+  const isAdmin = state.me && state.me.appRole === 'admin';
+  let body;
+  if(!s) body = `<p><i class="ti ti-loader-2 spin"></i> Checking…</p>`;
+  else if(s.error) body = `<p style="color:var(--danger)">Couldn’t check Google Calendar: ${escape(s.error)}</p>`;
+  else if(!s.configured) body = `<div style="background:var(--warn-soft);border-radius:var(--r-md);padding:12px 14px;font-size:12.5px;color:var(--warn-ink)">
+      Google sign-in isn’t set up for this workspace yet.${isAdmin ? ' It needs a Google Cloud OAuth client ID and secret saved on the server (see GCAL-SETUP.md in the repo).' : ' Ask an admin to finish the setup.'}</div>`;
+  else if(s.connected) body = `<p>Connected as <strong>${escape(s.email || 'your Google account')}</strong>. Your events show on the Dashboard calendar when it’s showing you or Everyone, and dragging one to another day moves it in Google. Teammates never see them.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="gcalRefresh();app.go('dashboard')"><i class="ti ti-calendar"></i> View on Dashboard</button>
+        <button class="btn" onclick="gcalDisconnect()"><i class="ti ti-plug-x"></i> Disconnect</button>
+      </div>`;
+  else body = `<p>Show your Google Calendar events on the Dashboard calendar and move them by dragging. This links <strong>your</strong> Google account to <strong>your</strong> login only; teammates can’t see your events.</p>
+      <button class="btn btn-primary" onclick="gcalConnect()"><i class="ti ti-brand-google"></i> Connect Google Calendar</button>`;
+  return `<div class="settings-section"><h3>Google Calendar</h3>${body}</div>`;
+}
+
+// Coming back from Google's sign-in page.
+(function gcalReturn(){
+  let r = null;
+  try{ r = new URL(location.href).searchParams.get('gcal'); }catch(e){}
+  if(!r) return;
+  const url = new URL(location.href); url.searchParams.delete('gcal');
+  history.replaceState(null, '', url.toString());
+  const msg = {connected:['Google Calendar connected', ''], cancelled:['Google sign-in was cancelled', 'err'], error:['Couldn’t connect Google Calendar. Try again.', 'err']}[r];
+  setTimeout(() => { GCAL.status = null; GCAL.cache = {}; if(msg) toast(msg[0], msg[1]); try{ app.render(); }catch(e){} }, 1200);
+})();
+
+/* ---- Under contract (2026-11-01) ------------------------------------------
+   A buyer has signed to purchase the deal but it hasn't closed yet. Like the
+   other statuses it's derived: a deal with an under-contract date and no sold
+   date is Under contract. Clearing the date puts it back on the market. */
+function openMarkUnderContract(id){
+  const p = state.props.find(x => x.id === id);
+  if(!p) return;
+  showSubModal(`<div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h2 class="modal-title">Under contract: ${escape(p.propertyId||'')}</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Contract signed</label>
+        <input class="form-input" id="uc-date" type="date" value="${p.underContractDate || today()}"></div>
+      <div class="form-group"><label class="form-label">Contract price</label>
+        <input class="form-input" id="uc-price" type="number" min="0" value="${escape(p.sellPrice||'')}"></div>
+    </div>
+    <p class="form-hint">It moves to the Under contract tab until you mark it sold. The contract price fills the Sell price.</p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveMarkUnderContract('${p.id}')">Mark under contract</button>
+    </div>
+  </div>`);
+}
+async function saveMarkUnderContract(id){
+  const p = state.props.find(x => x.id === id);
+  if(!p) return;
+  const date = $('#uc-date').value, price = $('#uc-price').value;
+  if(!date) return toast('Pick the contract date', 'err');
+  const before = {underContractDate:p.underContractDate, sellPrice:p.sellPrice};
+  p.underContractDate = date;
+  if(price !== '') p.sellPrice = price;
+  if(!await saveOne('props', p)){ Object.assign(p, before); app.render(); return; }
+  closeSubModal();
+  toast(`${p.propertyId} is under contract`);
+  app.render();
+}
+async function backOnMarket(id){
+  const p = state.props.find(x => x.id === id);
+  if(!p || !confirm(`Contract fell through? ${p.propertyId || 'This deal'} goes back to ${((p.listingUrl||'').trim() || (p.listingUrl2||'').trim()) ? 'Listed' : 'its earlier status'}.`)) return;
+  const before = p.underContractDate;
+  p.underContractDate = '';
+  if(!await saveOne('props', p)){ p.underContractDate = before; app.render(); return; }
+  toast(`${p.propertyId} is back on the market`);
+  app.render();
+}
+
 function userColor(id){
   const u = state.users.find(x=>x.id===id);
   return u ? COLORS[u.colorIdx % COLORS.length] : {bg:'#F1EDE3',fg:'#857F76'};
@@ -5025,6 +5322,8 @@ const needsListing = p => propStatus(p) === 'closed';
 function propStatus(p){
   // Sold (2026-10-16) beats everything: a sale date means the deal is done.
   if(p.soldDate) return 'sold';
+  // Under contract (2026-11-01): a buyer has signed, sale not closed yet.
+  if(p.underContractDate) return 'under-contract';
   if((p.listingUrl||'').trim() || (p.listingUrl2||'').trim()) return 'listed';
   if(p.closingDate && p.closingDate <= today()) return 'closed';
   return 'pre-closing';
@@ -9251,6 +9550,8 @@ function calendarItemsByDate(mine){
 // Within a day: still-open work first, then by priority. What's already done
 // sinks, since it no longer needs your attention.
 function calendarItemSort(a, b){
+  const g = gcalSort(a, b);
+  if(g !== null) return g;
   const doneDiff = (a.status==='done') - (b.status==='done');
   if(doneDiff) return doneDiff;
   const order = {high:0, medium:1, low:2};
@@ -9285,6 +9586,7 @@ function renderMonthCalendarCard(){
   const mine = item => !calUserId || (item.assignees||[]).includes(calUserId);
   const calUserLabel = calUserId ? userName(calUserId) : 'the whole team';
   const byDate = calendarItemsByDate(mine);
+  gcalMerge(byDate, isoLocal(new Date(year, month, 1)), isoLocal(new Date(year, month, daysInMonth)), calUserId);
 
   // Leading blanks up to the 1st, the month's real days, then trailing blanks
   // so the grid always ends on a full week.
@@ -9294,8 +9596,8 @@ function renderMonthCalendarCard(){
   while(cells.length % 7) cells.push(null);
 
   const monthDates = cells.filter(Boolean).map(isoLocal);
-  const totalItems = monthDates.reduce((s,ds)=>s+((byDate[ds]||[]).length), 0);
-  const openItems  = monthDates.reduce((s,ds)=>s+((byDate[ds]||[]).filter(i=>i.status!=='done').length), 0);
+  const totalItems = monthDates.reduce((s,ds)=>s+((byDate[ds]||[]).filter(i=>i._kind!=='gcal').length), 0);
+  const openItems  = monthDates.reduce((s,ds)=>s+((byDate[ds]||[]).filter(i=>i._kind!=='gcal'&&i.status!=='done').length), 0);
 
   const monthLabel = new Date(year, month, 1).toLocaleDateString('en-US',{month:'long', year:'numeric'});
   const relLabel = offset===0 ? 'This month'
@@ -9317,6 +9619,7 @@ function renderMonthCalendarCard(){
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${renderCalModeSwitch()}
+        ${gcalHeaderBtn()}
         <button class="btn btn-sm" onclick="shiftMonthCalendar(-1)" title="Previous month">${ICON_CHEVRON_LEFT} Prev</button>
         <button class="btn btn-sm ${offset===0?'btn-primary':''}" onclick="shiftMonthCalendar(0)" title="Jump to this month"><i class="ti ti-calendar-event"></i> Today</button>
         <button class="btn btn-sm" onclick="shiftMonthCalendar(1)" title="Next month">Next ${ICON_CHEVRON_RIGHT}</button>
@@ -9342,6 +9645,7 @@ function renderMonthCalendarCard(){
             ${items.length?`<span class="month-cell-count">${items.length}</span>`:''}
           </div>
           ${items.length?`<div class="month-cell-items">${items.map(item=>{
+            if(item._kind==='gcal') return gcalMonthItem(item);
             const isProject = item._kind==='project';
             const done = item.status==='done';
             const pri  = item.priority||'medium';
@@ -9383,8 +9687,9 @@ function renderWeekCalendarCard(){
     : `${weekStart.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${weekEnd.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
 
   const byDate = calendarItemsByDate(mine);
+  gcalMerge(byDate, isoLocal(days[0]), isoLocal(days[6]), calUserId);
 
-  const totalItems = days.reduce((s,d)=>s+((byDate[isoLocal(d)]||[]).length),0);
+  const totalItems = days.reduce((s,d)=>s+((byDate[isoLocal(d)]||[]).filter(i=>i._kind!=='gcal').length),0);
   const isThisWeek = offset===0;
 
   const relLabel = offset===0 ? 'This week'
@@ -9404,6 +9709,7 @@ function renderWeekCalendarCard(){
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${renderCalModeSwitch()}
+        ${gcalHeaderBtn()}
         <button class="btn btn-sm" onclick="shiftWeekCalendar(-1)" title="Previous week">${ICON_CHEVRON_LEFT} Prev</button>
         <button class="btn btn-sm ${isThisWeek?'btn-primary':''}" onclick="shiftWeekCalendar(0)" title="Jump to this week"><i class="ti ti-calendar-event"></i> Today</button>
         <button class="btn btn-sm" onclick="shiftWeekCalendar(1)" title="Next week">Next ${ICON_CHEVRON_RIGHT}</button>
@@ -9430,6 +9736,7 @@ function renderWeekCalendarCard(){
           </div>
           <div class="week-day-items">
             ${items.length ? items.map(item=>{
+              if(item._kind==='gcal') return gcalWeekItem(item);
               const isProject = item._kind==='project';
               const done = item.status==='done';
               const pri = item.priority||'medium';
@@ -10946,7 +11253,7 @@ function renderProperties(){
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
             <span class="item-title">${escape(p.propertyId || 'No property ID')}</span>
             <span class="prop-status-pill prop-status-${status}"
-                  title="${status==='listed'?'Has a Zillow link under Listing details':status==='closed'?'Closing date has passed':'No closing date yet, or it is still ahead'}">
+                  title="${status==='under-contract'?`A buyer signed ${fmtLong(p.underContractDate)}; not sold yet`:status==='listed'?'Has a Zillow link under Listing details':status==='closed'?'Closing date has passed':'No closing date yet, or it is still ahead'}">
               ${PROP_STATUS_LABEL[status]}
             </span>
             ${agentStalePill(p)}
@@ -10964,7 +11271,9 @@ function renderProperties(){
           </div>
         </div>
         <div class="item-actions">
-          ${status==='closed'||status==='listed' ? `<button class="btn btn-sm" onclick="openMarkSold('${p.id}')" title="Record the sale"><i class="ti ti-circle-check"></i> Mark sold</button>` : ''}
+          ${status==='closed'||status==='listed' ? `<button class="btn btn-sm" onclick="openMarkUnderContract('${p.id}')" title="A buyer signed a purchase contract"><i class="ti ti-file-certificate"></i> Under contract</button>` : ''}
+          ${status==='under-contract' ? `<button class="btn btn-sm" onclick="backOnMarket('${p.id}')" title="The contract fell through"><i class="ti ti-arrow-back-up"></i> Back on market</button>` : ''}
+          ${status==='closed'||status==='listed'||status==='under-contract' ? `<button class="btn btn-sm" onclick="openMarkSold('${p.id}')" title="Record the sale"><i class="ti ti-circle-check"></i> Mark sold</button>` : ''}
           <button class="icon-btn" data-action="edit-prop" data-id="${p.id}" title="Edit">${ICON_EDIT}</button>
           <button class="icon-btn" data-action="delete-prop" data-id="${p.id}" title="Delete">${ICON_DELETE}</button>
         </div>
@@ -11245,6 +11554,7 @@ async function dropOnDay(e, dateStr){
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
   const [kind, id] = (e.dataTransfer.getData('text/plain') || '').split(':');
+  if(kind === 'gcal' && id) return gcalDrop(id, dateStr);
   if(!id || (kind !== 'task' && kind !== 'project')) return;
 
   const isProject = kind === 'project';
@@ -13486,6 +13796,8 @@ function renderSettings(){
     </div>
   </div>
 
+  ${gcalSettingsSection()}
+
   <div class="settings-section">
     <h3>Data backend</h3>
     <p>
@@ -13927,12 +14239,16 @@ function openPropForm(id){
       <div class="form-group"><label class="form-label">Sell price</label><input class="form-input" id="fp-sell" type="number" value="${escape(p.sellPrice||'')}" oninput="updateEquityPreview()" placeholder="Once known"></div>
     </div>
     <div id="fp-equity-preview" style="font-size:12.5px;font-weight:600;margin:-8px 0 14px"></div>
-    <div class="form-group"><label class="form-label">Sold date <span style="font-weight:400;color:var(--ink-3)">(leave blank until it sells)</span></label>
-      <input class="form-input" id="fp-sold" type="date" value="${p.soldDate||''}" style="max-width:200px"></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Under contract on <span style="font-weight:400;color:var(--ink-3)">(buyer signed)</span></label>
+        <input class="form-input" id="fp-uc" type="date" value="${p.underContractDate||''}" style="max-width:200px"></div>
+      <div class="form-group"><label class="form-label">Sold date <span style="font-weight:400;color:var(--ink-3)">(leave blank until it sells)</span></label>
+        <input class="form-input" id="fp-sold" type="date" value="${p.soldDate||''}" style="max-width:200px"></div>
+    </div>
     <p class="form-hint" style="margin-top:-10px">
       Status (pre-closing / closed / listed) follows automatically from the closing
-      date and whether a Zillow link is added under Listing details. A sold date
-      moves the deal to the Sold tab.
+      date and whether a Zillow link is added under Listing details. An under-contract
+      date moves it to Under contract, and a sold date moves the deal to the Sold tab.
     </p>
 
     <div class="form-group">
@@ -14145,6 +14461,7 @@ async function saveProp(id){
     fbListingStats: existing ? existing.fbListingStats : [],
     fbInfo: existing ? existing.fbInfo : '',
     soldDate: ($('#fp-sold').value||''),
+    underContractDate: ($('#fp-uc').value||''),
     created: existing ? existing.created : today()
   };
   if(id){ const i=state.props.findIndex(p=>p.id===id); state.props[i]=data; }

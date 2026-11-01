@@ -1007,3 +1007,20 @@ alter table public.market_counties add column if not exists ppa_sum jsonb;
 -- Markets: separate flip and subdivide notes per county
 alter table public.market_counties add column if not exists notes_flip text;
 alter table public.market_counties add column if not exists notes_sub text;
+
+-- Properties: Under contract stage (2026-11-01)
+alter table public.properties add column if not exists under_contract_date date;
+alter table public.properties drop constraint if exists properties_status_check;
+alter table public.properties add constraint properties_status_check check (status = any (array['pre-closing','closed','listed','under-contract','sold']));
+
+-- Google Calendar: one connection per login, readable only by the gcal Edge Function (2026-11-01)
+create table if not exists public.gcal_connections (
+  auth_id uuid primary key references auth.users(id) on delete cascade,
+  google_email text,
+  refresh_token text not null,
+  access_token text,
+  access_expires_at timestamptz,
+  connected_at timestamptz not null default now()
+);
+alter table public.gcal_connections enable row level security;
+revoke all on public.gcal_connections from anon, authenticated;
