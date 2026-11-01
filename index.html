@@ -280,6 +280,38 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .gcal-privacy{margin:12px 0 0;font-size:12.5px;color:var(--ink-3)}
 .gcal-privacy a{color:var(--accent);font-weight:600;text-decoration:none}
 .gcal-privacy a:hover{text-decoration:underline}
+/* ---- Day view, hour by hour ---- */
+.month-cell,.week-day-col{cursor:pointer}
+.month-cell.is-outside{cursor:default}
+.month-cell:hover:not(.is-outside),.week-day-col:hover{border-color:var(--border-strong,#cfc8b8)}
+.dv-modal{max-width:640px;width:calc(100vw - 32px);padding-bottom:16px}
+.dv-head{align-items:flex-start}
+.dv-allday{display:flex;gap:10px;align-items:flex-start;padding:10px 0 12px;border-bottom:1px solid var(--border)}
+.dv-allday-label{flex:0 0 64px;font-size:11px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;padding-top:5px}
+.dv-chips{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
+.dv-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 9px;border-radius:8px;font-size:12.5px;font-weight:500;border:1px solid var(--border);background:var(--surface-2);cursor:pointer}
+.dv-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dv-chip .task-check{margin:0;flex-shrink:0}
+.dv-task.is-done span{text-decoration:line-through;color:var(--ink-3)}
+.dv-task.pri-high{border-left:3px solid var(--danger)}
+.dv-proj{background:var(--accent-soft);color:var(--accent)}
+.dv-empty{font-size:12.5px;color:var(--ink-3);padding-top:4px}
+.dv-scroll{max-height:min(62vh,560px);overflow-y:auto;margin-top:8px;padding-right:4px}
+.dv-grid{position:relative;margin-left:58px}
+.dv-hour{position:absolute;left:0;right:0;border-top:1px solid var(--border);height:0}
+.dv-hour span{position:absolute;left:-58px;top:-8px;width:50px;text-align:right;font-size:11px;color:var(--ink-3)}
+.dv-now{position:absolute;left:-6px;right:0;border-top:2px solid var(--danger);z-index:3}
+.dv-now::before{content:'';position:absolute;left:-4px;top:-5px;width:8px;height:8px;border-radius:50%;background:var(--danger)}
+.dv-event{position:absolute;z-index:2;border-radius:6px;padding:3px 7px;overflow:hidden;cursor:pointer;font-size:12px;line-height:1.3}
+.dv-event.is-short{display:flex;gap:6px;align-items:center}
+.dv-ev-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dv-ev-time{color:var(--ink-3);font-size:11px;white-space:nowrap}
+.dv-event.dragging{opacity:.4}
+.dv-ghost{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--accent);z-index:4;pointer-events:none;font-size:11px;font-weight:600;color:var(--accent);padding-left:4px}
+.dv-foot{align-items:center}
+.dv-note{margin-right:auto;font-size:12.5px;color:var(--ink-3)}
+.gcal-agenda{border-left:3px solid var(--gcal,#4285F4)}
+.gcal-agenda-icon{width:28px;height:28px;border-radius:8px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#4285F4}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -4768,8 +4800,8 @@ function gcalEnsure(from, to){
       if(d.error){ GCAL.lastError = d.error; if(!c) GCAL.cache[key] = {at: Date.now(), events: []}; }
       else { GCAL.lastError = null; GCAL.cache[key] = {at: Date.now(), events: d.events || []}; }
     })
-    .catch(e => { GCAL.lastError = e.message || String(e); })
-    .finally(() => { delete GCAL.busy[key]; app.render(); });
+    .catch(e => { GCAL.lastError = e.message || String(e); if(!c) GCAL.cache[key] = {at: Date.now(), events: []}; })
+    .finally(() => { delete GCAL.busy[key]; app.render(); dayViewRefresh(); });
   return c ? c.events : null;
 }
 
@@ -4974,6 +5006,258 @@ async function backOnMarket(id){
   if(!await saveOne('props', p)){ p.underContractDate = before; app.render(); return; }
   toast(`${p.propertyId} is back on the market`);
   app.render();
+}
+
+
+/* ============ DAY VIEW, HOUR BY HOUR (2026-11-01) ============
+   Clicking a day on the Dashboard calendar opens that day as an hourly
+   timeline. Timed Google events sit at their hour; all-day events and CRM
+   tasks and project dates (which have a date but no time) sit in the strip
+   above the hours. Google events you organize can be dragged to another time;
+   Prev / Next step through days without closing. Same person filter as the
+   calendar, so a teammate's view never shows anyone's Google events. */
+const DV = {date:null};
+const DV_HOUR = 48;            // px per hour
+const DV_SNAP = 15;            // minutes
+
+// Google events covering one day, from whatever range is already loaded;
+// fetches just that day if nothing loaded covers it.
+function gcalEventsForDay(ds){
+  if(!StorageAdapter.supabase || !gcalOn()) return [];
+  const seen = new Set(), out = [];
+  let covered = false;
+  Object.entries(GCAL.cache).forEach(([k, c]) => {
+    const [from, to] = k.split('|');
+    if(ds < from || ds > to) return;
+    covered = true;
+    c.events.forEach(ev => {
+      const id = ev.calendarId + '|' + ev.id;
+      if(seen.has(id) || !gcalDays(ev).includes(ds)) return;
+      seen.add(id); out.push(ev);
+    });
+  });
+  if(!covered) gcalEnsure(ds, ds);
+  return out;
+}
+
+// Today's Google events on the Dashboard agenda (yours only: Everyone or you).
+function gcalAgendaEvents(agendaUserId){
+  if(!StorageAdapter.supabase || !gcalShowsFor(agendaUserId)) return [];
+  if(!GCAL.status){ gcalLoadStatus(); return []; }
+  return gcalEventsForDay(today()).sort((a, b) => {
+    const ta = a.start.date ? '' : a.start.dateTime, tb = b.start.date ? '' : b.start.dateTime;
+    return ta < tb ? -1 : ta > tb ? 1 : 0;
+  });
+}
+const gcalAgendaCount = uid => gcalAgendaEvents(uid).length;
+function gcalAgendaRows(agendaUserId){
+  const evs = gcalAgendaEvents(agendaUserId);
+  if(!evs.length) return '';
+  return evs.map(ev => {
+    const key = gcalKey(ev);
+    const time = ev.start.date ? 'All day' : `${gcalTimeLabel(ev)}–${gcalTimeLabel({start:{dateTime:(ev.end && ev.end.dateTime) || ev.start.dateTime}})}`;
+    return `<div class="item-row is-clickable gcal-agenda" style="--gcal:${escape(ev.color || '#4285F4')}" onclick="openDayView('${today()}')" title="Open today hour by hour">
+      <div class="gcal-agenda-icon"><i class="ti ti-brand-google"></i></div>
+      <div class="item-main">
+        <div class="item-title">${escape(ev.title)}</div>
+        <div class="item-meta"><span>${time}</span><span>· Google Calendar${ev.calendar ? ' (' + escape(ev.calendar) + ')' : ''}</span></div>
+      </div>
+      ${ev.link ? `<div class="item-actions"><button class="icon-btn" onclick="event.stopPropagation();window.open('${escape(ev.link)}','_blank','noopener')" title="Open in Google Calendar"><i class="ti ti-external-link"></i></button></div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// Click on a calendar day (not on an item inside it).
+function calDayClick(e, ds){
+  if(e.target.closest('.month-item,.week-item,button,a,input')) return;
+  openDayView(ds);
+}
+function openDayView(ds){
+  DV.date = ds;
+  showModal(`<div class="modal dv-modal" id="dv-modal">${renderDayView()}</div>`);
+  dvScrollToStart();
+}
+function dayViewStep(n){ DV.date = gcalAddDays(DV.date, n); dayViewRefresh(true); }
+function dayViewRefresh(scroll){
+  const el = document.getElementById('dv-modal');
+  if(!el || !DV.date) return;
+  const sc = el.querySelector('.dv-scroll'), top = sc ? sc.scrollTop : 0;
+  el.innerHTML = renderDayView();
+  if(scroll) dvScrollToStart();
+  else { const s2 = el.querySelector('.dv-scroll'); if(s2) s2.scrollTop = top; }
+}
+function dvScrollToStart(){
+  const sc = document.querySelector('#dv-modal .dv-scroll');
+  if(!sc) return;
+  const first = sc.querySelector('.dv-event');
+  const now = new Date();
+  const hour = DV.date === today() ? Math.max(0, now.getHours() - 1)
+    : first ? Math.max(0, Math.floor(parseFloat(first.style.top) / DV_HOUR) - 1) : 7;
+  sc.scrollTop = hour * DV_HOUR;
+}
+
+// Lay timed events side by side when they overlap.
+function dvLayout(items){
+  items.sort((a, b) => a.s - b.s || b.e - a.e);
+  let group = [], groupEnd = -1;
+  const flush = () => { const cols = Math.max(...group.map(x => x.col)) + 1; group.forEach(x => x.cols = cols); group = []; };
+  items.forEach(it => {
+    if(group.length && it.s >= groupEnd) flush();
+    const used = new Set(group.filter(g => g.e > it.s).map(g => g.col));
+    let col = 0; while(used.has(col)) col++;
+    it.col = col; group.push(it); groupEnd = Math.max(groupEnd, it.e);
+  });
+  if(group.length) flush();
+  return items;
+}
+
+function renderDayView(){
+  const ds = DV.date;
+  const dt = new Date(ds + 'T00:00:00');
+  const label = dt.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'});
+  const calUserId = getCalendarUserId();
+  const mine = item => !calUserId || (item.assignees || []).includes(calUserId);
+  const tasks = state.tasks.filter(t => t.dueDate === ds && mine(t)).sort(calendarItemSort);
+  const projs = state.projects.filter(p => p.dueDate === ds && mine(p));
+  const showG = gcalShowsFor(calUserId);
+  const evs = showG ? gcalEventsForDay(ds) : [];
+  const allDay = evs.filter(ev => ev.start.date);
+  // Position by wall-clock time (hour x 60 + minute), not elapsed time, so
+  // daylight-saving change days still line up with the hour labels.
+  const wall = d => gcalYmd(d) < ds ? 0 : gcalYmd(d) > ds ? 24 * 60 : d.getHours() * 60 + d.getMinutes();
+  const timed = dvLayout(evs.filter(ev => !ev.start.date).map(ev => {
+    const s = wall(new Date(ev.start.dateTime));
+    const e = wall(new Date((ev.end && ev.end.dateTime) || ev.start.dateTime));
+    return {ev, s, e: Math.max(s + 15, e)};
+  }));
+  const hourLabel = h => h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+  const isToday = ds === today();
+  const nowMin = isToday ? wall(new Date()) : null;
+  const loading = showG && gcalOn() && Object.keys(GCAL.busy).length;
+
+  const chips = [
+    ...allDay.map(ev => { const key = gcalKey(ev); return `<div class="dv-chip gcal-item" style="--gcal:${escape(ev.color || '#4285F4')}" onclick="gcalOpen('${key}')" title="Google Calendar${ev.calendar ? ' (' + escape(ev.calendar) + ')' : ''}"><i class="ti ti-brand-google"></i> ${escape(ev.title)}</div>`; }),
+    ...tasks.map(t => `<div class="dv-chip dv-task pri-${t.priority || 'medium'} ${t.status === 'done' ? 'is-done' : ''}">
+        <input type="checkbox" class="task-check" ${t.status === 'done' ? 'checked' : ''} onchange="dvToggleTask('${t.id}')" title="Mark done">
+        <span onclick="closeModal();openTaskForm('${t.id}')" title="Open task">${escape(t.title)}</span>
+        ${assigneeStack(t.assignees, 'sm')}
+      </div>`),
+    ...projs.map(p => `<div class="dv-chip dv-proj" onclick="closeModal();openProjectForm('${p.id}')" title="Project target date"><i class="ti ti-bulb"></i> ${escape(p.title)}</div>`),
+  ];
+
+  const note = !showG ? `<span title="Google events show only on your own calendar or Everyone">Google events hidden on a teammate’s view</span>`
+    : !StorageAdapter.supabase || !GCAL.status ? ''
+    : !GCAL.status.configured ? ''
+    : !gcalOn() ? `<button class="btn-link" onclick="closeModal();gcalConnect()">Connect Google Calendar</button> to see your events here`
+    : loading ? '<i class="ti ti-loader-2 spin"></i> Loading Google Calendar…' : '';
+
+  return `
+    <div class="modal-header dv-head">
+      <div>
+        <div class="page-eyebrow" style="margin-bottom:2px">${isToday ? 'Today' : 'Day view'}</div>
+        <h2 class="modal-title">${label}</h2>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm" onclick="dayViewStep(-1)" title="Previous day">${ICON_CHEVRON_LEFT}</button>
+        <button class="btn btn-sm" onclick="dayViewStep(1)" title="Next day">${ICON_CHEVRON_RIGHT}</button>
+        <button class="icon-btn" onclick="closeModal()" title="Close"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div class="dv-allday">
+      <div class="dv-allday-label">All day</div>
+      <div class="dv-chips">${chips.join('') || '<span class="dv-empty">No tasks due and no all-day events</span>'}</div>
+    </div>
+    <div class="dv-scroll">
+      <div class="dv-grid" style="height:${24 * DV_HOUR}px" ondragover="dvDragOver(event)" ondragleave="dvDragLeave(event)" ondrop="dvDrop(event)">
+        ${Array.from({length:24}, (_, h) => `<div class="dv-hour" style="top:${h * DV_HOUR}px"><span>${hourLabel(h)}</span></div>`).join('')}
+        ${nowMin != null ? `<div class="dv-now" style="top:${nowMin / 60 * DV_HOUR}px"></div>` : ''}
+        ${timed.map(it => {
+          const ev = it.ev, key = gcalKey(ev);
+          const top = it.s / 60 * DV_HOUR, h = Math.max(20, (it.e - it.s) / 60 * DV_HOUR - 2);
+          const w = 100 / it.cols;
+          const end = {start:{dateTime:(ev.end && ev.end.dateTime) || ev.start.dateTime}};
+          return `<div class="dv-event gcal-item ${ev.canMove ? '' : 'gcal-locked'} ${h < 34 ? 'is-short' : ''}" style="top:${top}px;height:${h}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 4px);--gcal:${escape(ev.color || '#4285F4')}"
+              ${ev.canMove ? `draggable="true" ondragstart="dvDragStart(event,'${key}')" ondragend="dragEndCalItem(event)"` : ''}
+              onclick="gcalOpen('${key}')" title="${escape(ev.title)} · ${gcalTimeLabel(ev)}–${gcalTimeLabel(end)}${ev.calendar ? ' · ' + escape(ev.calendar) : ''}${ev.canMove ? ' · drag to change the time' : ' · only the organizer can move this'}">
+            <div class="dv-ev-title">${escape(ev.title)}</div>
+            <div class="dv-ev-time">${gcalTimeLabel(ev)}–${gcalTimeLabel(end)}${ev.canMove ? '' : ' <i class="ti ti-lock"></i>'}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="modal-actions dv-foot">
+      <span class="dv-note">${note}</span>
+      <button class="btn" onclick="closeModal()">Close</button>
+      <button class="btn btn-primary" onclick="closeModal();openTaskForm(null,'${ds}')"><i class="ti ti-plus"></i> Add task for this day</button>
+    </div>`;
+}
+
+function dvToggleTask(id){
+  const t = state.tasks.find(x => x.id === id);
+  if(!t) return;
+  const nowDone = t.status !== 'done';
+  const before = {status:t.status, completedAt:t.completedAt};
+  t.status = nowDone ? 'done' : 'todo';
+  t.completedAt = nowDone ? today() : '';
+  saveOne('tasks', t).then(ok => { if(!ok) Object.assign(t, before); app.render(); dayViewRefresh(); });
+}
+
+// ---- drag a Google event to a new time on this day ----
+function dvDragStart(e, key){
+  const r = e.currentTarget.getBoundingClientRect();
+  DV.grab = e.clientY - r.top;
+  e.dataTransfer.setData('text/plain', 'gcal-time:' + key);
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('dragging');
+}
+function dvMinuteAt(e){
+  const grid = e.currentTarget.getBoundingClientRect();
+  const y = e.clientY - grid.top - (DV.grab || 0);
+  return Math.max(0, Math.min(24 * 60 - DV_SNAP, Math.round(y / DV_HOUR * 60 / DV_SNAP) * DV_SNAP));
+}
+function dvDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const m = dvMinuteAt(e);
+  let g = e.currentTarget.querySelector('.dv-ghost');
+  if(!g){ g = document.createElement('div'); g.className = 'dv-ghost'; e.currentTarget.appendChild(g); }
+  g.style.top = (m / 60 * DV_HOUR) + 'px';
+  g.textContent = gcalTimeLabel({start:{dateTime:`${DV.date}T${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}:00`}});
+}
+function dvDragLeave(e){
+  if(e.currentTarget.contains(e.relatedTarget)) return;
+  const g = e.currentTarget.querySelector('.dv-ghost'); if(g) g.remove();
+}
+async function dvDrop(e){
+  e.preventDefault();
+  const g = e.currentTarget.querySelector('.dv-ghost'); if(g) g.remove();
+  const [kind, key] = (e.dataTransfer.getData('text/plain') || '').split(':');
+  if(kind !== 'gcal-time') return;
+  const ev = GCAL.idx[key];
+  if(!ev || !ev.canMove || ev.start.date) return;
+  const m = dvMinuteAt(e);
+  const oldS = new Date(ev.start.dateTime), oldE = new Date((ev.end && ev.end.dateTime) || ev.start.dateTime);
+  const dur = oldE - oldS;
+  const ns = new Date(DV.date + 'T00:00:00'); ns.setMinutes(m);
+  if(ns.getTime() === oldS.getTime()) return;
+  const ne = new Date(ns.getTime() + dur);
+  const fmt = d => `${gcalYmd(d)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:00`;
+  const tz = ev.start.timeZone || gcalTz();
+  const before = {start: ev.start, end: ev.end};
+  const start = {dateTime: fmt(ns), timeZone: tz}, end = {dateTime: fmt(ne), timeZone: (ev.end && ev.end.timeZone) || tz};
+  ev.start = start; ev.end = end;
+  dayViewRefresh(); app.render();
+  try{
+    const d = await gcalCall({action:'move', calendarId: ev.calendarId, eventId: ev.id, start, end});
+    if(d.error) throw new Error(d.error);
+    if(d.event){ ev.start = d.event.start; ev.end = d.event.end; }
+    Object.values(GCAL.cache).forEach(c => { c.at = 0; });
+    toast(`${ev.title} → ${gcalTimeLabel(ev)} (Google Calendar)`);
+  }catch(err){
+    ev.start = before.start; ev.end = before.end;
+    toast('Could not move it in Google: ' + (err.message || err), 'err');
+  }
+  dayViewRefresh(); app.render();
 }
 
 function userColor(id){
@@ -6948,7 +7232,7 @@ function renderDashboard(){
     .filter(agendaFilter)
     .sort((a2, b2) => (a2.dueDate || '').localeCompare(b2.dueDate || ''));
   const projsToday = state.projects.filter(p=>p.status!=='done'&&p.dueDate===todayStr).filter(agendaProjFilter);
-  const agendaCount = agendaTasks.length + projsToday.length;
+  const agendaCount = agendaTasks.length + projsToday.length + gcalAgendaCount(agendaUserId);
 
   const activeProj = state.projects.filter(p=>p.status==='in-progress').length;
   const equityProduced = state.props.reduce((s,p)=>s+(equityOf(p)||0),0);
@@ -7024,6 +7308,7 @@ function renderDashboard(){
       </div>
     </div>
     <div class="item-list agenda-scroll">
+      ${gcalAgendaRows(agendaUserId)}
       ${agendaTasks.map(t=>{
         const od = isOverdue(t.dueDate);
         return `<div class="item-row is-clickable ${od?'overdue':''}" data-action="open-task" data-id="${t.id}" title="Open this task">
@@ -7043,7 +7328,7 @@ function renderDashboard(){
             <button class="icon-btn" data-action="delete-task" data-id="${t.id}" title="Delete">${ICON_DELETE}</button>
           </div>
         </div>`;
-      }).join('') || `<div style="text-align:center;padding:22px;color:var(--ink-3);font-size:13px"><i class="ti ti-sun" style="font-size:22px;display:block;margin-bottom:6px;color:var(--gold)"></i>Nothing due today — clear runway.</div>`}
+      }).join('') || (gcalAgendaCount(agendaUserId) ? '' : `<div style="text-align:center;padding:22px;color:var(--ink-3);font-size:13px"><i class="ti ti-sun" style="font-size:22px;display:block;margin-bottom:6px;color:var(--gold)"></i>Nothing due today — clear runway.</div>`)}
       ${projsToday.map(p=>`
         <div class="item-row" style="cursor:pointer" onclick="openProjectForm('${p.id}')">
           <div style="width:28px;height:28px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-bulb"></i></div>
@@ -9619,7 +9904,7 @@ function renderMonthCalendarCard(){
         <div class="card-title">${monthLabel}</div>
         <div class="card-sub">${totalItems} item${totalItems!==1?'s':''} this month${
           totalItems ? ` · ${openItems} still open` : ''} · showing ${escape(calUserLabel)}${
-          totalItems ? ' · drag any item to reschedule it' : ''}</div>
+          totalItems ? ' · drag any item to reschedule it' : ''} · click a day to see it hour by hour</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${renderCalModeSwitch()}
@@ -9641,7 +9926,7 @@ function renderMonthCalendarCard(){
         if(!d) return `<div class="month-cell is-outside"></div>`;
         const dateStr = isoLocal(d);
         const items = (byDate[dateStr]||[]).slice().sort(calendarItemSort);
-        return `<div class="month-cell ${dateStr===todayStr?'is-today':''}"
+        return `<div class="month-cell ${dateStr===todayStr?'is-today':''}" onclick="calDayClick(event,'${dateStr}')"
              ondragover="dragOverDay(event)" ondragleave="dragLeaveDay(event)"
              ondrop="dropOnDay(event,'${dateStr}')">
           <div class="month-cell-head">
@@ -9709,7 +9994,7 @@ function renderWeekCalendarCard(){
         <div class="page-eyebrow" style="margin-bottom:2px">Calendar · ${relLabel}</div>
         <div class="card-title">${rangeLabel}</div>
         <div class="card-sub">${totalItems} item${totalItems!==1?'s':''} this week · showing ${escape(calUserLabel)}${
-          totalItems ? ' · drag any item to reschedule it' : ''}</div>
+          totalItems ? ' · drag any item to reschedule it' : ''} · click a day to see it hour by hour</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${renderCalModeSwitch()}
@@ -9730,7 +10015,7 @@ function renderWeekCalendarCard(){
         const dateStr = isoLocal(d);
         const isToday = dateStr === todayStr;
         const items = (byDate[dateStr]||[]).slice().sort(calendarItemSort);
-        return `<div class="week-day-col ${isToday?'week-day-today':''}"
+        return `<div class="week-day-col ${isToday?'week-day-today':''}" onclick="calDayClick(event,'${dateStr}')"
              ondragover="dragOverDay(event)" ondragleave="dragLeaveDay(event)"
              ondrop="dropOnDay(event,'${dateStr}')">
           <div class="week-day-head">
