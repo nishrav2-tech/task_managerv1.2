@@ -277,6 +277,9 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .gcal-chip-off{cursor:default;color:var(--ink-3)}
 .gcal-chip-off i{color:var(--ink-3)}
 .prop-status-pill.prop-status-under-contract{background-color:#F3E8FF;color:#5B2A86}
+.gcal-privacy{margin:12px 0 0;font-size:12.5px;color:var(--ink-3)}
+.gcal-privacy a{color:var(--accent);font-weight:600;text-decoration:none}
+.gcal-privacy a:hover{text-decoration:underline}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -4910,7 +4913,8 @@ function gcalSettingsSection(){
       </div>`;
   else body = `<p>Show your Google Calendar events on the Dashboard calendar and move them by dragging. This links <strong>your</strong> Google account to <strong>your</strong> login only; teammates can’t see your events.</p>
       <button class="btn btn-primary" onclick="gcalConnect()"><i class="ti ti-brand-google"></i> Connect Google Calendar</button>`;
-  return `<div class="settings-section"><h3>Google Calendar</h3>${body}</div>`;
+  return `<div class="settings-section"><h3>Google Calendar</h3>${body}
+    <p class="gcal-privacy"><a href="privacy.html" target="_blank" rel="noopener"><i class="ti ti-shield-lock"></i> Privacy policy</a>: what the CRM reads from Google and how it’s kept private.</p></div>`;
 }
 
 // Coming back from Google's sign-in page.
