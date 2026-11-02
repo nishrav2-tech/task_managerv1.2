@@ -310,8 +310,6 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .dv-ghost{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--accent);z-index:4;pointer-events:none;font-size:11px;font-weight:600;color:var(--accent);padding-left:4px}
 .dv-foot{align-items:center}
 .dv-note{margin-right:auto;font-size:12.5px;color:var(--ink-3)}
-.gcal-agenda{border-left:3px solid var(--gcal,#4285F4)}
-.gcal-agenda-icon{width:28px;height:28px;border-radius:8px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#4285F4}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -5040,32 +5038,8 @@ function gcalEventsForDay(ds){
   return out;
 }
 
-// Today's Google events on the Dashboard agenda (yours only: Everyone or you).
-function gcalAgendaEvents(agendaUserId){
-  if(!StorageAdapter.supabase || !gcalShowsFor(agendaUserId)) return [];
-  if(!GCAL.status){ gcalLoadStatus(); return []; }
-  return gcalEventsForDay(today()).sort((a, b) => {
-    const ta = a.start.date ? '' : a.start.dateTime, tb = b.start.date ? '' : b.start.dateTime;
-    return ta < tb ? -1 : ta > tb ? 1 : 0;
-  });
-}
-const gcalAgendaCount = uid => gcalAgendaEvents(uid).length;
-function gcalAgendaRows(agendaUserId){
-  const evs = gcalAgendaEvents(agendaUserId);
-  if(!evs.length) return '';
-  return evs.map(ev => {
-    const key = gcalKey(ev);
-    const time = ev.start.date ? 'All day' : `${gcalTimeLabel(ev)}–${gcalTimeLabel({start:{dateTime:(ev.end && ev.end.dateTime) || ev.start.dateTime}})}`;
-    return `<div class="item-row is-clickable gcal-agenda" style="--gcal:${escape(ev.color || '#4285F4')}" onclick="openDayView('${today()}')" title="Open today hour by hour">
-      <div class="gcal-agenda-icon"><i class="ti ti-brand-google"></i></div>
-      <div class="item-main">
-        <div class="item-title">${escape(ev.title)}</div>
-        <div class="item-meta"><span>${time}</span><span>· Google Calendar${ev.calendar ? ' (' + escape(ev.calendar) + ')' : ''}</span></div>
-      </div>
-      ${ev.link ? `<div class="item-actions"><button class="icon-btn" onclick="event.stopPropagation();window.open('${escape(ev.link)}','_blank','noopener')" title="Open in Google Calendar"><i class="ti ti-external-link"></i></button></div>` : ''}
-    </div>`;
-  }).join('');
-}
+// Google events never go into Today's agenda or any task list or count:
+// they live only on the calendar and in this day view.
 
 // Click on a calendar day (not on an item inside it).
 function calDayClick(e, ds){
@@ -7232,7 +7206,7 @@ function renderDashboard(){
     .filter(agendaFilter)
     .sort((a2, b2) => (a2.dueDate || '').localeCompare(b2.dueDate || ''));
   const projsToday = state.projects.filter(p=>p.status!=='done'&&p.dueDate===todayStr).filter(agendaProjFilter);
-  const agendaCount = agendaTasks.length + projsToday.length + gcalAgendaCount(agendaUserId);
+  const agendaCount = agendaTasks.length + projsToday.length;
 
   const activeProj = state.projects.filter(p=>p.status==='in-progress').length;
   const equityProduced = state.props.reduce((s,p)=>s+(equityOf(p)||0),0);
@@ -7308,7 +7282,6 @@ function renderDashboard(){
       </div>
     </div>
     <div class="item-list agenda-scroll">
-      ${gcalAgendaRows(agendaUserId)}
       ${agendaTasks.map(t=>{
         const od = isOverdue(t.dueDate);
         return `<div class="item-row is-clickable ${od?'overdue':''}" data-action="open-task" data-id="${t.id}" title="Open this task">
@@ -7328,7 +7301,7 @@ function renderDashboard(){
             <button class="icon-btn" data-action="delete-task" data-id="${t.id}" title="Delete">${ICON_DELETE}</button>
           </div>
         </div>`;
-      }).join('') || (gcalAgendaCount(agendaUserId) ? '' : `<div style="text-align:center;padding:22px;color:var(--ink-3);font-size:13px"><i class="ti ti-sun" style="font-size:22px;display:block;margin-bottom:6px;color:var(--gold)"></i>Nothing due today — clear runway.</div>`)}
+      }).join('') || `<div style="text-align:center;padding:22px;color:var(--ink-3);font-size:13px"><i class="ti ti-sun" style="font-size:22px;display:block;margin-bottom:6px;color:var(--gold)"></i>Nothing due today — clear runway.</div>`}
       ${projsToday.map(p=>`
         <div class="item-row" style="cursor:pointer" onclick="openProjectForm('${p.id}')">
           <div style="width:28px;height:28px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-bulb"></i></div>
