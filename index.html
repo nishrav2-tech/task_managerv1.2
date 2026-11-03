@@ -314,6 +314,14 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .task-by-line{font-size:12px;color:var(--ink-3);margin:-6px 0 4px}
 .agenda-drag{cursor:grab}
 .agenda-drag.dragging{opacity:.45}
+.drag-square{position:fixed;top:-1000px;left:-1000px;width:100px;height:80px;box-sizing:border-box;padding:8px;border-radius:10px;
+  background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--accent);box-shadow:0 8px 20px rgba(0,0,0,.18);
+  display:flex;flex-direction:column;justify-content:space-between;font-family:inherit;z-index:9999;pointer-events:none}
+.drag-square.pri-high{border-left-color:var(--danger)}
+.drag-square.pri-medium{border-left-color:var(--warn,#C98A1B)}
+.drag-square.pri-low{border-left-color:var(--ink-3)}
+.drag-square-title{font-size:12px;font-weight:600;line-height:1.25;color:var(--ink);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.drag-square-meta{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -5254,6 +5262,22 @@ function taskByLine(t){
   return u ? `<p class="task-by-line"><i class="ti ti-user-edit"></i> Created by ${escape(u.name)}${t.created ? ' on ' + escape(fmtLong(t.created)) : ''}</p>` : '';
 }
 
+/* Dragging from Today's agenda shows a small square card under the cursor
+   instead of the whole wide row, so it's easy to see which day it lands on. */
+function agendaDragStart(e, id, kind){
+  dragStartCalItem(e, id, kind);
+  const item = (kind === 'project' ? state.projects : state.tasks).find(x => x.id === id);
+  if(!item || !e.dataTransfer.setDragImage) return;
+  const pri = item.priority || 'medium';
+  const g = document.createElement('div');
+  g.className = `drag-square ${kind === 'project' ? 'is-project' : 'pri-' + pri}`;
+  g.innerHTML = `<div class="drag-square-title">${escape(item.title)}</div>
+    <div class="drag-square-meta">${kind === 'project' ? 'Project' : escape(pri)}</div>`;
+  document.body.appendChild(g);
+  e.dataTransfer.setDragImage(g, 50, 40);
+  setTimeout(() => g.remove(), 0);
+}
+
 function userColor(id){
   const u = state.users.find(x=>x.id===id);
   return u ? COLORS[u.colorIdx % COLORS.length] : {bg:'#F1EDE3',fg:'#857F76'};
@@ -7305,7 +7329,7 @@ function renderDashboard(){
       ${agendaTasks.map(t=>{
         const od = isOverdue(t.dueDate);
         return `<div class="item-row is-clickable agenda-drag ${od?'overdue':''}" data-action="open-task" data-id="${t.id}" title="Open this task, or drag it onto a calendar day to reschedule"
-             draggable="true" ondragstart="dragStartCalItem(event,'${t.id}','task')" ondragend="dragEndCalItem(event)">
+             draggable="true" ondragstart="agendaDragStart(event,'${t.id}','task')" ondragend="dragEndCalItem(event)">
           <input type="checkbox" class="task-check" data-action="toggle-task" data-id="${t.id}">
           <div class="item-main">
             <div class="item-title">${escape(t.title)}</div>
@@ -7325,7 +7349,7 @@ function renderDashboard(){
       }).join('') || `<div style="text-align:center;padding:22px;color:var(--ink-3);font-size:13px"><i class="ti ti-sun" style="font-size:22px;display:block;margin-bottom:6px;color:var(--gold)"></i>Nothing due today — clear runway.</div>`}
       ${projsToday.map(p=>`
         <div class="item-row agenda-drag" style="cursor:pointer" onclick="openProjectForm('${p.id}')"
-             draggable="true" ondragstart="dragStartCalItem(event,'${p.id}','project')" ondragend="dragEndCalItem(event)" title="Open this project, or drag it onto a calendar day to move its target date">
+             draggable="true" ondragstart="agendaDragStart(event,'${p.id}','project')" ondragend="dragEndCalItem(event)" title="Open this project, or drag it onto a calendar day to move its target date">
           <div style="width:28px;height:28px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-bulb"></i></div>
           <div class="item-main">
             <div class="item-title">${escape(p.title)}</div>
@@ -7338,7 +7362,7 @@ function renderDashboard(){
         <div class="agenda-divider"><span>Coming up</span></div>
         ${upcomingTasks.map(t=>`
           <div class="item-row is-clickable agenda-drag" data-action="open-task" data-id="${t.id}" title="Open this task, or drag it onto a calendar day to reschedule"
-               draggable="true" ondragstart="dragStartCalItem(event,'${t.id}','task')" ondragend="dragEndCalItem(event)">
+               draggable="true" ondragstart="agendaDragStart(event,'${t.id}','task')" ondragend="dragEndCalItem(event)">
             <input type="checkbox" class="task-check" data-action="toggle-task" data-id="${t.id}">
             <div class="item-main">
               <div class="item-title">${escape(t.title)}</div>
