@@ -22,6 +22,8 @@
 //   disconnect                   removes the CRM's task events, revokes, deletes the connection
 //   task_changed {taskId}        bring one task's Google events up to date
 //   sync_all                     push all of the caller's open dated tasks now
+//   schedule_task {taskId,date,startMin,endMin}  give the caller's copy of a task a time window
+//   unschedule_task {taskId}     make the caller's copy all-day again
 // GET ?code=&state=  Google's redirect back after sign-in.
 //
 // CRM tasks -> Google (2026-11-03): after any task is saved or deleted the CRM
@@ -144,12 +146,30 @@ function taskEventBody(t: Task) {
   return {
     summary: t.title,
     description: `Utopian CRM task · ${pri} priority${t.notes ? "\n\n" + t.notes : ""}\n\nOpen the CRM: ${APP_URL}`,
-    start: { date: t.due_date }, end: { date: addDay(t.due_date!) },
+    // dateTime: null so a PATCH can turn a timed copy back into an all-day one.
+    start: { date: t.due_date, dateTime: null }, end: { date: addDay(t.due_date!), dateTime: null },
     transparency: "transparent",
     reminders: { useDefault: false, overrides: [] },
     extendedProperties: { private: { crmTaskId: t.id } },
   };
 }
+// The event for a task, keeping a time window someone gave it in the day view
+// (a timed copy stays timed, same time of day and length, on the due date).
+type GEvent = { id: string; summary?: string; description?: string; start?: { date?: string; dateTime?: string; timeZone?: string }; end?: { date?: string; dateTime?: string; timeZone?: string } };
+const isoNoZ = (d: Date) => d.toISOString().slice(0, 19);
+function bodyFor(t: Task, ex?: GEvent) {
+  const b: Record<string, unknown> & { start: unknown; end: unknown } = taskEventBody(t);
+  if (ex && ex.start?.dateTime && ex.end?.dateTime) {
+    const tz = ex.start.timeZone || ex.end.timeZone || "America/Chicago";
+    const dur = new Date(ex.end.dateTime).getTime() - new Date(ex.start.dateTime).getTime();
+    const st = new Date(`${t.due_date}T${ex.start.dateTime.slice(11, 19)}Z`);
+    b.start = { date: null, dateTime: isoNoZ(st), timeZone: tz };
+    b.end = { date: null, dateTime: isoNoZ(new Date(st.getTime() + Math.max(15 * 60000, dur))), timeZone: tz };
+  }
+  return b;
+}
+const evDate = (e: GEvent) => e.start?.date || (e.start?.dateTime || "").slice(0, 10);
+
 // Auth ids of the people this task belongs to: assignees, or the creator if
 // nobody is assigned.
 async function taskOwners(db: Db, t: Task | null) {
@@ -161,7 +181,7 @@ async function taskOwners(db: Db, t: Task | null) {
 }
 async function taskEvents(token: string, taskId: string) {
   const d = await google(token, `/calendars/primary/events?privateExtendedProperty=${encodeURIComponent("crmTaskId=" + taskId)}&maxResults=10`);
-  return (d.items || []).filter((e: { status?: string }) => e.status !== "cancelled") as { id: string }[];
+  return (d.items || []).filter((e: { status?: string }) => e.status !== "cancelled") as GEvent[];
 }
 async function delEvent(token: string, id: string) {
   await google(token, `/calendars/primary/events/${encodeURIComponent(id)}?sendUpdates=none`, { method: "DELETE" })
@@ -182,7 +202,7 @@ async function syncTask(db: Db, s: Record<string, string>, taskId: string, onlyF
       if (!token) continue;
       const found = await taskEvents(token, taskId);
       if (owners.has(c.auth_id)) {
-        const body = JSON.stringify(taskEventBody(t as Task));
+        const body = JSON.stringify(bodyFor(t as Task, found[0]));
         if (found.length) {
           await google(token, `/calendars/primary/events/${encodeURIComponent(found[0].id)}?sendUpdates=none`, { method: "PATCH", body });
           for (const extra of found.slice(1)) await delEvent(token, extra.id);
@@ -216,7 +236,7 @@ async function reconcileFor(db: Db, s: Record<string, string>, authId: string) {
   }
   out.tasks = want.size;
   // What's in Google now (CRM-made events only).
-  const have = new Map<string, { id: string; summary?: string; description?: string; start?: { date?: string } }[]>();
+  const have = new Map<string, GEvent[]>();
   const timeMin = new Date(Date.now() - 400 * 864e5).toISOString();
   let pageToken = "";
   do {
@@ -231,14 +251,14 @@ async function reconcileFor(db: Db, s: Record<string, string>, authId: string) {
     pageToken = d.nextPageToken || "";
   } while (pageToken);
   for (const [tid, t] of want) {
-    const body = taskEventBody(t);
     const evs = have.get(tid) || [];
+    const body = bodyFor(t, evs[0]) as ReturnType<typeof taskEventBody>;
     if (!evs.length) {
       await google(token, `/calendars/primary/events?sendUpdates=none`, { method: "POST", body: JSON.stringify(body) });
       out.created++;
     } else {
       const e = evs[0];
-      if (e.summary !== body.summary || e.description !== body.description || e.start?.date !== body.start.date) {
+      if (e.summary !== body.summary || e.description !== body.description || evDate(e) !== t.due_date) {
         await google(token, `/calendars/primary/events/${encodeURIComponent(e.id)}?sendUpdates=none`, { method: "PATCH", body: JSON.stringify(body) });
         out.updated++;
       }
@@ -340,6 +360,50 @@ Deno.serve(async (req) => {
         if (!/^[0-9a-f-]{36}$/i.test(id)) return json(400, { error: "taskId required" });
         await syncTask(db, s, id);
         return json(200, { ok: true });
+      }
+      case "schedule_task":
+      case "unschedule_task": {
+        if (!configured) return json(200, { error: "Google Calendar isn't set up" });
+        const id = String(body.taskId || "");
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return json(400, { error: "taskId required" });
+        const token = await accessToken(db, s, user.id);
+        if (!token) return json(200, { error: "Connect Google Calendar first", code: "not_connected" });
+        const { data: t0 } = await db.from("tasks").select("id,title,due_date,priority,status,notes,assignees,created_by").eq("id", id).maybeSingle();
+        if (!t0) return json(200, { error: "That task no longer exists" });
+        if (!(await taskOwners(db, t0 as Task)).has(user.id)) return json(200, { error: "Only tasks assigned to you (or that you made, if unassigned) can be scheduled on your calendar" });
+        const t = { ...(t0 as Task) };
+        let ev: GEvent;
+        const found = await taskEvents(token, id);
+        if (body.action === "unschedule_task") {
+          if (!t.due_date) return json(200, { ok: true });
+          const b = JSON.stringify(taskEventBody(t));
+          ev = found.length
+            ? await google(token, `/calendars/primary/events/${encodeURIComponent(found[0].id)}?sendUpdates=none`, { method: "PATCH", body: b })
+            : await google(token, `/calendars/primary/events?sendUpdates=none`, { method: "POST", body: b });
+        } else {
+          const date = String(body.date || "");
+          const sm = Math.round(Number(body.startMin)), em = Math.round(Number(body.endMin));
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !(sm >= 0 && sm < 1440) || !(em > sm && em <= 1440)) return json(400, { error: "Bad time window" });
+          // Moving it to another day moves the task's due date too.
+          if (t.due_date !== date) {
+            const { error } = await db.from("tasks").update({ due_date: date }).eq("id", id);
+            if (error) throw new Error(error.message);
+            t.due_date = date;
+          }
+          const cal = await google(token, "/calendars/primary");
+          const tz = cal.timeZone || "America/Chicago";
+          const at = (m: number) => isoNoZ(new Date(Date.parse(`${date}T00:00:00Z`) + m * 60000));
+          const b = JSON.stringify({ ...taskEventBody(t), start: { date: null, dateTime: at(sm), timeZone: tz }, end: { date: null, dateTime: at(em), timeZone: tz } });
+          ev = found.length
+            ? await google(token, `/calendars/primary/events/${encodeURIComponent(found[0].id)}?sendUpdates=none`, { method: "PATCH", body: b })
+            : await google(token, `/calendars/primary/events?sendUpdates=none`, { method: "POST", body: b });
+        }
+        for (const extra of found.slice(1)) await delEvent(token, extra.id);
+        // Other people's copies follow the due date (they keep their own times).
+        try { await syncTask(db, s, id); } catch { /* best effort */ }
+        return json(200, { ok: true, dueDate: t.due_date, event: {
+          id: ev.id, calendarId: "primary", calendar: "", color: null, title: ev.summary || t.title,
+          start: ev.start, end: ev.end, link: (ev as { htmlLink?: string }).htmlLink || null, crmTaskId: id, canMove: true } });
       }
       case "sync_all": {
         const n = await syncAllFor(db, s, user.id);

@@ -324,6 +324,18 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .drag-square-meta{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
 .gcal-sync-row{display:flex;gap:10px;align-items:flex-start;margin:4px 0 14px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);font-size:13px;color:var(--ink-2);line-height:1.5}
 .gcal-sync-row>i{color:var(--accent);font-size:18px;flex-shrink:0;margin-top:1px}
+/* ---- task time windows in the day view ---- */
+.dv-chip.is-schedulable{cursor:grab}
+.dv-task-ev{background:var(--accent-soft);border:1px solid var(--accent);border-left:3px solid var(--accent);color:var(--ink);cursor:grab}
+.dv-task-ev.pri-high{border-left-color:var(--danger)}
+.dv-task-ev .dv-ev-title i{font-size:11px;color:var(--accent)}
+.dv-unsched{position:absolute;top:2px;right:2px;width:18px;height:18px;border:0;border-radius:4px;background:transparent;color:var(--ink-3);cursor:pointer;display:none;align-items:center;justify-content:center;padding:0;font-size:12px}
+.dv-task-ev:hover .dv-unsched{display:flex}
+.dv-unsched:hover{background:var(--surface);color:var(--danger)}
+.dv-resize{position:absolute;left:0;right:0;bottom:0;height:7px;cursor:ns-resize}
+.dv-resize::after{content:'';position:absolute;left:50%;bottom:2px;width:22px;height:3px;margin-left:-11px;border-radius:2px;background:currentColor;opacity:0;transition:opacity .15s}
+.dv-event:hover .dv-resize::after{opacity:.35}
+.dv-event.is-resizing{opacity:.85;z-index:5}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -5066,6 +5078,7 @@ async function backOnMarket(id){
    Prev / Next step through days without closing. Same person filter as the
    calendar, so a teammate's view never shows anyone's Google events. */
 const DV = {date:null};
+const DV_DEFAULT_MIN = 60;     // a task dropped on the hours gets an hour
 const DV_HOUR = 48;            // px per hour
 const DV_SNAP = 15;            // minutes
 
@@ -5087,6 +5100,82 @@ function gcalEventsForDay(ds){
   });
   if(!covered) gcalEnsure(ds, ds);
   return out;
+}
+
+// ---- task time windows (2026-11-03) ----
+// A task's time window lives on its copy in YOUR Google Calendar (the event
+// tagged crmTaskId). Only tasks that are yours can be placed: assigned to
+// you, or made by you with nobody assigned.
+function dvOwnsTask(t){
+  const me = state.me && state.me.id;
+  if(!me || !t) return false;
+  return (t.assignees && t.assignees.length) ? t.assignees.includes(me) : t.createdBy === me;
+}
+const dvCanSchedule = t => gcalOn() && dvOwnsTask(t) && t.status !== 'done';
+function dvTaskCopy(taskId, ds){
+  for(const c of Object.values(GCAL.cache)){
+    const ev = c.events.find(e => e.crmTaskId === taskId);
+    if(ev && (!ds || gcalDays(ev).includes(ds))) return ev;
+  }
+  return null;
+}
+// "9a " in front of a task on the month / week grid when it has a time.
+function gcalTaskTimePrefix(item){
+  if(!item || item._kind !== 'task' || !item.dueDate || !gcalOn() || !dvOwnsTask(item)) return '';
+  const ev = dvTaskCopy(item.id, item.dueDate);
+  return ev && ev.start && ev.start.dateTime ? `<b class="gcal-time">${gcalTimeLabel(ev)}</b> ` : '';
+}
+function dvPutCopy(taskId, ev, ds){
+  let placed = false;
+  Object.entries(GCAL.cache).forEach(([k, c]) => {
+    c.events = c.events.filter(e => e.crmTaskId !== taskId);
+    const [from, to] = k.split('|');
+    if(ds >= from && ds <= to){ c.events.push(ev); placed = true; }
+  });
+  if(!placed) GCAL.cache[ds + '|' + ds] = {at: Date.now(), events: [ev]};
+}
+const dvHM = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`;
+async function dvScheduleTask(taskId, startMin, endMin){
+  const t = state.tasks.find(x => x.id === taskId);
+  if(!t) return;
+  const ds = DV.date, prevCopy = dvTaskCopy(taskId), prevDue = t.dueDate;
+  const tz = gcalTz();
+  // Show it in place right away.
+  dvPutCopy(taskId, {...(prevCopy || {}), id: (prevCopy && prevCopy.id) || 'pending-' + taskId, calendarId: 'primary', title: t.title,
+    crmTaskId: taskId, canMove: true, start: {dateTime: `${ds}T${dvHM(startMin)}`, timeZone: tz},
+    end: {dateTime: endMin >= 1440 ? `${gcalAddDays(ds, 1)}T00:00:00` : `${ds}T${dvHM(endMin)}`, timeZone: tz}}, ds);
+  t.dueDate = ds;
+  dayViewRefresh(); app.render();
+  try{
+    const d = await gcalCall({action:'schedule_task', taskId, date: ds, startMin, endMin});
+    if(d.error) throw new Error(d.error);
+    if(d.event) dvPutCopy(taskId, d.event, ds);
+    if(d.dueDate) t.dueDate = d.dueDate;
+    toast(`${t.title}: ${gcalTimeLabel(d.event || {start:{dateTime:`${ds}T${dvHM(startMin)}`}})} on Google Calendar`);
+  }catch(err){
+    t.dueDate = prevDue;
+    if(prevCopy) dvPutCopy(taskId, prevCopy, prevCopy.start.date || prevCopy.start.dateTime.slice(0, 10));
+    else Object.values(GCAL.cache).forEach(c => { c.events = c.events.filter(e => e.crmTaskId !== taskId); });
+    toast('Could not schedule it: ' + (err.message || err), 'err');
+  }
+  dayViewRefresh(); app.render();
+}
+async function dvUnscheduleTask(taskId){
+  const t = state.tasks.find(x => x.id === taskId);
+  const prev = dvTaskCopy(taskId);
+  if(!t || !prev) return;
+  dvPutCopy(taskId, {...prev, start: {date: t.dueDate}, end: {date: gcalAddDays(t.dueDate, 1)}}, t.dueDate);
+  dayViewRefresh(); app.render();
+  try{
+    const d = await gcalCall({action:'unschedule_task', taskId});
+    if(d.error) throw new Error(d.error);
+    if(d.event) dvPutCopy(taskId, d.event, t.dueDate);
+    toast(`${t.title}: back to all day`);
+  }catch(err){
+    dvPutCopy(taskId, prev, t.dueDate);
+    toast('Could not change it: ' + (err.message || err), 'err');
+  }
+  dayViewRefresh(); app.render();
 }
 
 // Google events never go into Today's agenda or any task list or count:
@@ -5145,15 +5234,24 @@ function renderDayView(){
   const tasks = state.tasks.filter(t => t.dueDate === ds && mine(t)).sort(calendarItemSort);
   const projs = state.projects.filter(p => p.dueDate === ds && mine(p));
   const showG = gcalShowsFor(calUserId);
-  const evs = showG ? gcalEventsForDay(ds) : [];
+  const all = showG ? gcalEventsForDay(ds) : [];
+  // Copies of CRM tasks in Google show as the tasks themselves, not twice.
+  const evs = all.filter(ev => !ev.crmTaskId);
+  const copyOf = {};
+  all.filter(ev => ev.crmTaskId && ev.start && ev.start.dateTime).forEach(ev => { copyOf[ev.crmTaskId] = ev; });
+  const timedTasks = tasks.filter(t => copyOf[t.id] && dvOwnsTask(t));
+  const stripTasks = tasks.filter(t => !timedTasks.includes(t));
   const allDay = evs.filter(ev => ev.start.date);
   // Position by wall-clock time (hour x 60 + minute), not elapsed time, so
   // daylight-saving change days still line up with the hour labels.
   const wall = d => gcalYmd(d) < ds ? 0 : gcalYmd(d) > ds ? 24 * 60 : d.getHours() * 60 + d.getMinutes();
-  const timed = dvLayout(evs.filter(ev => !ev.start.date).map(ev => {
-    const s = wall(new Date(ev.start.dateTime));
-    const e = wall(new Date((ev.end && ev.end.dateTime) || ev.start.dateTime));
-    return {ev, s, e: Math.max(s + 15, e)};
+  const timed = dvLayout([
+    ...evs.filter(ev => !ev.start.date).map(ev => ({ev})),
+    ...timedTasks.map(t => ({ev: copyOf[t.id], task: t})),
+  ].map(it => {
+    const s = wall(new Date(it.ev.start.dateTime));
+    const e = wall(new Date((it.ev.end && it.ev.end.dateTime) || it.ev.start.dateTime));
+    return {...it, s, e: Math.max(s + 15, e)};
   }));
   const hourLabel = h => h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
   const isToday = ds === today();
@@ -5162,7 +5260,8 @@ function renderDayView(){
 
   const chips = [
     ...allDay.map(ev => { const key = gcalKey(ev); return `<div class="dv-chip gcal-item" style="--gcal:${escape(ev.color || '#4285F4')}" onclick="gcalOpen('${key}')" title="Google Calendar${ev.calendar ? ' (' + escape(ev.calendar) + ')' : ''}"><i class="ti ti-brand-google"></i> ${escape(ev.title)}</div>`; }),
-    ...tasks.map(t => `<div class="dv-chip dv-task pri-${t.priority || 'medium'} ${t.status === 'done' ? 'is-done' : ''}">
+    ...stripTasks.map(t => `<div class="dv-chip dv-task pri-${t.priority || 'medium'} ${t.status === 'done' ? 'is-done' : ''} ${dvCanSchedule(t) ? 'is-schedulable' : ''}"
+        ${dvCanSchedule(t) ? `draggable="true" ondragstart="dvTaskDragStart(event,'${t.id}','task-sched')" ondragend="dragEndCalItem(event)" title="Drag onto the hours to give it a time"` : ''}>
         <input type="checkbox" class="task-check" ${t.status === 'done' ? 'checked' : ''} onchange="dvToggleTask('${t.id}')" title="Mark done">
         <span onclick="closeModal();openTaskForm('${t.id}')" title="Open task">${escape(t.title)}</span>
         ${assigneeStack(t.assignees, 'sm')}
@@ -5174,7 +5273,8 @@ function renderDayView(){
     : !StorageAdapter.supabase || !GCAL.status ? ''
     : !GCAL.status.configured ? ''
     : !gcalOn() ? `<button class="btn-link" onclick="closeModal();gcalConnect()">Connect Google Calendar</button> to see your events here`
-    : loading ? '<i class="ti ti-loader-2 spin"></i> Loading Google Calendar…' : '';
+    : loading ? '<i class="ti ti-loader-2 spin"></i> Loading Google Calendar…'
+    : stripTasks.some(dvCanSchedule) ? 'Drag a task onto the hours to give it a time' : '';
 
   return `
     <div class="modal-header dv-head">
@@ -5197,15 +5297,28 @@ function renderDayView(){
         ${Array.from({length:24}, (_, h) => `<div class="dv-hour" style="top:${h * DV_HOUR}px"><span>${hourLabel(h)}</span></div>`).join('')}
         ${nowMin != null ? `<div class="dv-now" style="top:${nowMin / 60 * DV_HOUR}px"></div>` : ''}
         ${timed.map(it => {
-          const ev = it.ev, key = gcalKey(ev);
+          const ev = it.ev;
           const top = it.s / 60 * DV_HOUR, h = Math.max(20, (it.e - it.s) / 60 * DV_HOUR - 2);
           const w = 100 / it.cols;
+          if(it.task){
+            const t = it.task, endT = {start:{dateTime:(ev.end && ev.end.dateTime) || ev.start.dateTime}};
+            return `<div class="dv-event dv-task-ev pri-${t.priority || 'medium'} ${h < 34 ? 'is-short' : ''}" data-task="${t.id}" style="top:${top}px;height:${h}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 4px)"
+                draggable="true" ondragstart="dvTaskDragStart(event,'${t.id}','task-time')" ondragend="dragEndCalItem(event)"
+                onclick="if(!event.target.closest('.dv-unsched,.dv-resize')){closeModal();openTaskForm('${t.id}')}" title="${escape(t.title)} · ${gcalTimeLabel(ev)}–${gcalTimeLabel(endT)} · drag to move, pull the bottom edge to change the length">
+              <div class="dv-ev-title"><i class="ti ti-checkbox"></i> ${escape(t.title)}</div>
+              <div class="dv-ev-time">${gcalTimeLabel(ev)}–${gcalTimeLabel(endT)}</div>
+              <button class="dv-unsched" onclick="event.stopPropagation();dvUnscheduleTask('${t.id}')" title="Take the time off (back to all day)"><i class="ti ti-x"></i></button>
+              <div class="dv-resize" onmousedown="dvResizeStart(event,'task','${t.id}')" title="Drag to change the length"></div>
+            </div>`;
+          }
+          const key = gcalKey(ev);
           const end = {start:{dateTime:(ev.end && ev.end.dateTime) || ev.start.dateTime}};
           return `<div class="dv-event gcal-item ${ev.canMove ? '' : 'gcal-locked'} ${h < 34 ? 'is-short' : ''}" style="top:${top}px;height:${h}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 4px);--gcal:${escape(ev.color || '#4285F4')}"
               ${ev.canMove ? `draggable="true" ondragstart="dvDragStart(event,'${key}')" ondragend="dragEndCalItem(event)"` : ''}
-              onclick="gcalOpen('${key}')" title="${escape(ev.title)} · ${gcalTimeLabel(ev)}–${gcalTimeLabel(end)}${ev.calendar ? ' · ' + escape(ev.calendar) : ''}${ev.canMove ? ' · drag to change the time' : ' · only the organizer can move this'}">
+              onclick="if(!event.target.closest('.dv-resize'))gcalOpen('${key}')" title="${escape(ev.title)} · ${gcalTimeLabel(ev)}–${gcalTimeLabel(end)}${ev.calendar ? ' · ' + escape(ev.calendar) : ''}${ev.canMove ? ' · drag to move, pull the bottom edge to change the length' : ' · only the organizer can move this'}">
             <div class="dv-ev-title">${escape(ev.title)}</div>
             <div class="dv-ev-time">${gcalTimeLabel(ev)}–${gcalTimeLabel(end)}${ev.canMove ? '' : ' <i class="ti ti-lock"></i>'}</div>
+            ${ev.canMove ? `<div class="dv-resize" onmousedown="dvResizeStart(event,'gcal','${key}')" title="Drag to change the length"></div>` : ''}
           </div>`;
         }).join('')}
       </div>
@@ -5257,6 +5370,12 @@ async function dvDrop(e){
   e.preventDefault();
   const g = e.currentTarget.querySelector('.dv-ghost'); if(g) g.remove();
   const [kind, key] = (e.dataTransfer.getData('text/plain') || '').split(':');
+  if(kind === 'task-sched' || kind === 'task-time'){
+    const m = dvMinuteAt(e);
+    const copy = kind === 'task-time' ? dvTaskCopy(key) : null;
+    const dur = copy && copy.start.dateTime ? Math.max(DV_SNAP, Math.round((new Date(copy.end.dateTime) - new Date(copy.start.dateTime)) / 60000)) : DV_DEFAULT_MIN;
+    return dvScheduleTask(key, m, Math.min(1440, m + dur));
+  }
   if(kind !== 'gcal-time') return;
   const ev = GCAL.idx[key];
   if(!ev || !ev.canMove || ev.start.date) return;
@@ -5281,6 +5400,69 @@ async function dvDrop(e){
   }catch(err){
     ev.start = before.start; ev.end = before.end;
     toast('Could not move it in Google: ' + (err.message || err), 'err');
+  }
+  dayViewRefresh(); app.render();
+}
+
+function dvTaskDragStart(e, id, kind){
+  const r = e.currentTarget.getBoundingClientRect();
+  DV.grab = kind === 'task-time' ? e.clientY - r.top : 0;
+  e.dataTransfer.setData('text/plain', kind + ':' + id);
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.classList.add('dragging');
+  e.stopPropagation();
+}
+
+// ---- stretch an item: pull its bottom edge (15-minute steps) ----
+function dvResizeStart(e, kind, id){
+  e.preventDefault(); e.stopPropagation();
+  const block = e.currentTarget.closest('.dv-event');
+  const grid = block.closest('.dv-grid');
+  const top = parseFloat(block.style.top);
+  const startMin = Math.round(top / DV_HOUR * 60 / DV_SNAP) * DV_SNAP;
+  block.setAttribute('draggable', 'false');
+  block.classList.add('is-resizing');
+  const timeEl = block.querySelector('.dv-ev-time');
+  let endMin = null;
+  const move = ev => {
+    const y = ev.clientY - grid.getBoundingClientRect().top;
+    endMin = Math.max(startMin + DV_SNAP, Math.min(1440, Math.round(y / DV_HOUR * 60 / DV_SNAP) * DV_SNAP));
+    block.style.height = ((endMin - startMin) / 60 * DV_HOUR - 2) + 'px';
+    if(timeEl){
+      const lab = m => gcalTimeLabel({start:{dateTime:`${DV.date}T${dvHM(m % 1440)}`}});
+      timeEl.textContent = `${lab(startMin)}–${endMin >= 1440 ? '12a' : lab(endMin)}`;
+    }
+  };
+  const up = () => {
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', up);
+    block.classList.remove('is-resizing');
+    if(endMin == null){ block.setAttribute('draggable', 'true'); return; }
+    if(kind === 'task') dvScheduleTask(id, startMin, endMin);
+    else dvResizeGcal(id, endMin);
+  };
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+}
+async function dvResizeGcal(key, endMin){
+  const ev = GCAL.idx[key];
+  if(!ev || !ev.canMove || ev.start.date) return;
+  const tz = (ev.end && ev.end.timeZone) || ev.start.timeZone || gcalTz();
+  const before = {start: ev.start, end: ev.end};
+  const s0 = new Date(ev.start.dateTime);
+  const fmt = d => `${gcalYmd(d)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:00`;
+  const startObj = {dateTime: fmt(s0), timeZone: ev.start.timeZone || tz};
+  const endObj = {dateTime: endMin >= 1440 ? `${gcalAddDays(DV.date, 1)}T00:00:00` : `${DV.date}T${dvHM(endMin)}`, timeZone: tz};
+  ev.end = endObj;
+  dayViewRefresh(); app.render();
+  try{
+    const d = await gcalCall({action:'move', calendarId: ev.calendarId, eventId: ev.id, start: startObj, end: endObj});
+    if(d.error) throw new Error(d.error);
+    if(d.event){ ev.start = d.event.start; ev.end = d.event.end; }
+    toast(`${ev.title}: ${gcalTimeLabel(ev)}–${gcalTimeLabel({start:{dateTime:ev.end.dateTime}})} (Google Calendar)`);
+  }catch(err){
+    ev.start = before.start; ev.end = before.end;
+    toast('Could not change it in Google: ' + (err.message || err), 'err');
   }
   dayViewRefresh(); app.render();
 }
@@ -10008,7 +10190,7 @@ function renderMonthCalendarCard(){
                          ondragend="dragEndCalItem(event)"
                          onclick="${clickFn}" title="${escape(tip)} · drag to another day to reschedule">
               ${isProject?'<i class="ti ti-bulb" style="font-size:10px;flex-shrink:0"></i>':''}
-              <span class="month-item-title">${escape(item.title)}</span>
+              <span class="month-item-title">${gcalTaskTimePrefix(item)}${escape(item.title)}</span>
             </div>`;
           }).join('')}</div>`:''}
         </div>`;
@@ -10097,7 +10279,7 @@ function renderWeekCalendarCard(){
                    ondragstart="dragStartCalItem(event,'${item.id}','${isProject?'project':'task'}')"
                    ondragend="dragEndCalItem(event)"
                    onclick="${clickFn}" title="${escape(item.title)} · drag to another day to reschedule">
-                <div class="week-item-title" style="${done?'text-decoration:line-through;opacity:.55':''}">${isProject?'<i class="ti ti-bulb" style="font-size:11px"></i> ':''}${escape(item.title)}</div>
+                <div class="week-item-title" style="${done?'text-decoration:line-through;opacity:.55':''}">${isProject?'<i class="ti ti-bulb" style="font-size:11px"></i> ':''}${gcalTaskTimePrefix(item)}${escape(item.title)}</div>
                 <div class="week-item-meta">
                   ${isProject?`<span>${escape(item.category)}</span>`:`<span class="badge b-${pri}">${pri}</span>`}
                   ${assigneeStack(item.assignees,'sm')}
