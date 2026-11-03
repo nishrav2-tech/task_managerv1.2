@@ -19,20 +19,18 @@
 //   auth_url   {returnTo}        {url} to send the browser to Google
 //   events     {timeMin,timeMax} {events:[...]} from calendars shown in Google
 //   move       {calendarId, eventId, start, end}   reschedules one event
-//   disconnect                   revokes and deletes the connection
-//   set_sync   {on}              turn "add my CRM tasks to Google" on or off
+//   disconnect                   removes the CRM's task events, revokes, deletes the connection
+//   task_changed {taskId}        bring one task's Google events up to date
 //   sync_all                     push all of the caller's open dated tasks now
 // GET ?code=&state=  Google's redirect back after sign-in.
 //
-// CRM tasks -> Google (2026-11-03): a database trigger on public.tasks posts
-// {action:"task_changed", taskId} with the x-gcal-hook header (GCAL_HOOK_SECRET)
-// whenever a task is added, edited, rescheduled or deleted. Each open task with
-// a due date becomes an all-day event on the primary Google Calendar of every
-// assignee (or its creator, if unassigned) who has connected Google and left
-// task sync on. Done, undated or deleted tasks have their event removed.
-// public.gcal_task_events remembers which event belongs to which task and
-// person. Events carry extendedProperties.private.crmTaskId so the CRM's own
-// calendar doesn't show them twice.
+// CRM tasks -> Google (2026-11-03): after any task is saved or deleted the CRM
+// sends task_changed. Each open task with a due date becomes an all-day event
+// on the primary Google Calendar of every assignee (or its creator, if
+// unassigned) who has connected Google. Done, undated or deleted tasks have
+// their event removed. Events are found again by
+// extendedProperties.private.crmTaskId, so no extra table is needed, and the
+// CRM's own calendar skips them so tasks don't show twice.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const URL_ = Deno.env.get("SUPABASE_URL")!;
@@ -47,7 +45,7 @@ const SCOPES = [
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-gcal-hook",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 const json = (status: number, body: unknown) =>
@@ -56,7 +54,7 @@ const admin = () => createClient(URL_, SERVICE, { auth: { persistSession: false 
 
 async function secrets(db: ReturnType<typeof admin>) {
   const { data } = await db.from("app_secrets").select("key,value")
-    .in("key", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GCAL_STATE_SECRET", "GCAL_HOOK_SECRET"]);
+    .in("key", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GCAL_STATE_SECRET"]);
   return Object.fromEntries((data || []).map((r) => [r.key, r.value])) as Record<string, string>;
 }
 
@@ -136,78 +134,67 @@ async function google(token: string, path: string, init: RequestInit = {}) {
 
 // ---- CRM tasks -> each person's Google Calendar ----
 type Db = ReturnType<typeof admin>;
+type Task = { id: string; title: string; due_date: string | null; priority?: string; status?: string; notes?: string | null; assignees?: string[]; created_by?: string | null };
 const addDay = (ymd: string) => { const d = new Date(ymd + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
 const APP_URL = "https://nishrav2-tech.github.io/task_managerv1.2/";
+const isGone = (e: unknown) => [404, 410].includes((e as { status?: number }).status || 0);
 
-function taskEventBody(t: { id: string; title: string; due_date: string; priority?: string; notes?: string | null }) {
+function taskEventBody(t: Task) {
   const pri = t.priority ? t.priority[0].toUpperCase() + t.priority.slice(1) : "Medium";
   return {
     summary: t.title,
     description: `Utopian CRM task · ${pri} priority${t.notes ? "\n\n" + t.notes : ""}\n\nOpen the CRM: ${APP_URL}`,
-    start: { date: t.due_date }, end: { date: addDay(t.due_date) },
+    start: { date: t.due_date }, end: { date: addDay(t.due_date!) },
     transparency: "transparent",
     reminders: { useDefault: false, overrides: [] },
     extendedProperties: { private: { crmTaskId: t.id } },
   };
 }
-
-// Who should see this task in Google: its assignees, or its creator if nobody
-// is assigned. Returned as auth ids of people with task sync on.
-async function taskTargets(db: Db, t: { assignees?: string[]; created_by?: string | null } | null) {
-  if (!t) return [] as string[];
+// Auth ids of the people this task belongs to: assignees, or the creator if
+// nobody is assigned.
+async function taskOwners(db: Db, t: Task | null) {
+  if (!t) return new Set<string>();
   const ids = (t.assignees && t.assignees.length) ? t.assignees : (t.created_by ? [t.created_by] : []);
-  if (!ids.length) return [];
+  if (!ids.length) return new Set<string>();
   const { data: us } = await db.from("users").select("auth_id,active").in("id", ids);
-  const authIds = (us || []).filter((u) => u.auth_id && u.active !== false).map((u) => u.auth_id as string);
-  if (!authIds.length) return [];
-  const { data: cs } = await db.from("gcal_connections").select("auth_id,sync_tasks").in("auth_id", authIds);
-  return (cs || []).filter((c) => c.sync_tasks !== false).map((c) => c.auth_id as string);
+  return new Set((us || []).filter((u) => u.auth_id && u.active !== false).map((u) => u.auth_id as string));
 }
-
-async function dropEvent(db: Db, s: Record<string, string>, m: { task_id: string; auth_id: string; calendar_id: string; event_id: string }) {
-  try {
-    const token = await accessToken(db, s, m.auth_id);
-    if (token) {
-      await google(token, `/calendars/${encodeURIComponent(m.calendar_id)}/events/${encodeURIComponent(m.event_id)}?sendUpdates=none`, { method: "DELETE" })
-        .catch((e) => { if (![404, 410].includes((e as { status?: number }).status || 0)) throw e; });
-    }
-  } catch { /* the mapping goes either way; a stray event is better than a stuck sync */ }
-  await db.from("gcal_task_events").delete().eq("task_id", m.task_id).eq("auth_id", m.auth_id);
+async function taskEvents(token: string, taskId: string) {
+  const d = await google(token, `/calendars/primary/events?privateExtendedProperty=${encodeURIComponent("crmTaskId=" + taskId)}&maxResults=10`);
+  return (d.items || []).filter((e: { status?: string }) => e.status !== "cancelled") as { id: string }[];
 }
-
-async function putEvent(db: Db, s: Record<string, string>, authId: string, t: { id: string; title: string; due_date: string; priority?: string; notes?: string | null }, existing?: { calendar_id: string; event_id: string }) {
-  const token = await accessToken(db, s, authId);
-  if (!token) return;
-  const body = taskEventBody(t);
-  if (existing) {
-    try {
-      await google(token, `/calendars/${encodeURIComponent(existing.calendar_id)}/events/${encodeURIComponent(existing.event_id)}?sendUpdates=none`, { method: "PATCH", body: JSON.stringify(body) });
-      return;
-    } catch (e) {
-      if (![404, 410].includes((e as { status?: number }).status || 0)) throw e;   // deleted in Google: make it again
-    }
-  }
-  // Reuse an event already tagged with this task (covers two saves racing).
-  const found = await google(token, `/calendars/primary/events?privateExtendedProperty=${encodeURIComponent("crmTaskId=" + t.id)}&maxResults=5&showDeleted=false`);
-  let ev = (found.items || []).find((e: { status?: string }) => e.status !== "cancelled");
-  if (ev) await google(token, `/calendars/primary/events/${encodeURIComponent(ev.id)}?sendUpdates=none`, { method: "PATCH", body: JSON.stringify(body) });
-  else ev = await google(token, `/calendars/primary/events?sendUpdates=none`, { method: "POST", body: JSON.stringify(body) });
-  await db.from("gcal_task_events").upsert({ task_id: t.id, auth_id: authId, calendar_id: "primary", event_id: ev.id, synced_at: new Date().toISOString() });
+async function delEvent(token: string, id: string) {
+  await google(token, `/calendars/primary/events/${encodeURIComponent(id)}?sendUpdates=none`, { method: "DELETE" })
+    .catch((e) => { if (!isGone(e)) throw e; });
 }
-
-// Bring one task's Google events in line with the task as it is now.
+// Bring one task's events in line with the task as it is now, for everyone
+// connected (or just `onlyFor`).
 async function syncTask(db: Db, s: Record<string, string>, taskId: string, onlyFor?: string) {
   const { data: t } = await db.from("tasks").select("id,title,due_date,priority,status,notes,assignees,created_by").eq("id", taskId).maybeSingle();
   const live = !!(t && t.due_date && t.status !== "done");
-  let targets = live ? await taskTargets(db, t) : [];
-  let q = db.from("gcal_task_events").select("*").eq("task_id", taskId);
-  if (onlyFor) { q = q.eq("auth_id", onlyFor); targets = targets.filter((a) => a === onlyFor); }
-  const { data: maps } = await q;
-  const byAuth = new Map((maps || []).map((m) => [m.auth_id as string, m]));
-  for (const m of maps || []) if (!targets.includes(m.auth_id)) await dropEvent(db, s, m);
-  for (const a of targets) await putEvent(db, s, a, t!, byAuth.get(a));
+  const owners = live ? await taskOwners(db, t as Task) : new Set<string>();
+  let q = db.from("gcal_connections").select("auth_id");
+  if (onlyFor) q = q.eq("auth_id", onlyFor);
+  const { data: conns } = await q;
+  for (const c of conns || []) {
+    try {
+      const token = await accessToken(db, s, c.auth_id);
+      if (!token) continue;
+      const found = await taskEvents(token, taskId);
+      if (owners.has(c.auth_id)) {
+        const body = JSON.stringify(taskEventBody(t as Task));
+        if (found.length) {
+          await google(token, `/calendars/primary/events/${encodeURIComponent(found[0].id)}?sendUpdates=none`, { method: "PATCH", body });
+          for (const extra of found.slice(1)) await delEvent(token, extra.id);
+        } else {
+          await google(token, `/calendars/primary/events?sendUpdates=none`, { method: "POST", body });
+        }
+      } else {
+        for (const e of found) await delEvent(token, e.id);
+      }
+    } catch { /* one person's Google trouble shouldn't stop the others */ }
+  }
 }
-
 // Everything open and dated for one person, from 30 days back on.
 async function syncAllFor(db: Db, s: Record<string, string>, authId: string) {
   const { data: me } = await db.from("users").select("id").eq("auth_id", authId).maybeSingle();
@@ -215,21 +202,22 @@ async function syncAllFor(db: Db, s: Record<string, string>, authId: string) {
   const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   const { data: ts } = await db.from("tasks").select("id,assignees,created_by").neq("status", "done").not("due_date", "is", null).gte("due_date", since);
   const mine = (ts || []).filter((t) => (t.assignees && t.assignees.length) ? t.assignees.includes(me.id) : t.created_by === me.id);
-  const { data: maps } = await db.from("gcal_task_events").select("task_id").eq("auth_id", authId);
-  const ids = new Set([...mine.map((t) => t.id as string), ...(maps || []).map((m) => m.task_id as string)]);
-  for (const id of ids) { try { await syncTask(db, s, id, authId); } catch { /* keep going */ } }
-  await db.from("gcal_connections").update({ tasks_synced_at: new Date().toISOString() }).eq("auth_id", authId);
-  return ids.size;
+  for (const t of mine) await syncTask(db, s, t.id, authId);
+  return mine.length;
 }
+// Take every CRM task event back out of one person's primary calendar.
 async function removeAllFor(db: Db, s: Record<string, string>, authId: string) {
-  const { data: maps } = await db.from("gcal_task_events").select("*").eq("auth_id", authId);
-  for (const m of maps || []) await dropEvent(db, s, m);
+  const token = await accessToken(db, s, authId);
+  if (!token) return;
+  const timeMin = new Date(Date.now() - 400 * 864e5).toISOString();
+  let pageToken = "";
+  do {
+    const q = new URLSearchParams({ timeMin, maxResults: "2500", singleEvents: "true", ...(pageToken ? { pageToken } : {}) });
+    const d = await google(token, `/calendars/primary/events?${q}`);
+    for (const e of d.items || []) if (e.extendedProperties?.private?.crmTaskId) await delEvent(token, e.id);
+    pageToken = d.nextPageToken || "";
+  } while (pageToken);
 }
-const background = (p: Promise<unknown>) => {
-  // deno-lint-ignore no-explicit-any
-  const rt = (globalThis as any).EdgeRuntime;
-  if (rt && rt.waitUntil) rt.waitUntil(p.catch(() => {})); else p.catch(() => {});
-};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -264,18 +252,6 @@ Deno.serve(async (req) => {
     }
   }
 
-  // ---- database trigger: a task changed ----
-  const hook = req.headers.get("x-gcal-hook");
-  if (hook) {
-    if (!s.GCAL_HOOK_SECRET || hook !== s.GCAL_HOOK_SECRET) return json(401, { error: "Not allowed" });
-    if (!configured) return json(200, { ok: true, skipped: "not_configured" });
-    let b: { taskId?: string };
-    try { b = await req.json(); } catch { return json(400, { error: "Bad JSON" }); }
-    if (!b.taskId) return json(400, { error: "taskId required" });
-    try { await syncTask(db, s, String(b.taskId)); return json(200, { ok: true }); }
-    catch (e) { return json(200, { ok: false, error: (e as Error).message }); }
-  }
-
   // ---- everything else: the signed-in teammate's own calendar only ----
   const auth = req.headers.get("Authorization");
   if (!auth) return json(401, { error: "Sign in first" });
@@ -291,20 +267,15 @@ Deno.serve(async (req) => {
   try {
     switch (body.action) {
       case "status": {
-        const { data: c } = await db.from("gcal_connections").select("google_email,sync_tasks,tasks_synced_at").eq("auth_id", user.id).maybeSingle();
-        // First look after connecting: push this person's open tasks in the background.
-        if (c && c.sync_tasks !== false && !c.tasks_synced_at) {
-          await db.from("gcal_connections").update({ tasks_synced_at: new Date().toISOString() }).eq("auth_id", user.id);
-          background(syncAllFor(db, s, user.id));
-        }
-        return json(200, { configured, connected: !!c, email: c?.google_email || null, syncTasks: c ? c.sync_tasks !== false : false });
+        const { data: c } = await db.from("gcal_connections").select("google_email").eq("auth_id", user.id).maybeSingle();
+        return json(200, { configured, connected: !!c, email: c?.google_email || null, syncTasks: !!c });
       }
-      case "set_sync": {
-        const on = !!body.on;
-        const { error } = await db.from("gcal_connections").update({ sync_tasks: on, tasks_synced_at: on ? new Date().toISOString() : null }).eq("auth_id", user.id);
-        if (error) throw new Error(error.message);
-        background(on ? syncAllFor(db, s, user.id) : removeAllFor(db, s, user.id));
-        return json(200, { ok: true, syncTasks: on });
+      case "task_changed": {
+        if (!configured) return json(200, { ok: true });
+        const id = String(body.taskId || "");
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return json(400, { error: "taskId required" });
+        await syncTask(db, s, id);
+        return json(200, { ok: true });
       }
       case "sync_all": {
         const n = await syncAllFor(db, s, user.id);

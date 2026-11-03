@@ -1047,55 +1047,6 @@ drop trigger if exists tasks_keep_created_by on public.tasks;
 create trigger tasks_keep_created_by before update on public.tasks
   for each row execute function public.tasks_keep_created_by();
 
--- CRM tasks -> Google Calendar (2026-11-03)
-alter table public.gcal_connections add column if not exists sync_tasks boolean not null default true;
-alter table public.gcal_connections add column if not exists tasks_synced_at timestamptz;
-
--- Which Google event belongs to which task for which person. Edge Function only.
-create table if not exists public.gcal_task_events (
-  task_id uuid not null,
-  auth_id uuid not null references public.gcal_connections(auth_id) on delete cascade,
-  calendar_id text not null default 'primary',
-  event_id text not null,
-  synced_at timestamptz not null default now(),
-  primary key (task_id, auth_id)
-);
-alter table public.gcal_task_events enable row level security;
-revoke all on public.gcal_task_events from anon, authenticated;
-
-insert into public.app_secrets(key, value)
-  select 'GCAL_HOOK_SECRET', encode(gen_random_bytes(32), 'hex')
-  where not exists (select 1 from public.app_secrets where key = 'GCAL_HOOK_SECRET');
-
--- Any task insert / edit / delete tells the gcal function, which updates the
--- events in the Google Calendars of whoever the task belongs to. Runs async
--- through pg_net, so saving a task never waits on Google.
-create or replace function public.tasks_notify_gcal() returns trigger
-language plpgsql security definer set search_path = public as $$
-declare
-  tid uuid := coalesce(new.id, old.id);
-begin
-  if tg_op = 'UPDATE'
-     and new.title is not distinct from old.title
-     and new.due_date is not distinct from old.due_date
-     and new.status is not distinct from old.status
-     and new.priority is not distinct from old.priority
-     and new.notes is not distinct from old.notes
-     and new.assignees is not distinct from old.assignees then
-    return new;
-  end if;
-  -- Nobody has Google connected: nothing to do.
-  if not exists (select 1 from public.gcal_connections where sync_tasks) then
-    return coalesce(new, old);
-  end if;
-  perform net.http_post(
-    url := 'https://yahosblylysopbxgztvg.supabase.co/functions/v1/gcal',
-    headers := jsonb_build_object('Content-Type','application/json',
-      'x-gcal-hook', (select value from public.app_secrets where key = 'GCAL_HOOK_SECRET')),
-    body := jsonb_build_object('taskId', tid),
-    timeout_milliseconds := 30000);
-  return coalesce(new, old);
-end $$;
-drop trigger if exists tasks_notify_gcal on public.tasks;
-create trigger tasks_notify_gcal after insert or update or delete on public.tasks
-  for each row execute function public.tasks_notify_gcal();
+-- CRM tasks -> Google Calendar (2026-11-03): no schema change. Events are tagged with
+-- extendedProperties.private.crmTaskId and found again by that tag; the CRM calls the gcal
+-- function (action task_changed) after every task save or delete.

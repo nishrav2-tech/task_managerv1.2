@@ -322,8 +322,8 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .drag-square.pri-low{border-left-color:var(--ink-3)}
 .drag-square-title{font-size:12px;font-weight:600;line-height:1.25;color:var(--ink);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .drag-square-meta{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
-.gcal-sync-row{display:flex;gap:10px;align-items:flex-start;margin:4px 0 14px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);font-size:13px;color:var(--ink-2);line-height:1.5;cursor:pointer}
-.gcal-sync-row input{margin-top:3px;flex-shrink:0}
+.gcal-sync-row{display:flex;gap:10px;align-items:flex-start;margin:4px 0 14px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);font-size:13px;color:var(--ink-2);line-height:1.5}
+.gcal-sync-row>i{color:var(--accent);font-size:18px;flex-shrink:0;margin-top:1px}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -4759,7 +4759,16 @@ async function gcalCall(body){
 async function gcalLoadStatus(force){
   if(GCAL.statusBusy || (GCAL.status && !force) || !StorageAdapter.supabase) return;
   GCAL.statusBusy = true;
-  try{ GCAL.status = await gcalCall({action:'status'}); }
+  try{
+    GCAL.status = await gcalCall({action:'status'});
+    // First time on this device after connecting: add your open tasks to Google.
+    const k = 'gcal_tasks_synced_' + ((state.me && state.me.id) || '');
+    let done = null; try{ done = localStorage.getItem(k); }catch(e){}
+    if(GCAL.status.connected && GCAL.status.syncTasks && !done){
+      try{ localStorage.setItem(k, '1'); }catch(e){}
+      gcalCall({action:'sync_all'}).catch(() => {});
+    }
+  }
   catch(e){ GCAL.status = {error: e.message || String(e)}; }
   GCAL.statusBusy = false;
   app.render();
@@ -4927,14 +4936,16 @@ async function gcalDisconnect(){
   }catch(e){ toast('Could not disconnect: ' + (e.message || e), 'err'); }
   app.render();
 }
-async function gcalSetSync(on){
-  try{
-    const d = await gcalCall({action:'set_sync', on});
-    if(d.error) throw new Error(d.error);
-    GCAL.status = {...GCAL.status, syncTasks: on};
-    toast(on ? 'Your CRM tasks will be added to Google Calendar' : 'CRM tasks will be taken off your Google Calendar');
-  }catch(e){ toast('Could not change it: ' + (e.message || e), 'err'); }
-  app.render();
+// Any task saved or deleted in the CRM: tell the server, which updates the
+// Google Calendars of whoever the task belongs to. Debounced per task.
+const GCAL_PENDING = {};
+function gcalTaskChanged(id){
+  if(!id || !StorageAdapter.supabase) return;
+  clearTimeout(GCAL_PENDING[id]);
+  GCAL_PENDING[id] = setTimeout(() => {
+    delete GCAL_PENDING[id];
+    gcalCall({action:'task_changed', taskId:id}).catch(() => {});
+  }, 600);
 }
 async function gcalSyncNow(btn){
   if(btn){ btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2 spin"></i> Syncing…'; }
@@ -4972,11 +4983,10 @@ function gcalSettingsSection(){
   else if(!s.configured) body = `<div style="background:var(--warn-soft);border-radius:var(--r-md);padding:12px 14px;font-size:12.5px;color:var(--warn-ink)">
       Google sign-in isn’t set up for this workspace yet.${isAdmin ? ' It needs a Google Cloud OAuth client ID and secret saved on the server (see GCAL-SETUP.md in the repo).' : ' Ask an admin to finish the setup.'}</div>`;
   else if(s.connected) body = `<p>Connected as <strong>${escape(s.email || 'your Google account')}</strong>. Your events show on the Dashboard calendar when it’s showing you or Everyone, and dragging one to another day moves it in Google. Teammates never see them.</p>
-      ${s.syncTasks !== undefined ? `<label class="gcal-sync-row">
-        <input type="checkbox" ${s.syncTasks ? 'checked' : ''} onchange="gcalSetSync(this.checked)">
-        <span><strong>Add my CRM tasks to Google Calendar</strong><br>
-        Tasks assigned to you (or that you made, if nobody is assigned) appear in your Google Calendar as all-day events on their due date. Rescheduling, renaming or deleting a task in the CRM updates Google; finished tasks are taken off.</span>
-      </label>` : ''}
+      ${s.syncTasks ? `<div class="gcal-sync-row"><i class="ti ti-checkbox"></i>
+        <span><strong>Your CRM tasks are added to Google Calendar</strong><br>
+        Tasks assigned to you (or that you made, if nobody is assigned) appear in your Google Calendar as all-day events on their due date. Rescheduling, renaming or deleting a task in the CRM updates Google; finished tasks are taken off. Disconnecting removes them.</span>
+      </div>` : ''}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${s.syncTasks ? `<button class="btn" onclick="gcalSyncNow(this)"><i class="ti ti-refresh"></i> Sync my tasks now</button>` : ''}
         <button class="btn" onclick="gcalRefresh();app.go('dashboard')"><i class="ti ti-calendar"></i> View on Dashboard</button>
@@ -6220,10 +6230,14 @@ async function loadAll(){
 
 // Save one entity to whichever backend is active
 async function saveOne(collection, entity){
-  return await StorageAdapter.saveEntity(collection, entity);
+  const ok = await StorageAdapter.saveEntity(collection, entity);
+  if(ok && collection === 'tasks' && entity) gcalTaskChanged(entity.id);
+  return ok;
 }
 async function deleteOne(collection, id){
-  return await StorageAdapter.deleteEntity(collection, id);
+  const ok = await StorageAdapter.deleteEntity(collection, id);
+  if(ok && collection === 'tasks') gcalTaskChanged(id);
+  return ok;
 }
 
 async function seed(){
