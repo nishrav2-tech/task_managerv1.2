@@ -45,7 +45,7 @@ const SCOPES = [
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-rates-secret",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 const json = (status: number, body: unknown) =>
@@ -54,7 +54,7 @@ const admin = () => createClient(URL_, SERVICE, { auth: { persistSession: false 
 
 async function secrets(db: ReturnType<typeof admin>) {
   const { data } = await db.from("app_secrets").select("key,value")
-    .in("key", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GCAL_STATE_SECRET"]);
+    .in("key", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GCAL_STATE_SECRET", "RATES_SECRET"]);
   return Object.fromEntries((data || []).map((r) => [r.key, r.value])) as Record<string, string>;
 }
 
@@ -195,15 +195,64 @@ async function syncTask(db: Db, s: Record<string, string>, taskId: string, onlyF
     } catch { /* one person's Google trouble shouldn't stop the others */ }
   }
 }
-// Everything open and dated for one person, from 30 days back on.
-async function syncAllFor(db: Db, s: Record<string, string>, authId: string) {
-  const { data: me } = await db.from("users").select("id").eq("auth_id", authId).maybeSingle();
-  if (!me) return 0;
+// Make one person's Google Calendar match their CRM tasks exactly: every open
+// task with a due date from 30 days back on has one event; events for tasks
+// that are done, undated, deleted or no longer theirs are removed. Only
+// touches events the CRM made (tagged crmTaskId). Returns counts.
+async function reconcileFor(db: Db, s: Record<string, string>, authId: string) {
+  const out = { tasks: 0, created: 0, updated: 0, removed: 0 };
+  const { data: me } = await db.from("users").select("id,active").eq("auth_id", authId).maybeSingle();
+  const token = await accessToken(db, s, authId);
+  if (!token) return out;
   const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-  const { data: ts } = await db.from("tasks").select("id,assignees,created_by").neq("status", "done").not("due_date", "is", null).gte("due_date", since);
-  const mine = (ts || []).filter((t) => (t.assignees && t.assignees.length) ? t.assignees.includes(me.id) : t.created_by === me.id);
-  for (const t of mine) await syncTask(db, s, t.id, authId);
-  return mine.length;
+  const { data: ts } = await db.from("tasks").select("id,title,due_date,priority,status,notes,assignees,created_by")
+    .neq("status", "done").not("due_date", "is", null).gte("due_date", since);
+  const want = new Map<string, Task>();
+  if (me && me.active !== false) {
+    for (const t of (ts || []) as Task[]) {
+      const mine = (t.assignees && t.assignees.length) ? t.assignees.includes(me.id) : t.created_by === me.id;
+      if (mine) want.set(t.id, t);
+    }
+  }
+  out.tasks = want.size;
+  // What's in Google now (CRM-made events only).
+  const have = new Map<string, { id: string; summary?: string; description?: string; start?: { date?: string } }[]>();
+  const timeMin = new Date(Date.now() - 400 * 864e5).toISOString();
+  let pageToken = "";
+  do {
+    const q = new URLSearchParams({ timeMin, maxResults: "2500", singleEvents: "true", ...(pageToken ? { pageToken } : {}) });
+    const d = await google(token, `/calendars/primary/events?${q}`);
+    for (const e of d.items || []) {
+      const tid = e.extendedProperties?.private?.crmTaskId;
+      if (!tid || e.status === "cancelled") continue;
+      if (!have.has(tid)) have.set(tid, []);
+      have.get(tid)!.push(e);
+    }
+    pageToken = d.nextPageToken || "";
+  } while (pageToken);
+  for (const [tid, t] of want) {
+    const body = taskEventBody(t);
+    const evs = have.get(tid) || [];
+    if (!evs.length) {
+      await google(token, `/calendars/primary/events?sendUpdates=none`, { method: "POST", body: JSON.stringify(body) });
+      out.created++;
+    } else {
+      const e = evs[0];
+      if (e.summary !== body.summary || e.description !== body.description || e.start?.date !== body.start.date) {
+        await google(token, `/calendars/primary/events/${encodeURIComponent(e.id)}?sendUpdates=none`, { method: "PATCH", body: JSON.stringify(body) });
+        out.updated++;
+      }
+      for (const extra of evs.slice(1)) { await delEvent(token, extra.id); out.removed++; }
+    }
+  }
+  for (const [tid, evs] of have) {
+    if (want.has(tid)) continue;
+    for (const e of evs) { await delEvent(token, e.id); out.removed++; }
+  }
+  return out;
+}
+async function syncAllFor(db: Db, s: Record<string, string>, authId: string) {
+  return (await reconcileFor(db, s, authId)).tasks;
 }
 // Take every CRM task event back out of one person's primary calendar.
 async function removeAllFor(db: Db, s: Record<string, string>, authId: string) {
@@ -250,6 +299,21 @@ Deno.serve(async (req) => {
     } catch {
       return backTo(st.r, "error");
     }
+  }
+
+  // ---- scheduled sweep: bring everyone's calendar in line with the CRM ----
+  // Catches tasks changed outside the CRM screen (imports, automations).
+  const sweep = req.headers.get("x-rates-secret");
+  if (sweep) {
+    if (!s.RATES_SECRET || sweep !== s.RATES_SECRET) return json(401, { error: "Not allowed" });
+    if (!configured) return json(200, { ok: true, skipped: "not_configured" });
+    const { data: conns } = await db.from("gcal_connections").select("auth_id,google_email");
+    const results: Record<string, unknown> = {};
+    for (const c of conns || []) {
+      try { results[c.google_email || c.auth_id] = await reconcileFor(db, s, c.auth_id); }
+      catch (e) { results[c.google_email || c.auth_id] = { error: (e as Error).message }; }
+    }
+    return json(200, { ok: true, results });
   }
 
   // ---- everything else: the signed-in teammate's own calendar only ----
