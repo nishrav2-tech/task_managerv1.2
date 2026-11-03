@@ -216,7 +216,7 @@ async function syncTask(db: Db, s: Record<string, string>, taskId: string, onlyF
   }
 }
 // Make one person's Google Calendar match their CRM tasks exactly: every open
-// task with a due date from 30 days back on has one event; events for tasks
+// task with a due date (overdue ones included) has one event; events for tasks
 // that are done, undated, deleted or no longer theirs are removed. Only
 // touches events the CRM made (tagged crmTaskId). Returns counts.
 async function reconcileFor(db: Db, s: Record<string, string>, authId: string) {
@@ -224,9 +224,8 @@ async function reconcileFor(db: Db, s: Record<string, string>, authId: string) {
   const { data: me } = await db.from("users").select("id,active").eq("auth_id", authId).maybeSingle();
   const token = await accessToken(db, s, authId);
   if (!token) return out;
-  const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   const { data: ts } = await db.from("tasks").select("id,title,due_date,priority,status,notes,assignees,created_by")
-    .neq("status", "done").not("due_date", "is", null).gte("due_date", since);
+    .neq("status", "done").not("due_date", "is", null);
   const want = new Map<string, Task>();
   if (me && me.active !== false) {
     for (const t of (ts || []) as Task[]) {
@@ -235,12 +234,14 @@ async function reconcileFor(db: Db, s: Record<string, string>, authId: string) {
     }
   }
   out.tasks = want.size;
-  // What's in Google now (CRM-made events only).
+  // What's in Google now (CRM-made events only), back to the oldest open task.
   const have = new Map<string, GEvent[]>();
-  const timeMin = new Date(Date.now() - 400 * 864e5).toISOString();
+  const oldest = [...want.values()].reduce((m, t) => (t.due_date! < m ? t.due_date! : m), new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10));
+  const timeMin = new Date(oldest + "T00:00:00Z").getTime() - 864e5;
+  const timeMinIso = new Date(timeMin).toISOString();
   let pageToken = "";
   do {
-    const q = new URLSearchParams({ timeMin, maxResults: "2500", singleEvents: "true", ...(pageToken ? { pageToken } : {}) });
+    const q = new URLSearchParams({ timeMin: timeMinIso, maxResults: "2500", singleEvents: "true", ...(pageToken ? { pageToken } : {}) });
     const d = await google(token, `/calendars/primary/events?${q}`);
     for (const e of d.items || []) {
       const tid = e.extendedProperties?.private?.crmTaskId;
