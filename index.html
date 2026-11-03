@@ -310,6 +310,10 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .dv-ghost{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--accent);z-index:4;pointer-events:none;font-size:11px;font-weight:600;color:var(--accent);padding-left:4px}
 .dv-foot{align-items:center}
 .dv-note{margin-right:auto;font-size:12.5px;color:var(--ink-3)}
+.task-by{color:var(--ink-3)}
+.task-by-line{font-size:12px;color:var(--ink-3);margin:-6px 0 4px}
+.agenda-drag{cursor:grab}
+.agenda-drag.dragging{opacity:.45}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -2229,6 +2233,7 @@ const StorageAdapter = {
       priority:t.priority||'medium', status:t.status||'todo',
       notes:t.notes||'', assignees:t.assignees||[],
       completedAt:t.completed_at?String(t.completed_at).split('T')[0]:'',
+      createdBy:t.created_by||'',
       created:t.created_at?t.created_at.split('T')[0]:''}),
     projects: p => ({id:p.id, title:p.title, category:p.category||'Other',
       status:p.status||'ideas', priority:p.priority||'medium',
@@ -5234,6 +5239,21 @@ async function dvDrop(e){
   dayViewRefresh(); app.render();
 }
 
+
+/* ---- Who made each task (2026-11-03) --------------------------------------
+   tasks.created_by is stamped by the database from the signed-in login when a
+   task is first saved, and never changes after. Older tasks have none. */
+function taskByNote(t){
+  if(!t || !t.createdBy) return '';
+  const u = state.users.find(x => x.id === t.createdBy);
+  return u ? `<span class="task-by" title="Created by ${escape(u.name)}${t.created ? ' on ' + escape(fmtLong(t.created)) : ''}">· by ${escape(u.name.split(' ')[0])}</span>` : '';
+}
+function taskByLine(t){
+  if(!t || !t.createdBy) return '';
+  const u = state.users.find(x => x.id === t.createdBy);
+  return u ? `<p class="task-by-line"><i class="ti ti-user-edit"></i> Created by ${escape(u.name)}${t.created ? ' on ' + escape(fmtLong(t.created)) : ''}</p>` : '';
+}
+
 function userColor(id){
   const u = state.users.find(x=>x.id===id);
   return u ? COLORS[u.colorIdx % COLORS.length] : {bg:'#F1EDE3',fg:'#857F76'};
@@ -7253,7 +7273,7 @@ function renderDashboard(){
       <div>
         <div class="page-eyebrow" style="margin-bottom:2px">Today's agenda</div>
         <div class="card-title">${dayLabel}</div>
-        <div class="card-sub">${agendaCount} item${agendaCount!==1?'s':''} · showing ${escape(agendaLabel)}${escape(agendaScopeLabel)}</div>
+        <div class="card-sub">${agendaCount} item${agendaCount!==1?'s':''} · showing ${escape(agendaLabel)}${escape(agendaScopeLabel)}${agendaCount ? ' · drag a task onto the calendar below to reschedule it' : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <select class="filter-select" style="min-width:170px" onchange="setAgendaUser(this.value)">
@@ -7284,14 +7304,15 @@ function renderDashboard(){
     <div class="item-list agenda-scroll">
       ${agendaTasks.map(t=>{
         const od = isOverdue(t.dueDate);
-        return `<div class="item-row is-clickable ${od?'overdue':''}" data-action="open-task" data-id="${t.id}" title="Open this task">
+        return `<div class="item-row is-clickable agenda-drag ${od?'overdue':''}" data-action="open-task" data-id="${t.id}" title="Open this task, or drag it onto a calendar day to reschedule"
+             draggable="true" ondragstart="dragStartCalItem(event,'${t.id}','task')" ondragend="dragEndCalItem(event)">
           <input type="checkbox" class="task-check" data-action="toggle-task" data-id="${t.id}">
           <div class="item-main">
             <div class="item-title">${escape(t.title)}</div>
             <div class="item-meta">
               <span class="badge b-${t.priority}">${t.priority}</span>
               ${od?`<span style="color:var(--danger);font-weight:600">was due ${fmtLong(t.dueDate)}</span>`:`<span>due today</span>`}
-              ${t.linkedId?`<span>· ${escape(getLinkedName(t.linkedId,t.linkedType))}</span>`:''}
+              ${t.linkedId?`<span>· ${escape(getLinkedName(t.linkedId,t.linkedType))}</span>`:''}${taskByNote(t)}
             </div>
           </div>
           ${assigneeStack(t.assignees,'sm')}
@@ -7303,7 +7324,8 @@ function renderDashboard(){
         </div>`;
       }).join('') || `<div style="text-align:center;padding:22px;color:var(--ink-3);font-size:13px"><i class="ti ti-sun" style="font-size:22px;display:block;margin-bottom:6px;color:var(--gold)"></i>Nothing due today — clear runway.</div>`}
       ${projsToday.map(p=>`
-        <div class="item-row" style="cursor:pointer" onclick="openProjectForm('${p.id}')">
+        <div class="item-row agenda-drag" style="cursor:pointer" onclick="openProjectForm('${p.id}')"
+             draggable="true" ondragstart="dragStartCalItem(event,'${p.id}','project')" ondragend="dragEndCalItem(event)" title="Open this project, or drag it onto a calendar day to move its target date">
           <div style="width:28px;height:28px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-bulb"></i></div>
           <div class="item-main">
             <div class="item-title">${escape(p.title)}</div>
@@ -7315,14 +7337,15 @@ function renderDashboard(){
       ${upcomingTasks.length ? `
         <div class="agenda-divider"><span>Coming up</span></div>
         ${upcomingTasks.map(t=>`
-          <div class="item-row is-clickable" data-action="open-task" data-id="${t.id}" title="Open this task">
+          <div class="item-row is-clickable agenda-drag" data-action="open-task" data-id="${t.id}" title="Open this task, or drag it onto a calendar day to reschedule"
+               draggable="true" ondragstart="dragStartCalItem(event,'${t.id}','task')" ondragend="dragEndCalItem(event)">
             <input type="checkbox" class="task-check" data-action="toggle-task" data-id="${t.id}">
             <div class="item-main">
               <div class="item-title">${escape(t.title)}</div>
               <div class="item-meta">
                 <span class="badge b-${t.priority}">${t.priority}</span>
                 <span>${escape(dueInWords(t.dueDate))}</span>
-                ${t.linkedId?`<span>· ${escape(getLinkedName(t.linkedId,t.linkedType))}</span>`:''}
+                ${t.linkedId?`<span>· ${escape(getLinkedName(t.linkedId,t.linkedType))}</span>`:''}${taskByNote(t)}
               </div>
             </div>
             ${assigneeStack(t.assignees,'sm')}
@@ -10105,7 +10128,7 @@ function renderTaskRow(t, compact){
       <div class="item-meta">
         <span class="badge b-${t.priority}"><span class="badge-dot" style="background:currentColor"></span>${t.priority}</span>
         <span style="color:${overdue?'var(--danger)':'var(--ink-3)'}">${t.dueDate?fmtLong(t.dueDate)+(overdue?' · overdue':''):'No due date'}</span>
-        ${t.linkedId?`<span>· ${escape(getLinkedName(t.linkedId,t.linkedType))}</span>`:''}
+        ${t.linkedId?`<span>· ${escape(getLinkedName(t.linkedId,t.linkedType))}</span>`:''}${taskByNote(t)}
       </div>
     </div>
     ${assigneeStack(t.assignees,'sm')}
@@ -10330,7 +10353,7 @@ function renderPropTasksPanel(p){
           <span class="badge b-${t.priority||'medium'}">${t.priority||'medium'}</span>
           ${!t.dueDate ? `<span>no due date</span>`
             : od ? `<span style="color:var(--danger);font-weight:600">was due ${fmtLong(t.dueDate)}</span>`
-            : `<span>due ${fmtLong(t.dueDate)}</span>`}
+            : `<span>due ${fmtLong(t.dueDate)}</span>`}${taskByNote(t)}
         </div>
       </div>
       ${assigneeStack(t.assignees,'sm')}
@@ -14324,7 +14347,7 @@ function openDayModal(dateStr){
             <div class="item-meta">
               <span class="badge b-${t.priority}">${t.priority}</span>
               <span class="badge b-${t.status}">${t.status.replace('-',' ')}</span>
-              ${t.linkedId?`<span>· ${escape(getLinkedName(t.linkedId,t.linkedType))}</span>`:''}
+              ${t.linkedId?`<span>· ${escape(getLinkedName(t.linkedId,t.linkedType))}</span>`:''}${taskByNote(t)}
             </div>
           </div>
           ${assigneeStack(t.assignees,'sm')}
@@ -14846,6 +14869,7 @@ function openTaskForm(id, presetDate, presetLink){
       </select>
     </div>
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="ft-notes">${escape(t.notes||'')}</textarea></div>
+    ${id ? taskByLine(t) : ''}
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveTask('${id||''}')">${id?'Save changes':'Add task'}</button>
@@ -14875,6 +14899,8 @@ async function saveTask(id){
     linkedType: linked[1]||'',
     notes: $('#ft-notes').value,
     completedAt,
+    // Shown right away; the database stamps the real value on first save.
+    createdBy: prev ? (prev.createdBy||'') : ((state.me && state.me.id) || ''),
     created: prev ? prev.created : today()
   };
   if(id){ const i=state.tasks.findIndex(t=>t.id===id); state.tasks[i]=data; }

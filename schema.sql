@@ -1024,3 +1024,25 @@ create table if not exists public.gcal_connections (
 );
 alter table public.gcal_connections enable row level security;
 revoke all on public.gcal_connections from anon, authenticated;
+
+-- Tasks: who created each task (2026-11-03). Stamped by the database on insert
+-- from the signed-in login, so it can't be faked from the page; updates never change it.
+alter table public.tasks add column if not exists created_by uuid references public.users(id) on delete set null;
+create or replace function public.tasks_set_created_by() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.created_by := (select id from public.users where auth_id = auth.uid() limit 1);
+  return new;
+end $$;
+drop trigger if exists tasks_set_created_by on public.tasks;
+create trigger tasks_set_created_by before insert on public.tasks
+  for each row execute function public.tasks_set_created_by();
+create or replace function public.tasks_keep_created_by() returns trigger
+language plpgsql as $$
+begin
+  new.created_by := old.created_by;
+  return new;
+end $$;
+drop trigger if exists tasks_keep_created_by on public.tasks;
+create trigger tasks_keep_created_by before update on public.tasks
+  for each row execute function public.tasks_keep_created_by();
