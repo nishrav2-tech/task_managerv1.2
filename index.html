@@ -268,6 +268,32 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .mkc-profit{color:var(--accent);font-weight:600}
 .mk-note-block+.mk-note-block{margin-top:8px}
 .mk-note-input{margin-bottom:12px}
+/* ---- Subdivide rules & exemptions ---- */
+.mkr-btn.has{border-color:var(--accent);color:var(--accent)}
+.mkr-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:middle}
+.mkr-row-icon{font-size:13px;color:var(--accent);margin-left:6px;vertical-align:middle}
+.mkr-block{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border)}
+.mkr-modal{max-width:720px;width:calc(100vw - 32px)}
+.mkr-label-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+.mkr-status{font-size:12px;color:var(--ink-3)}
+.mkr-text{min-height:220px;font-size:13.5px;line-height:1.55}
+.mkr-upload-btn{cursor:pointer}
+.mkr-drop{border:1.5px dashed var(--border);border-radius:var(--r-md);padding:8px;min-height:64px}
+.mkr-drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.mkr-empty{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;font-size:12.5px;color:var(--ink-3);text-align:center}
+.mkr-uploading{font-size:12.5px;color:var(--ink-2);padding:4px 6px}
+.mkr-files{display:flex;flex-direction:column;gap:2px}
+.mkr-file{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px}
+.mkr-file:hover{background:var(--surface-2)}
+.mkr-file>i{font-size:17px;color:var(--ink-3);flex-shrink:0}
+.mkr-file-name{flex:1;min-width:0;text-align:left;background:none;border:0;padding:0;font:inherit;font-size:13px;font-weight:600;color:var(--ink);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mkr-file-name:hover{color:var(--accent);text-decoration:underline}
+.mkr-file-meta{font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.mkr-state-ref{border:1px solid var(--border);border-radius:var(--r-md);padding:8px 12px;margin-bottom:14px;background:var(--surface-2)}
+.mkr-state-ref summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--ink-2)}
+.mkr-state-body{padding-top:8px}
+.mkr-readonly{white-space:pre-wrap;font-size:13px;color:var(--ink-2);max-height:200px;overflow:auto;margin-bottom:8px}
+@media (max-width:700px){.mk-head-btn.mkr-btn{font-size:0}.mk-head-btn.mkr-btn i{font-size:16px}}
 /* ---- Google Calendar events on the dashboard calendar ---- */
 .gcal-item{background:var(--surface)!important;border:1px solid var(--border)!important;border-left:3px solid var(--gcal,#4285F4)!important;color:var(--ink)!important}
 .gcal-item.gcal-locked{cursor:pointer;opacity:.85}
@@ -4132,6 +4158,7 @@ function renderMkState(fp, tracked){
         <span class="mk-pills">${summary}</span>
         ${stats}
       </button>
+      ${mkrStateBtn(fp)}
       ${rf && rf.running
         ? `<button type="button" class="btn btn-sm mk-head-btn" onclick="cancelMkRefresh('${fp}')" title="Stop refreshing"><i class="ti ti-player-stop"></i> Stop</button>`
         : `<button type="button" class="btn btn-sm mk-head-btn" onclick="refreshMkState('${fp}')" title="Pull the latest Landportal data for ${escape(st.name)}"><i class="ti ti-refresh"></i> Refresh</button>`}
@@ -4203,7 +4230,7 @@ function renderMkCounties(fp, tracked){
     const open = !!ui.exp && ui.exp.includes(c.fips);
     return pre + `<tr class="${mkMarketing(r)?'mk-on':''} ${open?'mk-open':''}" data-name="${escape(c.name.toLowerCase())}" data-fips="${c.fips}">
       <td class="mk-county"><button type="button" class="mk-cname" onclick="toggleMkCounty('${c.fips}')" aria-expanded="${open}">
-          <i class="ti ti-chevron-right mk-cchev"></i>${escape(c.name)}</button>
+          <i class="ti ti-chevron-right mk-cchev"></i>${escape(c.name)}</button>${mkrRowIcon(c.fips)}
         ${r && r.notes ? `<div class="debt-sub">${escape(r.notes)}</div>` : ''}</td>
       <td>${yn(c, 'flip')}</td>
       <td>${yn(c, 'subdivide')}</td>
@@ -4684,6 +4711,7 @@ function renderMkCountyDetail(c){
         <p>${r[k] ? escape(r[k]) : '<span class="debt-muted">None yet</span>'}</p>
       </div>`).join('')}
       <button class="btn btn-sm" onclick="openMkNotes('${c.fips}')"><i class="ti ti-pencil"></i> Edit notes</button>
+      ${mkrCountyBlock(c.fips)}
     </div>
     <div class="mk-detail-ppa">
       <div class="mk-ctl-label">Price per acre by lot size</div>
@@ -4744,6 +4772,250 @@ async function confirmRemoveMkState(fp){
   MK.states = (MK.states || []).filter(s => s.state_fp !== fp);
   closeSubModal();
   app.render();
+}
+
+
+/* ---- Subdivide rules & exemptions (2026-11-04) -----------------------------
+   One write-up plus saved files for every state (statewide) and every county
+   (countywide): the subdivision process, minimum lot and frontage rules,
+   family / agricultural / large-tract exemptions, who approves plats, contacts.
+   Stored by the market-docs Edge Function in private file storage; any
+   teammate can read and edit. The text saves itself as you type. */
+const MKR = {summary:null, summaryBusy:false, cur:null, data:{}, timer:null, saving:false, savedAt:null, uploads:0};
+
+async function mkrCall(body){
+  const sb = StorageAdapter.supabase;
+  if(!sb) throw new Error('Not connected');
+  const {data, error} = await sb.functions.invoke('market-docs', {body});
+  if(error) throw error;
+  if(data && data.error) throw new Error(data.error);
+  return data || {};
+}
+async function mkrLoadSummary(force){
+  if(MKR.summaryBusy || (MKR.summary && !force) || !StorageAdapter.supabase) return;
+  MKR.summaryBusy = true;
+  try{
+    const d = await mkrCall({action:'summary'});
+    MKR.summary = {states: new Set(d.states || []), counties: new Set(d.counties || [])};
+  }catch(e){ MKR.summary = MKR.summary || {states:new Set(), counties:new Set()}; }
+  MKR.summaryBusy = false;
+  if(state.activeView === 'markets') app.render();
+}
+function mkrHas(scope, id){
+  if(!MKR.summary){ mkrLoadSummary(); return false; }
+  return (scope === 'state' ? MKR.summary.states : MKR.summary.counties).has(id);
+}
+const mkrKey = (scope, id) => scope + ':' + id;
+function mkrTitle(scope, id){
+  if(scope === 'state') return `${MK_STATE_BY[id] ? MK_STATE_BY[id].name : id}`;
+  const c = mkCounties(id.slice(0, 2)).find(x => x.fips === id);
+  return `${c ? c.name : id}, ${(MK_STATE_BY[id.slice(0, 2)] || {}).abbr || ''}`;
+}
+
+// Buttons used on the state header and inside an opened county.
+function mkrStateBtn(fp){
+  const has = mkrHas('state', fp);
+  return `<button type="button" class="btn btn-sm mk-head-btn mkr-btn ${has ? 'has' : ''}" onclick="openMkRules('state','${fp}')" title="Statewide subdivide rules and exemptions: notes and files">
+    <i class="ti ti-gavel"></i> Subdivide rules &amp; exemptions${has ? '<span class="mkr-dot"></span>' : ''}</button>`;
+}
+function mkrCountyBlock(fips){
+  const has = mkrHas('county', fips), st = fips.slice(0, 2), stHas = mkrHas('state', st);
+  return `<div class="mk-note-block mkr-block">
+    <div class="mk-ctl-label">Subdivide rules &amp; exemptions</div>
+    <p class="debt-muted" style="margin:2px 0 8px">${has ? 'Countywide rules and files saved.' : 'Nothing saved for this county yet.'}${stHas ? ` ${escape(MK_STATE_BY[st].name)} has statewide rules too.` : ''}</p>
+    <button class="btn btn-sm ${has ? 'mkr-btn has' : ''}" onclick="openMkRules('county','${fips}')"><i class="ti ti-gavel"></i> ${has ? 'Open' : 'Add'} county rules</button>
+  </div>`;
+}
+const mkrRowIcon = fips => mkrHas('county', fips) ? `<i class="ti ti-gavel mkr-row-icon" title="Has subdivide rules and exemptions saved"></i>` : '';
+
+async function openMkRules(scope, id){
+  MKR.cur = {scope, id};
+  MKR.savedAt = null;
+  showModal(`<div class="modal mkr-modal" id="mkr-modal">${renderMkRules()}</div>`);
+  const loads = [mkrFetch(scope, id)];
+  if(scope === 'county') loads.push(mkrFetch('state', id.slice(0, 2)));
+  await Promise.all(loads);
+}
+async function mkrFetch(scope, id){
+  const k = mkrKey(scope, id);
+  MKR.data[k] = MKR.data[k] || {loading:true};
+  mkrPaint();
+  try{
+    const d = await mkrCall({action:'get', scope, id});
+    MKR.data[k] = {...d, loading:false};
+  }catch(e){ MKR.data[k] = {loading:false, error: e.message || String(e)}; }
+  mkrPaint();
+}
+// Re-render the modal without losing what's being typed.
+function mkrPaint(){
+  const el = document.getElementById('mkr-modal');
+  if(!el || !MKR.cur) return;
+  const ta = document.getElementById('mkr-text');
+  const typing = ta && document.activeElement === ta ? {v: ta.value, s: ta.selectionStart, e: ta.selectionEnd, t: ta.scrollTop} : null;
+  el.innerHTML = renderMkRules();
+  if(typing){
+    const t2 = document.getElementById('mkr-text');
+    if(t2){ t2.value = typing.v; t2.focus(); t2.setSelectionRange(typing.s, typing.e); t2.scrollTop = typing.t; }
+  }
+}
+const mkrSize = b => b == null ? '' : b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(0) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+const mkrWhen = iso => iso ? new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : '';
+function mkrFileIcon(name){
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  return ext === 'pdf' ? 'file-type-pdf' : /^(png|jpe?g|gif|webp|heic)$/.test(ext) ? 'photo' : /^(docx?|rtf|txt|md)$/.test(ext) ? 'file-text'
+    : /^(xlsx?|csv)$/.test(ext) ? 'file-spreadsheet' : 'file';
+}
+
+function renderMkRules(){
+  const {scope, id} = MKR.cur;
+  const d = MKR.data[mkrKey(scope, id)] || {loading:true};
+  const isState = scope === 'state';
+  const where = isState ? `${mkrTitle('state', id)} · statewide` : `${mkrTitle('county', id)} · countywide`;
+  const stData = !isState ? MKR.data[mkrKey('state', id.slice(0, 2))] : null;
+  const files = d.files || [];
+  const status = MKR.saving ? '<i class="ti ti-loader-2 spin"></i> Saving…'
+    : MKR.savedAt ? `<i class="ti ti-check"></i> Saved`
+    : d.updated_at ? `Last saved ${mkrWhen(d.updated_at)}${d.updated_by ? ' by ' + escape(d.updated_by) : ''}` : '';
+  return `
+    <div class="modal-header">
+      <div>
+        <div class="page-eyebrow" style="margin-bottom:2px">Subdivide rules &amp; exemptions</div>
+        <h2 class="modal-title">${escape(where)}</h2>
+      </div>
+      <button class="icon-btn" onclick="mkrClose()" title="Close"><i class="ti ti-x"></i></button>
+    </div>
+    ${!isState ? `<details class="mkr-state-ref" ${stData && stData.text ? '' : ''}>
+        <summary><i class="ti ti-map"></i> Statewide rules for ${escape(MK_STATE_BY[id.slice(0, 2)].name)}
+          ${stData && stData.loading ? '<i class="ti ti-loader-2 spin"></i>' : stData && (stData.text || (stData.files || []).length) ? `<span class="debt-muted">· ${(stData.files || []).length} file${(stData.files || []).length === 1 ? '' : 's'}</span>` : '<span class="debt-muted">· none saved</span>'}</summary>
+        <div class="mkr-state-body">
+          ${stData && stData.text ? `<div class="mkr-readonly">${escape(stData.text)}</div>` : '<p class="debt-muted">No statewide write-up yet.</p>'}
+          ${stData && (stData.files || []).length ? `<div class="mkr-files">${stData.files.map(f => mkrFileRow(f, false)).join('')}</div>` : ''}
+          <button class="btn-link" onclick="openMkRules('state','${id.slice(0, 2)}')">Open statewide rules</button>
+        </div>
+      </details>` : ''}
+    ${d.error ? `<p style="color:var(--danger)">Couldn’t load: ${escape(d.error)}</p>` : ''}
+    <div class="mkr-label-row">
+      <label class="form-label" for="mkr-text">Rules, process and exemptions</label>
+      <span class="mkr-status">${status}</span>
+    </div>
+    <textarea class="form-textarea mkr-text" id="mkr-text" rows="12" ${d.loading ? 'disabled placeholder="Loading…"' : `placeholder="${isState
+      ? 'Statewide subdivision law: when a split needs a plat, exemptions (family, agricultural, large tract), survey and recording rules, links to statutes…'
+      : 'County process: who approves splits, minimum lot size and road frontage, perc / septic rules, fees and timelines, exemptions that apply here, contacts and phone numbers…'}"`}
+      oninput="mkrTyped()">${escape(d.text || '')}</textarea>
+    <div class="mkr-label-row" style="margin-top:16px">
+      <span class="form-label" style="margin:0">Files${files.length ? ` (${files.length})` : ''}</span>
+      <label class="btn btn-sm mkr-upload-btn"><i class="ti ti-upload"></i> Upload files
+        <input type="file" multiple hidden onchange="mkrUpload(this.files);this.value=''"></label>
+    </div>
+    <div class="mkr-drop" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')"
+         ondrop="event.preventDefault();this.classList.remove('over');mkrUpload(event.dataTransfer.files)">
+      ${MKR.uploads ? `<div class="mkr-uploading"><i class="ti ti-loader-2 spin"></i> Uploading ${MKR.uploads} file${MKR.uploads === 1 ? '' : 's'}…</div>` : ''}
+      ${files.length ? `<div class="mkr-files">${files.map(f => mkrFileRow(f, true)).join('')}</div>`
+        : d.loading ? '' : `<div class="mkr-empty"><i class="ti ti-cloud-upload"></i> Drop ordinances, plat checklists, exemption forms or emails here (up to 50 MB each)</div>`}
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="mkrClose()">Close</button>
+      <button class="btn btn-primary" onclick="mkrSave(true)" ${d.loading ? 'disabled' : ''}><i class="ti ti-device-floppy"></i> Save</button>
+    </div>`;
+}
+function mkrFileRow(f, canDelete){
+  return `<div class="mkr-file">
+    <i class="ti ti-${mkrFileIcon(f.name)}"></i>
+    <button class="mkr-file-name" onclick="mkrOpenFile('${escape(f.path)}',false)" title="Open">${escape(f.name)}</button>
+    <span class="mkr-file-meta">${mkrSize(f.size)}${f.created_at ? ' · ' + mkrWhen(f.created_at) : ''}</span>
+    <button class="icon-btn" onclick="mkrOpenFile('${escape(f.path)}',true)" title="Download"><i class="ti ti-download"></i></button>
+    ${canDelete ? `<button class="icon-btn" onclick="mkrDeleteFile('${escape(f.path)}')" title="Delete">${typeof ICON_DELETE !== 'undefined' ? ICON_DELETE : '<i class="ti ti-trash"></i>'}</button>` : ''}
+  </div>`;
+}
+
+function mkrTyped(){
+  MKR.savedAt = null;
+  clearTimeout(MKR.timer);
+  MKR.timer = setTimeout(() => mkrSave(false), 1200);
+  const s = document.querySelector('#mkr-modal .mkr-status');
+  if(s) s.textContent = 'Unsaved changes';
+}
+async function mkrSave(close){
+  clearTimeout(MKR.timer);
+  if(!MKR.cur) return;
+  const ta = document.getElementById('mkr-text');
+  const {scope, id} = MKR.cur, k = mkrKey(scope, id);
+  const d = MKR.data[k] || {};
+  if(!ta || d.loading){ if(close) mkrClose(true); return; }
+  const text = ta.value;
+  if(text === (d.text || '')){ if(close) mkrClose(true); return; }
+  MKR.saving = true; mkrPaint();
+  try{
+    const r = await mkrCall({action:'save_text', scope, id, text});
+    MKR.data[k] = {...MKR.data[k], text, updated_at: r.updated_at, updated_by: r.updated_by};
+    MKR.savedAt = Date.now();
+    mkrMark(scope, id);
+  }catch(e){ toast('Could not save: ' + (e.message || e), 'err'); }
+  MKR.saving = false;
+  if(close){ toast('Subdivide rules saved'); mkrClose(true); } else mkrPaint();
+}
+// Keep the "has rules" markers in step without reloading the summary.
+function mkrMark(scope, id){
+  if(!MKR.summary) return;
+  const d = MKR.data[mkrKey(scope, id)] || {};
+  const set = scope === 'state' ? MKR.summary.states : MKR.summary.counties;
+  if((d.text && d.text.trim()) || (d.files || []).length) set.add(id); else set.delete(id);
+}
+function mkrClose(skipSave){
+  if(!skipSave){
+    const ta = document.getElementById('mkr-text');
+    const d = MKR.cur ? MKR.data[mkrKey(MKR.cur.scope, MKR.cur.id)] : null;
+    if(ta && d && !d.loading && ta.value !== (d.text || '')){ mkrSave(true); return; }
+  }
+  clearTimeout(MKR.timer);
+  MKR.cur = null;
+  closeModal();
+  app.render();
+}
+
+async function mkrUpload(fileList){
+  const files = [...(fileList || [])];
+  if(!files.length || !MKR.cur) return;
+  const {scope, id} = MKR.cur;
+  const big = files.filter(f => f.size > 50 * 1024 * 1024);
+  if(big.length) toast(`${big.map(f => f.name).join(', ')} ${big.length === 1 ? 'is' : 'are'} over 50 MB and can't be uploaded`, 'err');
+  const ok = files.filter(f => f.size <= 50 * 1024 * 1024);
+  if(!ok.length) return;
+  MKR.uploads += ok.length; mkrPaint();
+  const sb = StorageAdapter.supabase;
+  let done = 0;
+  for(const f of ok){
+    try{
+      const u = await mkrCall({action:'upload_url', scope, id, name: f.name});
+      const {error} = await sb.storage.from('market-docs').uploadToSignedUrl(u.path, u.token, f, {contentType: f.type || 'application/octet-stream'});
+      if(error) throw error;
+      done++;
+    }catch(e){ toast(`Could not upload ${f.name}: ${e.message || e}`, 'err'); }
+    MKR.uploads--; mkrPaint();
+  }
+  if(done) toast(`${done} file${done === 1 ? '' : 's'} uploaded`);
+  if(MKR.cur && MKR.cur.scope === scope && MKR.cur.id === id) await mkrFetch(scope, id);
+  mkrMark(scope, id);
+}
+async function mkrOpenFile(path, download){
+  // Open the tab right away (pop-up blockers), then point it at the signed link.
+  const w = download ? null : window.open('', '_blank');
+  try{
+    const r = await mkrCall({action:'file_url', path, download: !!download});
+    if(download){ const a = document.createElement('a'); a.href = r.url; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
+    else if(w) w.location.href = r.url; else window.open(r.url, '_blank', 'noopener');
+  }catch(e){ if(w) w.close(); toast('Could not open it: ' + (e.message || e), 'err'); }
+}
+async function mkrDeleteFile(path){
+  if(!MKR.cur || !confirm(`Delete ${path.split('/').pop().replace(/^\d{13}-/, '')}? This can't be undone.`)) return;
+  const {scope, id} = MKR.cur;
+  try{
+    await mkrCall({action:'delete_file', path});
+    const k = mkrKey(scope, id);
+    if(MKR.data[k] && MKR.data[k].files) MKR.data[k].files = MKR.data[k].files.filter(f => f.path !== path);
+    mkrMark(scope, id); mkrPaint();
+    toast('File deleted');
+  }catch(e){ toast('Could not delete it: ' + (e.message || e), 'err'); }
 }
 
 /* ============ GOOGLE CALENDAR (2026-11-01) ============
