@@ -362,6 +362,32 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .dv-resize::after{content:'';position:absolute;left:50%;bottom:2px;width:22px;height:3px;margin-left:-11px;border-radius:2px;background:currentColor;opacity:0;transition:opacity .15s}
 .dv-event:hover .dv-resize::after{opacity:.35}
 .dv-event.is-resizing{opacity:.85;z-index:5}
+/* ---- task form: search to link a property / project ---- */
+.link-combo{position:relative;margin-top:8px}
+.link-combo-field{position:relative;display:flex;align-items:center}
+.link-combo-field>i{position:absolute;left:11px;color:var(--ink-3);font-size:15px;pointer-events:none}
+.link-combo-field .form-input{padding-left:32px;padding-right:38px}
+.link-combo-toggle{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:30px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--ink-2);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.link-combo-toggle:hover{background:var(--surface-2)}
+.link-combo-list{position:absolute;z-index:40;left:0;right:0;top:calc(100% + 4px);max-height:260px;overflow:auto;background:var(--surface);border:1px solid var(--border-strong,#cfc8b8);border-radius:var(--r-md);box-shadow:var(--shadow-lg,0 10px 30px rgba(0,0,0,.15));padding:4px}
+.link-combo-item{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;border:0;background:none;padding:7px 10px;border-radius:6px;font:inherit;cursor:pointer}
+.link-combo-item span{font-size:13px;font-weight:600;color:var(--ink)}
+.link-combo-item small{font-size:11.5px;color:var(--ink-3)}
+.link-combo-item.hi,.link-combo-item:hover{background:var(--surface-2)}
+.link-combo-item.is-cur span{color:var(--accent)}
+.link-combo-none{padding:10px;font-size:12.5px;color:var(--ink-3)}
+/* ---- open tasks under each property ---- */
+.prop-task-strip{margin:10px 0 4px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2)}
+.pts-head{display:flex;align-items:center;justify-content:space-between;font-size:11.5px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.pts-add{border:0;background:none;color:var(--accent);font:inherit;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;cursor:pointer;padding:2px 4px}
+.pts-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid var(--border)}
+.pts-row:first-of-type{border-top:0}
+.pts-row .task-check{margin:0;flex-shrink:0}
+.pts-title{flex:1;min-width:0;text-align:left;border:0;background:none;padding:0;font:inherit;font-size:13px;font-weight:500;color:var(--ink);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pts-title:hover{color:var(--accent);text-decoration:underline}
+.pts-due{font-size:12px;color:var(--ink-3);white-space:nowrap}
+.pts-row.is-overdue .pts-due{color:var(--danger);font-weight:600}
+.pts-more{border:0;background:none;color:var(--accent);font:inherit;font-size:12px;font-weight:600;cursor:pointer;padding:4px 0 0}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -5768,6 +5794,137 @@ function agendaDragStart(e, id, kind){
   document.body.appendChild(g);
   e.dataTransfer.setDragImage(g, 50, 40);
   setTimeout(() => g.remove(), 0);
+}
+
+/* ---- Task form: search for the property / project to link (2026-11-04) ----
+   Typing filters the list; the ▾ button shows everything. Focusing the box
+   alone doesn't pop a list open. The chosen id lives in the hidden #ft-linked
+   so saving works exactly as before. */
+function linkComboOpts(){
+  const type = (document.getElementById('ft-link-type') || {}).value || '';
+  const wrap = document.getElementById('ft-link-target');
+  const keep = wrap && wrap.dataset.origType === type ? (wrap.dataset.origId || '') : '';
+  return linkOptionsFor(type, keep).map(o => {
+    if(type === 'property'){
+      const p = state.props.find(x => x.id === o.id) || {};
+      const sub = [p.county && `${p.county}${p.state ? ', ' + p.state : ''}`, p.acres && `${p.acres} ac`, typeof propStatus === 'function' && PROP_STATUS_LABEL[propStatus(p)]].filter(Boolean).join(' · ');
+      return {...o, sub, hay: `${o.label} ${p.county || ''} ${p.state || ''} ${p.notes || ''}`.toLowerCase()};
+    }
+    return {...o, sub: '', hay: o.label.toLowerCase()};
+  });
+}
+function linkComboHTML(type, id){
+  const opt = linkOptionsFor(type, id).find(o => o.id === id);
+  return `<div class="link-combo" id="ft-link-combo" ${type ? '' : 'hidden'}>
+    <input type="hidden" id="ft-linked" value="${escape(opt ? id : '')}">
+    <div class="link-combo-field">
+      <i class="ti ti-search"></i>
+      <input class="form-input" id="ft-link-q" autocomplete="off" value="${escape(opt ? opt.label : '')}"
+        placeholder="${type === 'project' ? 'Search projects…' : 'Search properties by ID, county or state…'}"
+        oninput="linkComboInput()" onkeydown="linkComboKey(event)" onblur="setTimeout(linkComboBlur,150)">
+      <button type="button" class="link-combo-toggle" onmousedown="event.preventDefault()" onclick="linkComboToggle()" title="Show all"><i class="ti ti-chevron-down"></i></button>
+    </div>
+    <div class="link-combo-list" id="ft-link-list" hidden></div>
+  </div>`;
+}
+const LC = {hi: 0, items: []};
+function linkComboShow(items){
+  const list = document.getElementById('ft-link-list');
+  if(!list) return;
+  LC.items = items; LC.hi = 0;
+  const cur = (document.getElementById('ft-linked') || {}).value || '';
+  list.hidden = false;
+  list.innerHTML = items.length ? items.slice(0, 200).map((o, i) => `<button type="button" class="link-combo-item ${i === 0 ? 'hi' : ''} ${o.id === cur ? 'is-cur' : ''}"
+      onmousedown="event.preventDefault()" onclick="linkComboPick('${o.id}')">
+      <span>${escape(o.label)}</span>${o.sub ? `<small>${escape(o.sub)}</small>` : ''}</button>`).join('')
+    : `<div class="link-combo-none">No match</div>`;
+}
+function linkComboHide(){ const l = document.getElementById('ft-link-list'); if(l){ l.hidden = true; l.innerHTML = ''; } }
+function linkComboInput(){
+  const q = (document.getElementById('ft-link-q').value || '').trim().toLowerCase();
+  const hid = document.getElementById('ft-linked');
+  if(hid) hid.value = '';            // typing un-picks until something is chosen
+  if(!q){ linkComboHide(); return; }
+  const words = q.split(/\s+/);
+  linkComboShow(linkComboOpts().filter(o => words.every(w => o.hay.includes(w))));
+}
+function linkComboToggle(){
+  const list = document.getElementById('ft-link-list');
+  if(list && !list.hidden){ linkComboHide(); return; }
+  linkComboShow(linkComboOpts());
+  const q = document.getElementById('ft-link-q'); if(q) q.focus();
+}
+function linkComboPick(id){
+  const o = linkComboOpts().find(x => x.id === id);
+  const hid = document.getElementById('ft-linked'), q = document.getElementById('ft-link-q');
+  if(hid) hid.value = o ? id : '';
+  if(q) q.value = o ? o.label : '';
+  linkComboHide();
+}
+function linkComboKey(e){
+  const list = document.getElementById('ft-link-list');
+  const open = list && !list.hidden && LC.items.length;
+  if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    if(!open){ linkComboShow(linkComboOpts()); return; }
+    LC.hi = (LC.hi + (e.key === 'ArrowDown' ? 1 : -1) + Math.min(LC.items.length, 200)) % Math.min(LC.items.length, 200);
+    list.querySelectorAll('.link-combo-item').forEach((b, i) => { b.classList.toggle('hi', i === LC.hi); if(i === LC.hi) b.scrollIntoView({block:'nearest'}); });
+  }else if(e.key === 'Enter'){
+    if(open){ e.preventDefault(); linkComboPick(LC.items[LC.hi].id); }
+  }else if(e.key === 'Escape'){
+    if(list && !list.hidden){ e.preventDefault(); e.stopPropagation(); linkComboHide(); }
+  }
+}
+// Leaving the box with text that exactly names one option picks it; anything
+// else that wasn't chosen from the list is cleared so it can't look linked.
+function linkComboBlur(){
+  const q = document.getElementById('ft-link-q'), hid = document.getElementById('ft-linked');
+  if(!q || !hid) return;
+  linkComboHide();
+  if(hid.value) return;
+  const t = q.value.trim().toLowerCase();
+  if(!t) return;
+  const hits = linkComboOpts().filter(o => o.label.toLowerCase() === t);
+  if(hits.length === 1) linkComboPick(hits[0].id); else q.value = '';
+}
+function setTaskLinkTypeCombo(type){
+  const wrap = document.getElementById('ft-link-target');
+  const hidType = document.getElementById('ft-link-type');
+  const combo = document.getElementById('ft-link-combo');
+  if(!wrap || !hidType || !combo) return;
+  hidType.value = type;
+  wrap.querySelectorAll('.link-type-btn').forEach(b => {
+    const on = b.dataset.linkType === type;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on);
+  });
+  const keep = wrap.dataset.origType === type ? (wrap.dataset.origId || '') : '';
+  combo.outerHTML = linkComboHTML(type, keep);
+  if(type){ const q = document.getElementById('ft-link-q'); if(q && !q.value) q.focus(); }
+}
+
+/* ---- Open tasks shown under each property on the Properties tab ---- */
+function renderPropTaskStrip(p){
+  if(typeof tasksForProp !== 'function') return '';
+  const open = sortByDue(tasksForProp(p.id).filter(t => t.status !== 'done'));
+  const SHOWN = 5;
+  const rows = open.slice(0, SHOWN).map(t => {
+    const od = isOverdue(t.dueDate);
+    return `<div class="pts-row ${od ? 'is-overdue' : ''}">
+      <input type="checkbox" class="task-check" data-action="toggle-task" data-id="${t.id}" title="Mark done">
+      <button type="button" class="pts-title" data-action="edit-task" data-id="${t.id}" title="Open this task">${escape(t.title)}</button>
+      <span class="pts-due">${!t.dueDate ? 'no date' : od ? 'was due ' + fmt(t.dueDate) : fmt(t.dueDate)}</span>
+      ${assigneeStack(t.assignees, 'sm')}
+    </div>`;
+  }).join('');
+  return `<div class="prop-task-strip">
+    <div class="pts-head">
+      <span>${open.length ? `${open.length} open task${open.length === 1 ? '' : 's'}` : 'No open tasks'}</span>
+      <button type="button" class="pts-add" onclick="newTaskForProp('${p.id}')"><i class="ti ti-plus"></i> Task</button>
+    </div>
+    ${rows}
+    ${open.length > SHOWN ? `<button type="button" class="pts-more" data-action="toggle-tasks" data-id="${p.id}">+${open.length - SHOWN} more</button>` : ''}
+  </div>`;
 }
 
 function userColor(id){
@@ -12082,7 +12239,7 @@ function renderProperties(){
           <button class="icon-btn" data-action="edit-prop" data-id="${p.id}" title="Edit">${ICON_EDIT}</button>
           <button class="icon-btn" data-action="delete-prop" data-id="${p.id}" title="Delete">${ICON_DELETE}</button>
         </div>
-        <div style="flex-basis:100%">${renderListingAlert(p)}${renderClosingTimeline(p)}</div>
+        <div style="flex-basis:100%">${renderListingAlert(p)}${renderPropTaskStrip(p)}${renderClosingTimeline(p)}</div>
       </div>`;
     }).join('') || `<div class="empty"><i class="ti ti-home"></i><h3>No properties${statusFilter?` — ${PROP_STATUS_LABEL[statusFilter].toLowerCase()}`:''}</h3><p>${q?'Try a different search.':statusFilter?'Nothing in this status yet.':'Track your first deal.'}</p><button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button></div>`}
     </div>`;
@@ -15317,6 +15474,7 @@ function linkOptionsFor(type, currentId){
 // task started on re-selects what it was already linked to, so flicking
 // through the tabs can't quietly lose the existing link.
 function setTaskLinkType(type){
+  if(document.getElementById('ft-link-combo')) return setTaskLinkTypeCombo(type);
   const wrap = document.getElementById('ft-link-target');
   const sel  = document.getElementById('ft-linked');
   const hid  = document.getElementById('ft-link-type');
@@ -15383,10 +15541,7 @@ function openTaskForm(id, presetDate, presetLink){
                    onclick="setTaskLinkType('${v}')">${lbl}</button>`).join('')}
       </div>
       <input type="hidden" id="ft-link-type" value="${escape(initialType)}">
-      <select class="form-select" id="ft-linked" style="margin-top:8px" ${initialType?'':'hidden'}>
-        ${linkOptionsFor(initialType, initialId).map(o=>
-          `<option value="${o.id}" ${o.id===initialId?'selected':''}>${escape(o.label)}</option>`).join('')}
-      </select>
+      ${linkComboHTML(initialType, initialId)}
     </div>
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="ft-notes">${escape(t.notes||'')}</textarea></div>
     ${id ? taskByLine(t) : ''}
