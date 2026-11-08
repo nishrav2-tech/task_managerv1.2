@@ -388,6 +388,16 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .pts-due{font-size:12px;color:var(--ink-3);white-space:nowrap}
 .pts-row.is-overdue .pts-due{color:var(--danger);font-weight:600}
 .pts-more{border:0;background:none;color:var(--accent);font:inherit;font-size:12px;font-weight:600;cursor:pointer;padding:4px 0 0}
+/* ---- sold deals: capital split ---- */
+.sold-split{flex-basis:100%;margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 20px}
+.sold-split-band{font-size:12.5px;color:var(--ink-2)}
+.sold-split-band i{color:var(--accent);margin-right:2px}
+.sold-split-amts{display:flex;gap:20px}
+.sold-split-amts div{display:flex;flex-direction:column;align-items:flex-end}
+.sold-split-amts span{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3)}
+.sold-split-amts b{font-size:15px;font-variant-numeric:tabular-nums}
+.sold-split-amts b.kept{color:var(--accent)}
+.sold-split.is-missing{font-size:12.5px;color:var(--warn-ink);background:var(--warn-soft);border-color:transparent;justify-content:flex-start}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -5797,8 +5807,7 @@ function agendaDragStart(e, id, kind){
 }
 
 /* ---- Task form: search for the property / project to link (2026-11-04) ----
-   Typing filters the list; the ▾ button shows everything. Focusing the box
-   alone doesn't pop a list open. The chosen id lives in the hidden #ft-linked
+   Clicking the box opens the full list; typing filters it; ▾ toggles it. The chosen id lives in the hidden #ft-linked
    so saving works exactly as before. */
 function linkComboOpts(){
   const type = (document.getElementById('ft-link-type') || {}).value || '';
@@ -5821,7 +5830,7 @@ function linkComboHTML(type, id){
       <i class="ti ti-search"></i>
       <input class="form-input" id="ft-link-q" autocomplete="off" value="${escape(opt ? opt.label : '')}"
         placeholder="${type === 'project' ? 'Search projects…' : 'Search properties by ID, county or state…'}"
-        oninput="linkComboInput()" onkeydown="linkComboKey(event)" onblur="setTimeout(linkComboBlur,150)">
+        oninput="linkComboInput()" onkeydown="linkComboKey(event)" onfocus="linkComboOpenAll()" onclick="linkComboOpenAll()" onblur="setTimeout(linkComboBlur,150)">
       <button type="button" class="link-combo-toggle" onmousedown="event.preventDefault()" onclick="linkComboToggle()" title="Show all"><i class="ti ti-chevron-down"></i></button>
     </div>
     <div class="link-combo-list" id="ft-link-list" hidden></div>
@@ -5847,6 +5856,13 @@ function linkComboInput(){
   if(!q){ linkComboHide(); return; }
   const words = q.split(/\s+/);
   linkComboShow(linkComboOpts().filter(o => words.every(w => o.hay.includes(w))));
+}
+// Clicking (or tabbing into) the box drops the full list open; typing then
+// narrows it.
+function linkComboOpenAll(){
+  const list = document.getElementById('ft-link-list');
+  if(list && !list.hidden) return;
+  linkComboShow(linkComboOpts());
 }
 function linkComboToggle(){
   const list = document.getElementById('ft-link-list');
@@ -5925,6 +5941,52 @@ function renderPropTaskStrip(p){
     ${rows}
     ${open.length > SHOWN ? `<button type="button" class="pts-more" data-action="toggle-tasks" data-id="${p.id}">+${open.length - SHOWN} more</button>` : ''}
   </div>`;
+}
+
+/* ---- Sold deals: which capital split the sale landed in (2026-11-08) ------
+   The split is set by how many days after closing the property SOLD, using
+   the deal's funding bands. A sale after the last band uses the last band. */
+function soldSplit(p){
+  if(!p || !p.soldDate) return null;
+  const bands = fundingBands(p);
+  if(!bands.length) return {reason: 'no-bands'};
+  if(!p.closingDate) return {reason: 'no-closing'};
+  const n = Math.round((dateMs(p.soldDate) - dateMs(p.closingDate)) / 86400000);
+  let band = bands.find(b => n >= b.from && n <= b.to);
+  const past = !band && n > bands[bands.length - 1].to;
+  if(!band) band = past ? bands[bands.length - 1] : bands[0];
+  const eq = equityOf(p);
+  const us = band.pctUs != null ? band.pctUs : (band.pctFunder != null ? 100 - band.pctFunder : null);
+  const them = band.pctFunder != null ? band.pctFunder : (us != null ? 100 - us : null);
+  return {n, band, past, us, them, eq,
+    usAmt: eq != null && us != null ? eq * us / 100 : null,
+    themAmt: eq != null && them != null ? eq * them / 100 : null};
+}
+function renderSoldSplit(p){
+  const s = soldSplit(p);
+  if(!s) return '';
+  if(s.reason === 'no-closing') return `<div class="sold-split is-missing"><i class="ti ti-alert-circle"></i> Add the closing date to see which capital split this sale landed in.</div>`;
+  if(s.reason === 'no-bands') return `<div class="sold-split is-missing"><i class="ti ti-alert-circle"></i> No capital split set on this deal, so all equity shows as kept. Add funding tiers to split it.</div>`;
+  const m = v => v == null ? '—' : money(Math.round(v));
+  return `<div class="sold-split">
+    <div class="sold-split-band"><i class="ti ti-scale"></i>
+      Sold <b>${s.n} day${s.n === 1 ? '' : 's'}</b> after closing · <b>${escape(s.band.label)}</b> band${s.past ? ' (past the last band)' : ''}
+      · <b>${s.us != null ? s.us : '—'}% / ${s.them != null ? s.them : '—'}%</b> split</div>
+    <div class="sold-split-amts">
+      <div><span>We kept</span><b class="kept">${m(s.usAmt)}</b></div>
+      <div><span>To investors</span><b>${m(s.themAmt)}</b></div>
+    </div>
+  </div>`;
+}
+function soldSplitTotals(list){
+  let kept = 0, sent = 0, unknown = 0;
+  list.forEach(p => {
+    const s = soldSplit(p);
+    if(s && s.reason === 'no-bands' && equityOf(p) != null){ kept += equityOf(p); return; }
+    if(!s || s.reason || s.usAmt == null || s.themAmt == null){ unknown++; return; }
+    kept += s.usAmt; sent += s.themAmt;
+  });
+  return {kept, sent, unknown};
 }
 
 function userColor(id){
@@ -12254,6 +12316,8 @@ function renderSoldStrip(list){
   const missing = list.length - withEq.length;
   return `<div class="sold-strip">
     <div><b>${money(Math.round(total))}</b><span>Equity contributed</span></div>
+    ${(() => { const t = soldSplitTotals(list); return `<div><b>${money(Math.round(t.kept))}</b><span>We kept</span></div>
+    <div><b style="color:var(--ink)">${money(Math.round(t.sent))}</b><span>To investors</span></div>`; })()}
     <div><b style="color:var(--ink)">${list.length}</b><span>Propert${list.length===1?'y':'ies'} sold</span></div>
     ${missing ? `<div style="font-size:12px;color:var(--danger)">${missing} without a sale price, not counted</div>` : ''}
   </div>`;
@@ -12280,6 +12344,7 @@ function renderSoldCard(p){
       <button class="icon-btn" data-action="edit-prop" data-id="${p.id}" title="Edit">${ICON_EDIT}</button>
       <button class="icon-btn" data-action="delete-prop" data-id="${p.id}" title="Delete">${ICON_DELETE}</button>
     </div>
+    ${renderSoldSplit(p)}
   </div>`;
 }
 function openMarkSold(id){
