@@ -294,6 +294,21 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .mkr-state-body{padding-top:8px}
 .mkr-readonly{white-space:pre-wrap;font-size:13px;color:var(--ink-2);max-height:200px;overflow:auto;margin-bottom:8px}
 @media (max-width:700px){.mk-head-btn.mkr-btn{font-size:0}.mk-head-btn.mkr-btn i{font-size:16px}}
+/* ---- phone layout (2026-11-08) ---- */
+.mk-scroll{container-type:inline-size}
+@media (max-width:900px){
+  /* An opened county stays the width of the visible table area, so its notes,
+     chart and calculator don't run off the right edge. */
+  .mk-detail td > *{position:sticky;left:14px;width:calc(100cqw - 28px);max-width:none}
+  .mk-detail-grid{max-width:none}
+}
+@media (max-width:700px){
+  .mk-addbar{flex-direction:column;align-items:stretch;gap:8px}
+  .mk-addbar .mk-search-wrap{width:100%;max-width:none}
+  .mk-addbar .form-select.mk-search-st{flex:0 0 40%;max-width:40%}
+  .mk-addbar .mk-undo,.mk-addbar .mk-refresh-all{margin-left:0;width:100%;justify-content:center}
+  .mk-headrow{flex-wrap:wrap}
+}
 /* ---- Google Calendar events on the dashboard calendar ---- */
 .gcal-item{background:var(--surface)!important;border:1px solid var(--border)!important;border-left:3px solid var(--gcal,#4285F4)!important;color:var(--ink)!important}
 .gcal-item.gcal-locked{cursor:pointer;opacity:.85}
@@ -398,6 +413,38 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
 .sold-split-amts b{font-size:15px;font-variant-numeric:tabular-nums}
 .sold-split-amts b.kept{color:var(--accent)}
 .sold-split.is-missing{font-size:12.5px;color:var(--warn-ink);background:var(--warn-soft);border-color:transparent;justify-content:flex-start}
+/* ============ PHONE LAYOUT (2026-11-08) ============ */
+@media (max-width:640px){
+  /* Card headers: title on top, controls underneath at full width. */
+  html body .card-header{flex-wrap:wrap;align-items:flex-start;gap:10px}
+  html body .card-header > div:last-child:not(:first-child):has(.filter-select){width:100%}
+  html body .card-header .filter-select{flex:1 1 140px;min-width:0 !important;max-width:none}
+  /* Month calendar fits the screen: seven narrow columns, tap a day for its hours. */
+  html body .month-grid{grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;overflow-x:visible}
+  html body .month-dow{font-size:9.5px;letter-spacing:0}
+  html body .month-cell{min-height:62px;padding:3px;gap:3px;border-radius:6px}
+  html body .month-cell.is-outside{min-height:0}
+  html body .month-daynum{font-size:11px}
+  html body .month-cell-count{display:none}
+  html body .month-cell-items{max-height:96px;gap:2px}
+  html body .month-item{padding:2px 3px;border-left-width:2px;gap:2px;border-radius:3px}
+  html body .month-item > i{display:none}
+  html body .month-item-title{font-size:9.5px;line-height:1.25}
+  html body .month-item .gcal-time{display:none}
+  /* Week calendar: one day per row instead of seven side-scrolling columns. */
+  html body .week-grid{grid-template-columns:1fr;overflow-x:visible;gap:8px}
+  html body .week-day-col{min-width:0}
+  html body .week-day-empty{padding:2px 0;text-align:left}
+  /* Day view and other modals use the full width. */
+  html body .dv-modal,html body .mkr-modal{width:calc(100vw - 16px);padding-left:16px;padding-right:16px}
+  html body .dv-grid{margin-left:46px}
+  html body .dv-hour span{left:-48px;width:42px;font-size:10px}
+  html body .dv-head .modal-title{font-size:20px}
+  /* Properties: sold split stacks. */
+  html body .sold-split-amts{width:100%;justify-content:space-between}
+  html body .sold-split-amts div{align-items:flex-start}
+}
+.week-item-meta > span:not(.badge){font-size:11px;color:var(--ink-3)}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
