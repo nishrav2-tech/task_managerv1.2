@@ -1050,3 +1050,27 @@ create trigger tasks_keep_created_by before update on public.tasks
 -- CRM tasks -> Google Calendar (2026-11-03): no schema change. Events are tagged with
 -- extendedProperties.private.crmTaskId and found again by that tag; the CRM calls the gcal
 -- function (action task_changed) after every task save or delete.
+
+-- Per-person tab access (2026-11-09). null = every tab, otherwise a JSON list of tab ids.
+alter table public.users add column if not exists tab_access jsonb;
+-- Only admins (or server code) may change tab access, admin role, active status or login link.
+create or replace function public.users_guard_access() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(auth.role(), '') = 'service_role' or public.is_admin() then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    new.app_role := 'member';
+    new.tab_access := null;
+    return new;
+  end if;
+  new.tab_access := old.tab_access;
+  new.app_role := old.app_role;
+  new.active := old.active;
+  new.auth_id := old.auth_id;
+  return new;
+end $$;
+drop trigger if exists users_guard_access on public.users;
+create trigger users_guard_access before insert or update on public.users
+  for each row execute function public.users_guard_access();

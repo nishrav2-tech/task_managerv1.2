@@ -445,6 +445,12 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
   html body .sold-split-amts div{align-items:flex-start}
 }
 .week-item-meta > span:not(.badge){font-size:11px;color:var(--ink-3)}
+/* ---- tab access ---- */
+.ta-quick{display:flex;gap:6px;margin:4px 0 12px}
+.ta-group{margin-bottom:12px}
+.ta-row{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:6px;cursor:pointer;font-size:13.5px;background:var(--surface)}
+.ta-row input{margin:0}
+.acc-tabs{font-size:11.5px;color:var(--ink-3)}
 /* ---- CRE Debt Tracker ---- */
 .spin{display:inline-block;animation:spin 1s linear infinite}
 .debt-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
@@ -2333,7 +2339,8 @@ const StorageAdapter = {
     // deliberately NOT written back by toDb.users — only the admin-users Edge
     // Function changes them, so an ordinary profile save can't touch access.
     users: u => ({id:u.id, name:u.name, role:u.role||'', colorIdx:u.color_idx||0,
-      authId:u.auth_id||'', email:u.email||'', appRole:u.app_role||'member', active:u.active!==false}),
+      authId:u.auth_id||'', email:u.email||'', appRole:u.app_role||'member', active:u.active!==false,
+      tabAccess:Array.isArray(u.tab_access)?u.tab_access:null}),
     props: p => ({id:p.id, propertyId:p.property_id||'',
       county:p.county||'', state:p.state||'TX',
       acres:p.acres!=null?String(p.acres):'',
@@ -6036,6 +6043,110 @@ function soldSplitTotals(list){
   return {kept, sent, unknown};
 }
 
+
+/* ---- Tab access per person (2026-11-09) -----------------------------------
+   An admin picks which tabs each teammate can open (Team tab > Tab access).
+   users.tab_access is null for "every tab", or a list of tab ids. Admins
+   always see every tab, and Settings (password, sign out, calendar) is always
+   open so nobody locks themselves out of their own account. Hidden tabs drop
+   out of the menu, and going to one (a link, a bookmark, the last tab used)
+   lands on the first tab they're allowed instead. */
+const TAB_DEFS = [
+  {id:'dashboard',     ws:'land', label:'Dashboard'},
+  {id:'activity',      ws:'land', label:'KPIs & Tracking'},
+  {id:'properties',    ws:'land', label:'Properties'},
+  {id:'tasks',         ws:'land', label:'Tasks & Projects'},
+  {id:'markets',       ws:'land', label:'Markets'},
+  {id:'team',          ws:'land', label:'Team'},
+  {id:'cre-dashboard', ws:'cre',  label:'Commercial: Dashboard'},
+  {id:'cre-debt',      ws:'cre',  label:'Commercial: Debt Tracker'},
+];
+const TAB_ALWAYS = ['settings'];
+function tabAllowedFor(u, view){
+  if(!u || u.appRole === 'admin' || TAB_ALWAYS.includes(view)) return true;
+  const list = Array.isArray(u.tabAccess) ? u.tabAccess : null;
+  if(!list) return true;
+  if(!TAB_DEFS.some(t => t.id === view)) return true;   // unknown views aren't gated
+  return list.includes(view);
+}
+const tabAllowed = v => tabAllowedFor(state.me, v);
+function firstAllowedView(prefWs){
+  const pick = TAB_DEFS.filter(t => !prefWs || t.ws === prefWs).find(t => tabAllowed(t.id))
+    || TAB_DEFS.find(t => tabAllowed(t.id));
+  return pick ? pick.id : 'settings';
+}
+// Called at the top of every render: hides tabs and moves off a blocked one.
+function applyTabAccess(){
+  if(!state.me) return;
+  document.querySelectorAll('.nav-item[data-view]').forEach(el => { el.hidden = !tabAllowed(el.dataset.view); });
+  const creAny = TAB_DEFS.some(t => t.ws === 'cre' && tabAllowed(t.id));
+  const landAny = TAB_DEFS.some(t => t.ws === 'land' && tabAllowed(t.id));
+  document.querySelectorAll('.ws-item[data-ws="cre"]').forEach(el => { el.hidden = !creAny; });
+  document.querySelectorAll('.ws-item[data-ws="land"]').forEach(el => { el.hidden = !landAny; });
+  if(state.activeView && !tabAllowed(state.activeView)){
+    const to = firstAllowedView(workspaceOf(state.activeView));
+    state.activeView = to;
+    try{ history.replaceState(null, '', '#' + to); }catch(e){}
+  }
+}
+
+// ---- Team tab: edit one person's tabs ----
+function tabAccessSummary(u){
+  if(u.appRole === 'admin') return 'All tabs (admin)';
+  const list = Array.isArray(u.tabAccess) ? u.tabAccess : null;
+  if(!list) return 'All tabs';
+  const n = TAB_DEFS.filter(t => list.includes(t.id)).length;
+  return `${n} of ${TAB_DEFS.length} tabs`;
+}
+function openTabAccess(userId){
+  const u = state.users.find(x => x.id === userId);
+  if(!u) return;
+  const list = Array.isArray(u.tabAccess) ? u.tabAccess : null;
+  const on = id => !list || list.includes(id);
+  const group = (ws, title) => `<div class="ta-group"><div class="form-label">${title}</div>
+    ${TAB_DEFS.filter(t => t.ws === ws).map(t => `<label class="ta-row">
+      <input type="checkbox" class="ta-box" value="${t.id}" ${on(t.id) ? 'checked' : ''}>
+      <span>${escape(t.label.replace(/^Commercial: /, ''))}</span>
+    </label>`).join('')}</div>`;
+  showModal(`<div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <div><div class="page-eyebrow" style="margin-bottom:2px">Tab access</div>
+      <h2 class="modal-title">${escape(u.name)}</h2></div>
+      <button class="icon-btn" onclick="closeModal()"><i class="ti ti-x"></i></button>
+    </div>
+    ${u.appRole === 'admin' ? `<p class="form-hint" style="color:var(--warn-ink)">${escape(u.name.split(' ')[0])} is an admin, so they see every tab whatever is ticked here. Make them a member for these settings to apply.</p>` : ''}
+    <p class="form-hint">Untick a tab to hide it from ${escape(u.name.split(' ')[0])}. Settings is always available so they can manage their own password and calendar.</p>
+    <div class="ta-quick">
+      <button type="button" class="btn btn-sm" onclick="document.querySelectorAll('.ta-box').forEach(b=>b.checked=true)">Select all</button>
+      <button type="button" class="btn btn-sm" onclick="document.querySelectorAll('.ta-box').forEach(b=>b.checked=false)">Clear all</button>
+    </div>
+    ${group('land', 'Land')}
+    ${group('cre', 'Commercial Real Estate')}
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTabAccess('${u.id}')">Save access</button>
+    </div>
+  </div>`);
+}
+async function saveTabAccess(userId){
+  const u = state.users.find(x => x.id === userId);
+  if(!u) return;
+  const picked = [...document.querySelectorAll('.ta-box')].filter(b => b.checked).map(b => b.value);
+  const value = picked.length === TAB_DEFS.length ? null : picked;
+  const sb = StorageAdapter.supabase;
+  if(!sb) return toast('Not connected', 'err');
+  const {error} = await sb.from('users').update({tab_access: value}).eq('id', userId);
+  if(error){
+    toast(/tab_access/.test(error.message) ? 'Tab access needs a one-time database update first. Ask Claude to finish setting it up.' : 'Could not save: ' + error.message, 'err');
+    return;
+  }
+  u.tabAccess = value;
+  if(state.me && state.me.id === userId) state.me.tabAccess = value;
+  closeModal();
+  toast(`${u.name.split(' ')[0]}: ${tabAccessSummary(u).toLowerCase()}`);
+  app.render();
+}
+
 function userColor(id){
   const u = state.users.find(x=>x.id===id);
   return u ? COLORS[u.colorIdx % COLORS.length] : {bg:'#F1EDE3',fg:'#857F76'};
@@ -7566,6 +7677,7 @@ const app = {
     setCount('#count-tasks', openTaskCount + openProjCount);
     setCount('#count-projs', openProjCount);
 
+    applyTabAccess();
     document.querySelectorAll('.nav-item[data-view]').forEach(el=>{
       el.classList.toggle('active', el.dataset.view === state.activeView);
     });
@@ -14811,8 +14923,10 @@ function renderTeam(){
       : `<button class="btn btn-sm" onclick="openResetPassword('${u.id}')">Reset password</button>
          ${me ? '' : `<button class="btn btn-sm" onclick="adminAction('set_role','${u.id}',{role:'${u.appRole==='admin'?'member':'admin'}'})">${u.appRole==='admin'?'Make member':'Make admin'}</button>
          <button class="btn btn-sm ${u.active?'btn-danger':''}" onclick="adminAction('set_active','${u.id}',{active:${!u.active}})">${u.active?'Deactivate':'Reactivate'}</button>
-         <button class="btn btn-sm" title="Delete the login (keeps the teammate and their history)" onclick="adminAction('remove_login','${u.id}')">Remove login</button>`}`;
-    return `<div class="member-access">${pill}${email}${me?'<span class="acc-you">You</span>':''}<span class="member-access-btns">${btns}</span></div>`;
+         <button class="btn btn-sm" title="Delete the login (keeps the teammate and their history)" onclick="adminAction('remove_login','${u.id}')">Remove login</button>
+         <button class="btn btn-sm" onclick="openTabAccess('${u.id}')" title="Choose which tabs this person can open"><i class="ti ti-layout-navbar"></i> Tab access</button>`}`;
+    const tabs = u.authId ? `<span class="acc-tabs" title="Tabs this person can open">· ${escape(tabAccessSummary(u))}</span>` : '';
+    return `<div class="member-access">${pill}${email}${tabs}${me?'<span class="acc-you">You</span>':''}<span class="member-access-btns">${btns}</span></div>`;
   };
   return pageHeader('Workspace', 'Team', admin
       ? 'Everyone with access to this workspace. You can create logins, reset passwords and deactivate access here.'
