@@ -309,6 +309,7 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
   .mk-addbar .mk-undo,.mk-addbar .mk-refresh-all{margin-left:0;width:100%;justify-content:center}
   .mk-headrow{flex-wrap:wrap}
 }
+a.btn{text-decoration:none}
 /* ---- Google Calendar events on the dashboard calendar ---- */
 .gcal-item{background:var(--surface)!important;border:1px solid var(--border)!important;border-left:3px solid var(--gcal,#4285F4)!important;color:var(--ink)!important}
 .gcal-item.gcal-locked{cursor:pointer;opacity:.85}
@@ -4036,12 +4037,15 @@ function mkTotals(fp, mask){
 }
 
 /* ---- View -------------------------------------------------------------------- */
+// Subdivide Finder: on-market listings screened for subdivide deals (2026-11-10).
+const MK_SUBDIVIDE_FINDER = 'https://nishrav2-tech.github.io/subdivide-finder/?v=3#/';
 function renderMarkets(){
   if(MK.states == null){ loadMarkets(); }
   const ui = mkUi();
   const tracked = (MK.states || []).map(s => s.state_fp).filter(fp => MK_STATE_BY[fp]);
   const others = MK_GEO.states.map(s => s[0]).filter(fp => !tracked.includes(fp));
-  const head = pageHeader('Land', 'Markets', 'Every state and county: where we buy for flips and subdivides, and how fast land sells there.', '');
+  const head = pageHeader('Land', 'Markets', 'Every state and county: where we buy for flips and subdivides, and how fast land sells there.',
+    `<a class="btn btn-primary" href="${MK_SUBDIVIDE_FINDER}" target="_blank" rel="noopener" title="Open the Subdivide Finder in a new tab"><i class="ti ti-map-search"></i> Subdivide Finder</a>`);
   if(MK.states == null){
     return head + `<div class="card debt-empty"><i class="ti ti-loader-2 spin"></i><p>Loading markets…</p></div>`;
   }
