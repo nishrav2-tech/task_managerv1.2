@@ -310,6 +310,8 @@ tr.mk-flash td{animation:mkflash 1.6s ease}
   .mk-headrow{flex-wrap:wrap}
 }
 a.btn{text-decoration:none}
+.team-head-actions{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+.team-head-actions .btn{justify-content:center}
 /* ---- Google Calendar events on the dashboard calendar ---- */
 .gcal-item{background:var(--surface)!important;border:1px solid var(--border)!important;border-left:3px solid var(--gcal,#4285F4)!important;color:var(--ink)!important}
 .gcal-item.gcal-locked{cursor:pointer;opacity:.85}
@@ -14935,7 +14937,10 @@ function renderTeam(){
   return pageHeader('Workspace', 'Team', admin
       ? 'Everyone with access to this workspace. You can create logins, reset passwords and deactivate access here.'
       : 'Everyone with access to this workspace.',
-    admin ? `<button class="btn btn-primary" data-action="new-user"><i class="ti ti-user-plus"></i> Add member</button>` : '') + `
+    `<div class="team-head-actions">
+      <a class="btn" href="https://nishrav2-tech.github.io/hiring-flow/#/" target="_blank" rel="noopener" title="Open the hiring flow in a new tab"><i class="ti ti-users-plus"></i> Hiring flow</a>
+      ${admin ? `<button class="btn btn-primary" data-action="new-user"><i class="ti ti-user-plus"></i> Add member</button>` : ''}
+    </div>`) + `
     <div class="grid grid-2">
     ${state.users.map(u=>{
       const c = userColor(u.id);
