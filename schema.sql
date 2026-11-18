@@ -625,7 +625,7 @@ begin
   for t in
     select * from (values
       ('users',         array['id','name','role','color_idx','created_at']),
-      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_url_2','listing_stats','agent_log','fb_listing_url','fb_listing_stats','sold_date','fb_snippets','fb_info','ghl_url','land_portal_url','created_at']),
+      ('properties',    array['id','property_id','county','state','acres','buy_price','sell_price','closing_date','notes','funding_schedule','status','listing_url','listing_url_2','listing_stats','agent_log','fb_listing_url','fb_listing_stats','sold_date','fb_snippets','fb_info','ghl_url','land_portal_url','under_contract_date','redfin_url','double_close','created_at']),
       ('funding_templates', array['id','name','tiers','created_at']),
       ('tasks',         array['id','title','linked_id','linked_type','due_date','priority','status','notes','assignees','completed_at','created_at']),
       ('projects',      array['id','title','category','status','priority','description','due_date','assignees','created_at']),
@@ -1074,3 +1074,10 @@ end $$;
 drop trigger if exists users_guard_access on public.users;
 create trigger users_guard_access before insert or update on public.users
   for each row execute function public.users_guard_access();
+
+-- Properties: Redfin listing link + double close flag (2026-11-18).
+-- redfin_url counts as a listing link (moves the deal to Listed), alongside listing_url / listing_url_2.
+-- double_close = we hold the contract and market it, closing on the purchase right before the sale.
+-- The app shows these deals in the Closed tab labelled "Double close"; status is still written as 'closed'.
+alter table public.properties add column if not exists redfin_url text;
+alter table public.properties add column if not exists double_close boolean not null default false;

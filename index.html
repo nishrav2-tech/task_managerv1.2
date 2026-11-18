@@ -1289,6 +1289,9 @@ button.prop-agent-stale{cursor:pointer;font-family:inherit}
 .prop-status-pill.prop-status-pre-closing{background-color:var(--warn-soft);color:var(--warn-ink)}
 .prop-status-pill.prop-status-listed{background-color:var(--info-soft,#E4EBF3);color:var(--info-ink,#1F3C5C)}
 .prop-status-pill.prop-status-closed{background-color:var(--accent-soft);color:var(--accent)}
+.prop-status-pill.prop-status-double-close{background-color:var(--surface);color:var(--accent);border-color:var(--accent);border-style:dashed}
+.double-close-check{display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-size:12.5px;color:var(--ink-2);cursor:pointer;line-height:1.35}
+.double-close-check input{margin-top:2px;accent-color:var(--accent)}
 .prop-status-pill.prop-status-sold{background-color:var(--ink);color:var(--surface)}
 .sold-strip{display:flex;gap:28px;flex-wrap:wrap;align-items:baseline;padding:14px 18px;margin-bottom:14px;
   border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface)}
@@ -2283,6 +2286,8 @@ const StorageAdapter = {
       status:propStatus(p),
       listing_url:p.listingUrl||null,
       listing_url_2:p.listingUrl2||null,
+      redfin_url:(p.redfinUrl||'').trim()||null,
+      double_close:!!p.doubleClose,
       listing_stats:normalizeListingStats(p.listingStats),
       agent_log:normalizeAgentLog(p.agentLog),
       fb_listing_url:p.fbListingUrl||null,
@@ -2361,6 +2366,8 @@ const StorageAdapter = {
       // that could go stale relative to those two.
       listingUrl:p.listing_url||'',
       listingUrl2:p.listing_url_2||'',
+      redfinUrl:p.redfin_url||'',
+      doubleClose:!!p.double_close,
       listingStats:normalizeListingStats(p.listing_stats),
       agentLog:normalizeAgentLog(p.agent_log),
       fbListingUrl:p.fb_listing_url||'',
@@ -5429,7 +5436,7 @@ async function saveMarkUnderContract(id){
 }
 async function backOnMarket(id){
   const p = state.props.find(x => x.id === id);
-  if(!p || !confirm(`Contract fell through? ${p.propertyId || 'This deal'} goes back to ${((p.listingUrl||'').trim() || (p.listingUrl2||'').trim()) ? 'Listed' : 'its earlier status'}.`)) return;
+  if(!p || !confirm(`Contract fell through? ${p.propertyId || 'This deal'} goes back to ${hasListingLink(p) ? 'Listed' : 'its earlier status'}.`)) return;
   const before = p.underContractDate;
   p.underContractDate = '';
   if(!await saveOne('props', p)){ p.underContractDate = before; app.render(); return; }
@@ -5876,7 +5883,7 @@ function linkComboOpts(){
   return linkOptionsFor(type, keep).map(o => {
     if(type === 'property'){
       const p = state.props.find(x => x.id === o.id) || {};
-      const sub = [p.county && `${p.county}${p.state ? ', ' + p.state : ''}`, p.acres && `${p.acres} ac`, typeof propStatus === 'function' && PROP_STATUS_LABEL[propStatus(p)]].filter(Boolean).join(' · ');
+      const sub = [p.county && `${p.county}${p.state ? ', ' + p.state : ''}`, p.acres && `${p.acres} ac`, typeof propStatus === 'function' && propStatusLabel(p)].filter(Boolean).join(' · ');
       return {...o, sub, hay: `${o.label} ${p.county || ''} ${p.state || ''} ${p.notes || ''}`.toLowerCase()};
     }
     return {...o, sub: '', hay: o.label.toLowerCase()};
@@ -6493,9 +6500,11 @@ const needsListing = p => propStatus(p) === 'closed';
 // A deal's status is derived, never chosen — it reflects two facts that are
 // already entered elsewhere, rather than a fourth thing that could drift out
 // of sync with them:
-//   listed      — a Zillow link has been added under Listing details
+//   listed      — a Zillow or Redfin link has been added under Listing details
 //   closed      — the closing date has arrived (the purchase is done) but
-//                 nothing's listed yet
+//                 nothing's listed yet. A double close (2026-11-18) also sits
+//                 here from the start: we hold the contract and market it,
+//                 and only close on the purchase right before we sell
 //   pre-closing — neither of the above yet (no closing date, or it's still
 //                 ahead of today)
 // Listed wins over closed: once there's a listing, that's the more useful
@@ -6505,9 +6514,21 @@ function propStatus(p){
   if(p.soldDate) return 'sold';
   // Under contract (2026-11-01): a buyer has signed, sale not closed yet.
   if(p.underContractDate) return 'under-contract';
-  if((p.listingUrl||'').trim() || (p.listingUrl2||'').trim()) return 'listed';
+  if(hasListingLink(p)) return 'listed';
+  if(p.doubleClose) return 'closed';
   if(p.closingDate && p.closingDate <= today()) return 'closed';
   return 'pre-closing';
+}
+// Any listing link counts: Zillow 1, Zillow 2, or Redfin (2026-11-18).
+function hasListingLink(p){
+  return !!((p.listingUrl||'').trim() || (p.listingUrl2||'').trim() || (p.redfinUrl||'').trim());
+}
+// The label next to the deal's name. A double close in the Closed tab reads
+// "Double close" instead of "Closed", since the purchase hasn't happened yet.
+function propStatusLabel(p, st){
+  st = st || propStatus(p);
+  if(st === 'closed' && p.doubleClose) return 'Double close';
+  return PROP_STATUS_LABEL[st];
 }
 
 /* ===== LOCAL NOTIFICATIONS =====
@@ -11127,7 +11148,9 @@ function renderClosingTimeline(p){
   if(since == null){
     statusLabel = '';
   }else if(since < 0){
-    statusLabel = `Closes in ${dayWord(Math.abs(since))} (${fmt(p.closingDate)})`;
+    statusLabel = p.doubleClose
+      ? `Double close · we close ${fmt(p.closingDate)}, right before the sale`
+      : `Closes in ${dayWord(Math.abs(since))} (${fmt(p.closingDate)})`;
     bandBit = `<span class="tl-sep">·</span> <span style="color:var(--ink-3)">${bands.length} tier${bands.length===1?'':'s'} ready</span>`;
   }else if(expired){
     statusLabel = `${dayWord(since)} since closing, past the ${span}-day window (ended ${fmt(addDays(p.closingDate, span))})`;
@@ -11170,13 +11193,14 @@ function renderListingAlert(p){
   if(!needsListing(p)) return '';
   const n = daysSinceClosing(p);
   const urgent = n != null && n >= 7;
-  const when = n == null ? '' : n === 0 ? 'Closed today'
+  const when = p.doubleClose ? 'Double close, marketing the contract,'
+    : n == null ? '' : n === 0 ? 'Closed today'
     : `Closed ${n} day${n===1?'':'s'} ago`;
   return `<div class="prop-alert ${urgent?'is-urgent':''}">
     <i class="ti ti-alert-triangle"></i>
     <div class="prop-alert-body">
       <strong>Needs listing${urgent?` — ${n} days and counting`:''}</strong>
-      <span>${when} and no Zillow link saved yet. Add the link under Listing
+      <span>${when} and no Zillow or Redfin link saved yet. Add the link under Listing
         details and this deal moves to Listed on its own.</span>
     </div>
     <button type="button" class="btn btn-sm" data-action="open-listing" data-id="${p.id}">
@@ -11484,8 +11508,10 @@ async function saveListingUrl(id){
   const input2 = document.getElementById(`lst-url2-${id}`);
   p.listingUrl  = input1 ? input1.value.trim() : p.listingUrl;
   p.listingUrl2 = input2 ? input2.value.trim() : (p.listingUrl2||'');
+  const inputR = document.getElementById(`lst-redfin-${id}`);
+  p.redfinUrl   = inputR ? inputR.value.trim() : (p.redfinUrl||'');
   await saveOne('props', p);
-  toast('Zillow listing(s) saved');
+  toast('Listing links saved');
   app.render();
 }
 // One entry per calendar date — logging today's numbers again overwrites
@@ -11629,7 +11655,7 @@ function renderListingPanel(p, stats){
   const src = state.listingSource === 'facebook' ? 'facebook' : 'zillow';
   const zN = normalizeListingStats(p.listingStats).length;
   const fN = normalizeListingStats(p.fbListingStats).length;
-  const hasZ = !!((p.listingUrl||'').trim() || (p.listingUrl2||'').trim());
+  const hasZ = hasListingLink(p);
   const hasF = !!(p.fbListingUrl||'').trim();
   const pill = (key, label, icon, n, has) => `
     <button type="button" class="listing-src-btn ${src===key?'active':''}" onclick="setListingSource('${key}')">
@@ -11638,7 +11664,7 @@ function renderListingPanel(p, stats){
       ${!has ? `<span class="listing-src-missing" title="No link saved yet">no link</span>` : ''}
     </button>`;
   return `<div class="listing-src-switch">
-      ${pill('zillow','Zillow','home-search',zN,hasZ)}
+      ${pill('zillow','Zillow / Redfin','home-search',zN,hasZ)}
       ${pill('facebook','Facebook Marketplace','brand-facebook',fN,hasF)}
     </div>
     ${src === 'facebook' ? renderFbListingPanel(p) : renderZillowListingPanel(p, stats)}`;
@@ -11762,6 +11788,15 @@ function renderZillowListingPanel(p, stats){
                  value="${escape(p.listingUrl2||'')}">
         </div>
         ${p.listingUrl2 ? `<a class="btn btn-sm" href="${escape(p.listingUrl2)}" target="_blank" rel="noopener">
+          <i class="ti ti-external-link"></i></a>` : ''}
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-top:6px">
+        <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px">
+          <label class="form-label">Redfin listing <span style="font-weight:400;color:var(--ink-3)">(optional, instead of or alongside Zillow)</span></label>
+          <input class="form-input" id="lst-redfin-${p.id}" placeholder="https://www.redfin.com/…"
+                 value="${escape(p.redfinUrl||'')}">
+        </div>
+        ${p.redfinUrl ? `<a class="btn btn-sm" href="${escape(p.redfinUrl)}" target="_blank" rel="noopener">
           <i class="ti ti-external-link"></i></a>` : ''}
       </div>
       <div style="margin-top:8px">
@@ -12399,7 +12434,7 @@ function renderProperties(){
     <div class="page-alert-body">
       <strong>${unlisted.length} closed deal${unlisted.length===1?'':'s'} not listed yet</strong> —
       ${unlisted.slice(0,3).map(p=>escape(p.propertyId||'Untitled')).join(', ')}${unlisted.length>3?` and ${unlisted.length-3} more`:''}.
-      Each one has closed with no Zillow link saved.
+      Each one has closed (or is a double close) with no Zillow or Redfin link saved.
     </div>
     <button class="btn btn-sm" onclick="setPropStatusFilter('closed')">Show them</button>
   </div>` : '';
@@ -12441,10 +12476,11 @@ function renderProperties(){
         <div class="item-main">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
             <span class="item-title">${escape(p.propertyId || 'No property ID')}</span>
-            <span class="prop-status-pill prop-status-${status}"
-                  title="${status==='under-contract'?`A buyer signed ${fmtLong(p.underContractDate)}; not sold yet`:status==='listed'?'Has a Zillow link under Listing details':status==='closed'?'Closing date has passed':'No closing date yet, or it is still ahead'}">
-              ${PROP_STATUS_LABEL[status]}
+            <span class="prop-status-pill prop-status-${status}${status==='closed'&&p.doubleClose?' prop-status-double-close':''}"
+                  title="${status==='under-contract'?`A buyer signed ${fmtLong(p.underContractDate)}; not sold yet`:status==='listed'?'Has a Zillow or Redfin link under Listing details':status==='closed'&&p.doubleClose?`Double close: we hold the contract and close${p.closingDate?` on ${fmtLong(p.closingDate)}`:''} right before the sale`:status==='closed'?'Closing date has passed':'No closing date yet, or it is still ahead'}">
+              ${propStatusLabel(p, status)}
             </span>
+            ${p.doubleClose && (status==='listed'||status==='under-contract') ? `<span class="prop-status-pill prop-status-double-close" title="Double close: we close on the purchase right before the sale">Double close</span>` : ''}
             ${agentStalePill(p)}
             ${fbMissingPill(p)}
           </div>
@@ -15423,7 +15459,9 @@ function openPropForm(id){
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Acres</label><input class="form-input" id="fp-acres" type="number" step="0.1" value="${escape(p.acres||'')}"></div>
-      <div class="form-group"><label class="form-label">Closing date</label><input class="form-input" id="fp-closing" type="date" value="${p.closingDate||''}" oninput="updateFundingTotal('form')"></div>
+      <div class="form-group"><label class="form-label">Closing date</label><input class="form-input" id="fp-closing" type="date" value="${p.closingDate||''}" oninput="updateFundingTotal('form')">
+        <label class="double-close-check"><input type="checkbox" id="fp-double-close" ${p.doubleClose?'checked':''}>
+          <span><b>Double close</b><br><span style="color:var(--ink-3)">We hold the contract and market it, and only close on the purchase right before we sell. Shows in the Closed tab as "Double close".</span></span></label></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">GHL link</label>
@@ -15444,7 +15482,8 @@ function openPropForm(id){
     </div>
     <p class="form-hint" style="margin-top:-10px">
       Status (pre-closing / closed / listed) follows automatically from the closing
-      date and whether a Zillow link is added under Listing details. An under-contract
+      date and whether a Zillow or Redfin link is added under Listing details. A double
+      close goes straight to the Closed tab. An under-contract
       date moves it to Under contract, and a sold date moves the deal to the Sold tab.
     </p>
 
@@ -15644,6 +15683,7 @@ async function saveProp(id){
     buyPrice: $('#fp-buy').value,
     sellPrice: $('#fp-sell').value,
     closingDate: $('#fp-closing').value,
+    doubleClose: !!($('#fp-double-close')||{}).checked,
     ghlUrl: ($('#fp-ghl').value||'').trim(),
     landPortalUrl: ($('#fp-landportal').value||'').trim(),
     notes: $('#fp-notes').value,
@@ -15652,6 +15692,7 @@ async function saveProp(id){
     // carry them through untouched rather than letting an edit here wipe them.
     listingUrl: existing ? existing.listingUrl : '',
     listingUrl2: existing ? existing.listingUrl2 : '',
+    redfinUrl: existing ? (existing.redfinUrl||'') : '',
     listingStats: existing ? existing.listingStats : [],
     agentLog: existing ? existing.agentLog : [],
     fbListingUrl: existing ? existing.fbListingUrl : '',
