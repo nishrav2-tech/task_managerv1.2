@@ -352,8 +352,27 @@ Deno.serve(async (req) => {
   try {
     switch (body.action) {
       case "status": {
-        const { data: c } = await db.from("gcal_connections").select("google_email").eq("auth_id", user.id).maybeSingle();
-        return json(200, { configured, connected: !!c, email: c?.google_email || null, syncTasks: !!c });
+        const { data: c } = await db.from("gcal_connections").select("google_email,shown_calendars").eq("auth_id", user.id).maybeSingle();
+        return json(200, { configured, connected: !!c, email: c?.google_email || null, syncTasks: !!c, shownCalendars: c?.shown_calendars || null });
+      }
+      case "calendars": {
+        // Every Google calendar this person can read, so they can pick which ones show on the dashboard.
+        const token = await accessToken(db, s, user.id);
+        if (!token) return json(200, { connected: false, calendars: [] });
+        const { data: c } = await db.from("gcal_connections").select("shown_calendars").eq("auth_id", user.id).maybeSingle();
+        const saved = (c?.shown_calendars as string[] | null) || null;
+        const list = await google(token, "/users/me/calendarList?minAccessRole=reader&maxResults=250");
+        const calendars = (list.items || []).filter((x: { hidden?: boolean }) => !x.hidden).map((x: { id: string; summary?: string; summaryOverride?: string; backgroundColor?: string; primary?: boolean }) => ({
+          id: x.id, name: x.summaryOverride || x.summary || x.id, color: x.backgroundColor || null, primary: !!x.primary,
+          shown: saved ? saved.includes(x.id) : !!x.primary,
+        }));
+        return json(200, { connected: true, calendars, isDefault: !saved });
+      }
+      case "set_calendars": {
+        const ids = Array.isArray(body.calendarIds) ? (body.calendarIds as unknown[]).map(String).slice(0, 250) : [];
+        const { error } = await db.from("gcal_connections").update({ shown_calendars: ids }).eq("auth_id", user.id);
+        if (error) return json(200, { error: error.message });
+        return json(200, { ok: true });
       }
       case "task_changed": {
         if (!configured) return json(200, { ok: true });
@@ -429,7 +448,10 @@ Deno.serve(async (req) => {
         const timeMin = new Date(String(body.timeMin)).toISOString();
         const timeMax = new Date(String(body.timeMax)).toISOString();
         const list = await google(token, "/users/me/calendarList?minAccessRole=reader&maxResults=250");
-        const cals = (list.items || []).filter((c: { selected?: boolean; hidden?: boolean }) => c.selected && !c.hidden);
+        const { data: pref } = await db.from("gcal_connections").select("shown_calendars").eq("auth_id", user.id).maybeSingle();
+        const shown = (pref?.shown_calendars as string[] | null) || null;
+        // Saved choice wins; otherwise only the person's own (primary) calendar.
+        const cals = (list.items || []).filter((c: { id: string; hidden?: boolean; primary?: boolean }) => !c.hidden && (shown ? shown.includes(c.id) : !!c.primary));
         const out: unknown[] = [];
         await Promise.all(cals.map(async (cal: { id: string; summary?: string; summaryOverride?: string; backgroundColor?: string; accessRole?: string; primary?: boolean }) => {
           let pageToken = "";

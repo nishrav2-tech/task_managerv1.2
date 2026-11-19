@@ -1081,3 +1081,13 @@ create trigger users_guard_access before insert or update on public.users
 -- The app shows these deals in the Closed tab labelled "Double close"; status is still written as 'closed'.
 alter table public.properties add column if not exists redfin_url text;
 alter table public.properties add column if not exists double_close boolean not null default false;
+
+-- Google Calendar: which of their own calendars each person shows on the dashboard (2026-11-15).
+-- null = default (only their primary calendar). Private like the rest of gcal_connections.
+alter table public.gcal_connections add column if not exists shown_calendars text[];
+
+-- Properties: closing costs on both sides so equity is net (2026-11-18).
+-- Equity = sell price - buy price - buy closing costs - sell closing costs.
+-- null = never entered (the app flags these in red); 0 = entered, none.
+alter table public.properties add column if not exists buy_closing_costs numeric;
+alter table public.properties add column if not exists sell_closing_costs numeric;

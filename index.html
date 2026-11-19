@@ -2276,6 +2276,8 @@ const StorageAdapter = {
       acres:p.acres!==''&&p.acres!=null?parseFloat(p.acres):null,
       buy_price:p.buyPrice!==''&&p.buyPrice!=null?parseFloat(p.buyPrice):null,
       sell_price:p.sellPrice!==''&&p.sellPrice!=null?parseFloat(p.sellPrice):null,
+      buy_closing_costs:p.buyClosing!==''&&p.buyClosing!=null?parseFloat(p.buyClosing):null,
+      sell_closing_costs:p.sellClosing!==''&&p.sellClosing!=null?parseFloat(p.sellClosing):null,
       closing_date:p.closingDate||null,
       ghl_url:p.ghlUrl||null,
       land_portal_url:p.landPortalUrl||null,
@@ -2354,6 +2356,8 @@ const StorageAdapter = {
       acres:p.acres!=null?String(p.acres):'',
       buyPrice:p.buy_price!=null?String(p.buy_price):'',
       sellPrice:p.sell_price!=null?String(p.sell_price):'',
+      buyClosing:p.buy_closing_costs!=null?String(p.buy_closing_costs):'',
+      sellClosing:p.sell_closing_costs!=null?String(p.sell_closing_costs):'',
       closingDate:p.closing_date||'',
       ghlUrl:p.ghl_url||'',
       landPortalUrl:p.land_portal_url||'',
@@ -5318,7 +5322,7 @@ async function gcalDisconnect(){
   try{
     const d = await gcalCall({action:'disconnect'});
     if(d.error) throw new Error(d.error);
-    GCAL.status = {...(GCAL.status||{}), connected:false, email:null}; GCAL.cache = {};
+    GCAL.status = {...(GCAL.status||{}), connected:false, email:null}; GCAL.cache = {}; GCAL.cals = null;
     toast('Google Calendar disconnected');
   }catch(e){ toast('Could not disconnect: ' + (e.message || e), 'err'); }
   app.render();
@@ -5359,6 +5363,39 @@ function gcalHeaderBtn(){
 }
 
 // Settings section.
+// Which of my own Google calendars show on the dashboard. Saved per person, never visible to teammates.
+async function gcalLoadCalendars(){
+  if(GCAL.calsBusy) return;
+  GCAL.calsBusy = true;
+  try{ const d = await gcalCall({action:'calendars'}); GCAL.cals = d.error ? {error:d.error} : d; }
+  catch(e){ GCAL.cals = {error: e.message || String(e)}; }
+  GCAL.calsBusy = false;
+  app.render();
+}
+function gcalPickerHtml(){
+  if(!GCAL.cals && !GCAL.calsBusy) gcalLoadCalendars();
+  const c = GCAL.cals;
+  let inner;
+  if(!c) inner = `<p><i class="ti ti-loader-2 spin"></i> Loading your calendars…</p>`;
+  else if(c.error) inner = `<p style="color:var(--danger)">Couldn’t load calendars: ${escape(c.error)}</p>`;
+  else inner = (c.calendars || []).map(x => `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer">
+      <input type="checkbox" ${x.shown ? 'checked' : ''} onchange="gcalToggleCal('${escape(x.id).replace(/'/g, '&#39;')}', this.checked)">
+      <span style="width:10px;height:10px;border-radius:50%;background:${escape(x.color || '#4285F4')};flex-shrink:0"></span>
+      <span>${escape(x.name)}${x.primary ? ' <span style="color:var(--ink-3)">(yours)</span>' : ''}</span></label>`).join('')
+      + `<p style="font-size:12.5px;color:var(--ink-3);margin:6px 0 0">${c.isDefault ? 'Showing only your own calendar by default. ' : ''}Tick the ones you want on the Dashboard. Only you see this choice.</p>`;
+  return `<div class="gcal-sync-row" style="display:block"><strong>Calendars shown on the Dashboard</strong><div style="margin-top:6px">${inner}</div></div>`;
+}
+async function gcalToggleCal(id, on){
+  const c = GCAL.cals; if(!c || !c.calendars) return;
+  c.calendars.forEach(x => { if(x.id === id) x.shown = on; });
+  c.isDefault = false;
+  try{
+    const d = await gcalCall({action:'set_calendars', calendarIds: c.calendars.filter(x => x.shown).map(x => x.id)});
+    if(d.error) throw new Error(d.error);
+    GCAL.cache = {}; app.render();
+  }catch(e){ toast('Couldn’t save: ' + (e.message || e)); }
+}
+
 function gcalSettingsSection(){
   if(StorageAdapter.backend !== 'supabase') return '';
   if(!GCAL.status) gcalLoadStatus();
@@ -5374,6 +5411,7 @@ function gcalSettingsSection(){
         <span><strong>Your CRM tasks are added to Google Calendar</strong><br>
         Tasks assigned to you (or that you made, if nobody is assigned) appear in your Google Calendar as all-day events on their due date. Rescheduling, renaming or deleting a task in the CRM updates Google; finished tasks are taken off. Disconnecting removes them.</span>
       </div>` : ''}
+      ${gcalPickerHtml()}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${s.syncTasks ? `<button class="btn" onclick="gcalSyncNow(this)"><i class="ti ti-refresh"></i> Sync my tasks now</button>` : ''}
         <button class="btn" onclick="gcalRefresh();app.go('dashboard')"><i class="ti ti-calendar"></i> View on Dashboard</button>
@@ -6289,10 +6327,34 @@ const nextTier  = p => { const n=daysSinceClosing(p);
 // Americas, which would put markers on the wrong day.
 const dateMs = d => new Date(d+'T00:00:00').getTime();
 
-// Equity created on a deal = sell price - buy price. Null until a sell price is entered.
+// Equity created on a deal = sell price - buy price - buy closing costs - sell closing costs.
+// Null until a sell price is entered. A closing cost left blank counts as $0 here, but
+// closingCostsMissing(p) flags it everywhere so it can't pass for a real zero.
+const hasNum = v => v!=='' && v!=null && !isNaN(parseFloat(v));
+const closingCostsMissing = p => !hasNum(p.buyClosing) || !hasNum(p.sellClosing);
 function equityOf(p){
   if(p.sellPrice===''||p.sellPrice==null) return null;
-  return (parseFloat(p.sellPrice)||0) - (parseFloat(p.buyPrice)||0);
+  return (parseFloat(p.sellPrice)||0) - (parseFloat(p.buyPrice)||0)
+       - (parseFloat(p.buyClosing)||0) - (parseFloat(p.sellClosing)||0);
+}
+// A big, plain breakdown of how equity is reached, shown on every property card.
+function renderDealMath(p){
+  const eq = equityOf(p);
+  const row = (label, val, cls) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;${cls||''}"><span>${label}</span><b>${val}</b></div>`;
+  const notSet = `<b style="color:var(--danger)">NOT ENTERED</b>`;
+  const bcOk = hasNum(p.buyClosing), scOk = hasNum(p.sellClosing);
+  const missing = closingCostsMissing(p);
+  return `<div class="deal-math" style="flex-basis:100%;margin-top:10px;padding:10px 12px;border:1px solid ${missing?'var(--danger)':'var(--border)'};border-radius:var(--r-md);background:var(--surface-2);font-size:13px">
+    ${missing ? `<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;padding:8px 10px;border-radius:var(--r-md);background:var(--danger-soft);color:var(--danger);font-weight:700"><i class="ti ti-alert-triangle" style="font-size:18px;flex-shrink:0"></i><span>CLOSING COSTS NOT ENTERED${!bcOk&&!scOk?' (buy and sell)':!bcOk?' (buy side)':' (sell side)'}. The equity below is NOT real profit until they are added. Click the pencil to enter them (use 0 only if there truly are none).</span></div>` : ''}
+    ${row('Buy price', money(p.buyPrice))}
+    ${row('+ Buy closing costs', bcOk ? money(p.buyClosing) : notSet)}
+    ${row('Sell price', p.sellPrice ? money(p.sellPrice) : '—')}
+    ${row('− Sell closing costs', scOk ? money(p.sellClosing) : notSet)}
+    <div style="display:flex;justify-content:space-between;gap:12px;margin-top:6px;padding-top:8px;border-top:2px solid var(--border);font-size:15px;${eq!==null&&eq<0?'color:var(--danger)':''}">
+      <span><b>NET EQUITY after closing costs</b></span>
+      <b>${eq===null ? 'Add a sell price' : (eq>=0?'+':'')+money(Math.round(eq))}${missing&&eq!==null?' (overstated)':''}</b>
+    </div>
+  </div>`;
 }
 
 /* ---- Listing details ------------------------------------------------------
@@ -8176,7 +8238,7 @@ function renderDashboard(){
       <div class="stat-delta ${overdue?'down':''}">${overdue?overdue+' overdue':'On track'}</div>
     </div>
     <div class="stat-card" style="flex:1;min-width:200px;max-width:260px">
-      <div class="stat-label"><i class="ti ti-cash" style="font-size:14px"></i> Equity produced</div>
+      <div class="stat-label"><i class="ti ti-cash" style="font-size:14px"></i> Net equity produced</div>
       <div class="stat-value">${money(equityProduced)}</div>
       <div class="stat-delta up">Across all deals</div>
     </div>
@@ -12469,7 +12531,8 @@ function renderProperties(){
     ${filtered.map(p=>{
       if(propStatus(p) === 'sold') return renderSoldCard(p);
       const equity = equityOf(p);
-      const equityPct = (equity!==null && parseFloat(p.buyPrice)) ? Math.round((equity/parseFloat(p.buyPrice))*100) : null;
+      const costBasis = (parseFloat(p.buyPrice)||0) + (parseFloat(p.buyClosing)||0);
+      const equityPct = (equity!==null && costBasis) ? Math.round((equity/costBasis)*100) : null;
       const status = propStatus(p);
       return `<div class="item-row" data-id="${p.id}" style="flex-wrap:wrap">
         <div style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-map-2" style="font-size:20px"></i></div>
@@ -12492,7 +12555,7 @@ function renderProperties(){
           <div class="price-row">
             <div class="price-item"><span class="price-label">Buy</span><span class="price-value">${money(p.buyPrice)}</span></div>
             <div class="price-item"><span class="price-label">Sell</span><span class="price-value">${p.sellPrice?money(p.sellPrice):'—'}</span></div>
-            ${equity!==null?`<span class="margin-pill" style="${equity<0?'background:var(--danger-soft);color:var(--danger)':''}">${equity>=0?'+':''}${money(equity)} equity${equityPct!==null?` (${equityPct>=0?'+':''}${equityPct}%)`:''}</span>`:''}
+            ${equity!==null?`<span class="margin-pill" style="${equity<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${equity>=0?'+':''}${money(equity)} net equity${equityPct!==null?` (${equityPct>=0?'+':''}${equityPct}%)`:''}${closingCostsMissing(p)?' · NO CLOSING COSTS':''}</span>`:''}
           </div>
         </div>
         <div class="item-actions">
@@ -12502,6 +12565,7 @@ function renderProperties(){
           <button class="icon-btn" data-action="edit-prop" data-id="${p.id}" title="Edit">${ICON_EDIT}</button>
           <button class="icon-btn" data-action="delete-prop" data-id="${p.id}" title="Delete">${ICON_DELETE}</button>
         </div>
+        ${renderDealMath(p)}
         <div style="flex-basis:100%">${renderListingAlert(p)}${renderPropTaskStrip(p)}${renderClosingTimeline(p)}</div>
       </div>`;
     }).join('') || `<div class="empty"><i class="ti ti-home"></i><h3>No properties${statusFilter?` — ${PROP_STATUS_LABEL[statusFilter].toLowerCase()}`:''}</h3><p>${q?'Try a different search.':statusFilter?'Nothing in this status yet.':'Track your first deal.'}</p><button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button></div>`}
@@ -12521,6 +12585,7 @@ function renderSoldStrip(list){
     <div><b style="color:var(--ink)">${money(Math.round(t.sent))}</b><span>To investors</span></div>`; })()}
     <div><b style="color:var(--ink)">${list.length}</b><span>Propert${list.length===1?'y':'ies'} sold</span></div>
     ${missing ? `<div style="font-size:12px;color:var(--danger)">${missing} without a sale price, not counted</div>` : ''}
+    ${(() => { const n = list.filter(closingCostsMissing).length; return n ? `<div style="font-size:12px;color:var(--danger);font-weight:700">${n} deal${n===1?'':'s'} missing closing costs, so this total is overstated</div>` : ''; })()}
   </div>`;
 }
 function renderSoldCard(p){
@@ -12537,9 +12602,10 @@ function renderSoldCard(p){
         <div class="price-item"><span class="price-label">Buy</span><span class="price-value">${money(p.buyPrice)}</span></div>
         <div class="price-item"><span class="price-label">Sold for</span><span class="price-value">${p.sellPrice?money(p.sellPrice):'—'}</span></div>
         ${eq!==null
-          ? `<span class="margin-pill" style="${eq<0?'background:var(--danger-soft);color:var(--danger)':''}">${eq>=0?'+':''}${money(eq)} equity contribution</span>`
+          ? `<span class="margin-pill" style="${eq<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${eq>=0?'+':''}${money(eq)} net equity (after closing costs)${closingCostsMissing(p)?' · NO CLOSING COSTS':''}</span>`
           : `<span class="margin-pill" style="background:var(--danger-soft);color:var(--danger)">Add the sale price to count its equity</span>`}
       </div>
+      ${renderDealMath(p)}
     </div>
     <div class="item-actions">
       <button class="icon-btn" data-action="edit-prop" data-id="${p.id}" title="Edit">${ICON_EDIT}</button>
@@ -12562,7 +12628,7 @@ function openMarkSold(id){
       <div class="form-group"><label class="form-label">Sale price</label>
         <input class="form-input" id="ms-price" type="number" min="0" value="${escape(p.sellPrice||'')}"></div>
     </div>
-    <p class="form-hint">It moves to the Sold tab and counts as equity: sale price minus the ${money(p.buyPrice)} buy price. To undo, clear the sold date in Edit.</p>
+    <p class="form-hint">It moves to the Sold tab and counts as equity: sale price minus the ${money(p.buyPrice)} buy price and both closing costs (buy ${hasNum(p.buyClosing)?money(p.buyClosing):'NOT ENTERED'}, sell ${hasNum(p.sellClosing)?money(p.sellClosing):'NOT ENTERED'}). To undo, clear the sold date in Edit.</p>
     <div class="modal-actions">
       <button class="btn" onclick="closeSubModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveMarkSold('${p.id}')">Mark sold</button>
@@ -15473,6 +15539,10 @@ function openPropForm(id){
       <div class="form-group"><label class="form-label">Buy price</label><input class="form-input" id="fp-buy" type="number" value="${escape(p.buyPrice||'')}" oninput="updateEquityPreview()"></div>
       <div class="form-group"><label class="form-label">Sell price</label><input class="form-input" id="fp-sell" type="number" value="${escape(p.sellPrice||'')}" oninput="updateEquityPreview()" placeholder="Once known"></div>
     </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Buy closing costs <span style="color:var(--danger)">*</span></label><input class="form-input" id="fp-buycc" type="number" min="0" value="${escape(p.buyClosing||'')}" oninput="updateEquityPreview()" placeholder="Required (0 if none)"></div>
+      <div class="form-group"><label class="form-label">Sell closing costs <span style="color:var(--danger)">*</span></label><input class="form-input" id="fp-sellcc" type="number" min="0" value="${escape(p.sellClosing||'')}" oninput="updateEquityPreview()" placeholder="Required (0 if none)"></div>
+    </div>
     <div id="fp-equity-preview" style="font-size:12.5px;font-weight:600;margin:-8px 0 14px"></div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Under contract on <span style="font-weight:400;color:var(--ink-3)">(buyer signed)</span></label>
@@ -15664,16 +15734,19 @@ function updateEquityPreview(){
   const el = document.getElementById('fp-equity-preview');
   if(!el) return;
   const sellRaw = document.getElementById('fp-sell').value;
-  if(sellRaw===''){ el.textContent = ''; return; }
+  const bcRaw = document.getElementById('fp-buycc').value, scRaw = document.getElementById('fp-sellcc').value;
+  if(sellRaw===''){ el.style.color = (bcRaw===''||scRaw==='') ? 'var(--danger)' : 'var(--ink-3)'; el.textContent = (bcRaw===''||scRaw==='') ? 'Enter both closing costs (0 if none) so equity is not overstated.' : ''; return; }
   const buy = parseFloat(document.getElementById('fp-buy').value)||0;
   const sell = parseFloat(sellRaw)||0;
-  const equity = sell - buy;
-  el.style.color = equity<0 ? 'var(--danger)' : 'var(--accent)';
-  el.textContent = `Equity created: ${equity>=0?'+':''}${money(equity)}`;
+  const bc = parseFloat(bcRaw)||0, sc = parseFloat(scRaw)||0;
+  const equity = sell - buy - bc - sc;
+  el.style.color = (equity<0 || bcRaw==='' || scRaw==='') ? 'var(--danger)' : 'var(--accent)';
+  el.textContent = `Net equity after closing costs: ${equity>=0?'+':''}${money(equity)} (${money(sell)} sell − ${money(buy)} buy − ${money(bc)} buy closing − ${money(sc)} sell closing)` + ((bcRaw===''||scRaw==='') ? ' · closing costs missing, overstated' : '');
 }
 async function saveProp(id){
   const propertyId = $('#fp-propid').value.trim();
   if(!propertyId) return toast('Property ID is required','err');
+  if($('#fp-buycc').value==='' || $('#fp-sellcc').value==='') return toast('Enter buy and sell closing costs (use 0 only if there are none)','err');
   const existing = id ? state.props.find(x=>x.id===id) : null;
   const data = {
     id: id||uid(), propertyId,
@@ -15682,6 +15755,8 @@ async function saveProp(id){
     acres: $('#fp-acres').value,
     buyPrice: $('#fp-buy').value,
     sellPrice: $('#fp-sell').value,
+    buyClosing: $('#fp-buycc').value,
+    sellClosing: $('#fp-sellcc').value,
     closingDate: $('#fp-closing').value,
     doubleClose: !!($('#fp-double-close')||{}).checked,
     ghlUrl: ($('#fp-ghl').value||'').trim(),
@@ -15896,7 +15971,7 @@ async function saveQuickProp(){
     id: uid(), propertyId,
     county: $('#qft-prop-county').value, state: 'TX',
     acres: $('#qft-prop-acres').value,
-    buyPrice: '', sellPrice: '', closingDate: '',
+    buyPrice: '', sellPrice: '', buyClosing: '', sellClosing: '', closingDate: '',
     status: 'pre-deal', notes: '', assignedTo: '',
     created: today()
   };
