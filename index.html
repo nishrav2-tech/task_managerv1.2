@@ -6337,25 +6337,6 @@ function equityOf(p){
   return (parseFloat(p.sellPrice)||0) - (parseFloat(p.buyPrice)||0)
        - (parseFloat(p.buyClosing)||0) - (parseFloat(p.sellClosing)||0);
 }
-// A big, plain breakdown of how equity is reached, shown on every property card.
-function renderDealMath(p){
-  const eq = equityOf(p);
-  const row = (label, val, cls) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;${cls||''}"><span>${label}</span><b>${val}</b></div>`;
-  const notSet = `<b style="color:var(--danger)">NOT ENTERED</b>`;
-  const bcOk = hasNum(p.buyClosing), scOk = hasNum(p.sellClosing);
-  const missing = closingCostsMissing(p);
-  return `<div class="deal-math" style="flex-basis:100%;margin-top:10px;padding:10px 12px;border:1px solid ${missing?'var(--danger)':'var(--border)'};border-radius:var(--r-md);background:var(--surface-2);font-size:13px">
-    ${missing ? `<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;padding:8px 10px;border-radius:var(--r-md);background:var(--danger-soft);color:var(--danger);font-weight:700"><i class="ti ti-alert-triangle" style="font-size:18px;flex-shrink:0"></i><span>CLOSING COSTS NOT ENTERED${!bcOk&&!scOk?' (buy and sell)':!bcOk?' (buy side)':' (sell side)'}. The equity below is NOT real profit until they are added. Click the pencil to enter them (use 0 only if there truly are none).</span></div>` : ''}
-    ${row('Buy price', money(p.buyPrice))}
-    ${row('+ Buy closing costs', bcOk ? money(p.buyClosing) : notSet)}
-    ${row('Sell price', p.sellPrice ? money(p.sellPrice) : '—')}
-    ${row('− Sell closing costs', scOk ? money(p.sellClosing) : notSet)}
-    <div style="display:flex;justify-content:space-between;gap:12px;margin-top:6px;padding-top:8px;border-top:2px solid var(--border);font-size:15px;${eq!==null&&eq<0?'color:var(--danger)':''}">
-      <span><b>NET EQUITY after closing costs</b></span>
-      <b>${eq===null ? 'Add a sell price' : (eq>=0?'+':'')+money(Math.round(eq))}${missing&&eq!==null?' (overstated)':''}</b>
-    </div>
-  </div>`;
-}
 
 /* ---- Listing details ------------------------------------------------------
    A Zillow URL plus a hand-entered daily log of saves and views. One entry
@@ -12565,7 +12546,6 @@ function renderProperties(){
           <button class="icon-btn" data-action="edit-prop" data-id="${p.id}" title="Edit">${ICON_EDIT}</button>
           <button class="icon-btn" data-action="delete-prop" data-id="${p.id}" title="Delete">${ICON_DELETE}</button>
         </div>
-        ${renderDealMath(p)}
         <div style="flex-basis:100%">${renderListingAlert(p)}${renderPropTaskStrip(p)}${renderClosingTimeline(p)}</div>
       </div>`;
     }).join('') || `<div class="empty"><i class="ti ti-home"></i><h3>No properties${statusFilter?` — ${PROP_STATUS_LABEL[statusFilter].toLowerCase()}`:''}</h3><p>${q?'Try a different search.':statusFilter?'Nothing in this status yet.':'Track your first deal.'}</p><button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button></div>`}
@@ -12605,7 +12585,6 @@ function renderSoldCard(p){
           ? `<span class="margin-pill" style="${eq<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${eq>=0?'+':''}${money(eq)} net equity (after closing costs)${closingCostsMissing(p)?' · NO CLOSING COSTS':''}</span>`
           : `<span class="margin-pill" style="background:var(--danger-soft);color:var(--danger)">Add the sale price to count its equity</span>`}
       </div>
-      ${renderDealMath(p)}
     </div>
     <div class="item-actions">
       <button class="icon-btn" data-action="edit-prop" data-id="${p.id}" title="Edit">${ICON_EDIT}</button>
