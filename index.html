@@ -2278,6 +2278,7 @@ const StorageAdapter = {
       sell_price:p.sellPrice!==''&&p.sellPrice!=null?parseFloat(p.sellPrice):null,
       buy_closing_costs:p.buyClosing!==''&&p.buyClosing!=null?parseFloat(p.buyClosing):null,
       sell_closing_costs:p.sellClosing!==''&&p.sellClosing!=null?parseFloat(p.sellClosing):null,
+      commission_pct:p.commissionPct!==''&&p.commissionPct!=null?parseFloat(p.commissionPct):null,
       closing_date:p.closingDate||null,
       ghl_url:p.ghlUrl||null,
       land_portal_url:p.landPortalUrl||null,
@@ -2358,6 +2359,7 @@ const StorageAdapter = {
       sellPrice:p.sell_price!=null?String(p.sell_price):'',
       buyClosing:p.buy_closing_costs!=null?String(p.buy_closing_costs):'',
       sellClosing:p.sell_closing_costs!=null?String(p.sell_closing_costs):'',
+      commissionPct:p.commission_pct!=null?String(p.commission_pct):'',
       closingDate:p.closing_date||'',
       ghlUrl:p.ghl_url||'',
       landPortalUrl:p.land_portal_url||'',
@@ -6331,11 +6333,14 @@ const dateMs = d => new Date(d+'T00:00:00').getTime();
 // Null until a sell price is entered. A closing cost left blank counts as $0 here, but
 // closingCostsMissing(p) flags it everywhere so it can't pass for a real zero.
 const hasNum = v => v!=='' && v!=null && !isNaN(parseFloat(v));
-const closingCostsMissing = p => !hasNum(p.buyClosing) || !hasNum(p.sellClosing);
+// Agent commission is a % of the sale price. Dollar amount = sell price x pct / 100.
+const commissionOf = p => (parseFloat(p.sellPrice)||0) * (parseFloat(p.commissionPct)||0) / 100;
+// True when buy closing, sell closing or the commission % was never entered.
+const closingCostsMissing = p => !hasNum(p.buyClosing) || !hasNum(p.sellClosing) || !hasNum(p.commissionPct);
 function equityOf(p){
   if(p.sellPrice===''||p.sellPrice==null) return null;
   return (parseFloat(p.sellPrice)||0) - (parseFloat(p.buyPrice)||0)
-       - (parseFloat(p.buyClosing)||0) - (parseFloat(p.sellClosing)||0);
+       - (parseFloat(p.buyClosing)||0) - (parseFloat(p.sellClosing)||0) - commissionOf(p);
 }
 
 /* ---- Listing details ------------------------------------------------------
@@ -12536,7 +12541,7 @@ function renderProperties(){
           <div class="price-row">
             <div class="price-item"><span class="price-label">Buy</span><span class="price-value">${money(p.buyPrice)}</span></div>
             <div class="price-item"><span class="price-label">Sell</span><span class="price-value">${p.sellPrice?money(p.sellPrice):'—'}</span></div>
-            ${equity!==null?`<span class="margin-pill" style="${equity<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${equity>=0?'+':''}${money(equity)} net equity${equityPct!==null?` (${equityPct>=0?'+':''}${equityPct}%)`:''}${closingCostsMissing(p)?' · NO CLOSING COSTS':''}</span>`:''}
+            ${equity!==null?`<span class="margin-pill" style="${equity<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${equity>=0?'+':''}${money(equity)} net equity${equityPct!==null?` (${equityPct>=0?'+':''}${equityPct}%)`:''}${closingCostsMissing(p)?' · COSTS MISSING':''}</span>`:''}
           </div>
         </div>
         <div class="item-actions">
@@ -12565,7 +12570,7 @@ function renderSoldStrip(list){
     <div><b style="color:var(--ink)">${money(Math.round(t.sent))}</b><span>To investors</span></div>`; })()}
     <div><b style="color:var(--ink)">${list.length}</b><span>Propert${list.length===1?'y':'ies'} sold</span></div>
     ${missing ? `<div style="font-size:12px;color:var(--danger)">${missing} without a sale price, not counted</div>` : ''}
-    ${(() => { const n = list.filter(closingCostsMissing).length; return n ? `<div style="font-size:12px;color:var(--danger);font-weight:700">${n} deal${n===1?'':'s'} missing closing costs, so this total is overstated</div>` : ''; })()}
+    ${(() => { const n = list.filter(closingCostsMissing).length; return n ? `<div style="font-size:12px;color:var(--danger);font-weight:700">${n} deal${n===1?'':'s'} missing closing costs or commission, so this total is overstated</div>` : ''; })()}
   </div>`;
 }
 function renderSoldCard(p){
@@ -12582,7 +12587,7 @@ function renderSoldCard(p){
         <div class="price-item"><span class="price-label">Buy</span><span class="price-value">${money(p.buyPrice)}</span></div>
         <div class="price-item"><span class="price-label">Sold for</span><span class="price-value">${p.sellPrice?money(p.sellPrice):'—'}</span></div>
         ${eq!==null
-          ? `<span class="margin-pill" style="${eq<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${eq>=0?'+':''}${money(eq)} net equity (after closing costs)${closingCostsMissing(p)?' · NO CLOSING COSTS':''}</span>`
+          ? `<span class="margin-pill" style="${eq<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${eq>=0?'+':''}${money(eq)} net equity (after closing costs and commission)${closingCostsMissing(p)?' · COSTS MISSING':''}</span>`
           : `<span class="margin-pill" style="background:var(--danger-soft);color:var(--danger)">Add the sale price to count its equity</span>`}
       </div>
     </div>
@@ -12607,7 +12612,7 @@ function openMarkSold(id){
       <div class="form-group"><label class="form-label">Sale price</label>
         <input class="form-input" id="ms-price" type="number" min="0" value="${escape(p.sellPrice||'')}"></div>
     </div>
-    <p class="form-hint">It moves to the Sold tab and counts as equity: sale price minus the ${money(p.buyPrice)} buy price and both closing costs (buy ${hasNum(p.buyClosing)?money(p.buyClosing):'NOT ENTERED'}, sell ${hasNum(p.sellClosing)?money(p.sellClosing):'NOT ENTERED'}). To undo, clear the sold date in Edit.</p>
+    <p class="form-hint">It moves to the Sold tab and counts as equity: sale price minus the ${money(p.buyPrice)} buy price , both closing costs (buy ${hasNum(p.buyClosing)?money(p.buyClosing):'NOT ENTERED'}, sell ${hasNum(p.sellClosing)?money(p.sellClosing):'NOT ENTERED'}) and the agent commission (${hasNum(p.commissionPct)?p.commissionPct+'%':'NOT ENTERED'}). To undo, clear the sold date in Edit.</p>
     <div class="modal-actions">
       <button class="btn" onclick="closeSubModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveMarkSold('${p.id}')">Mark sold</button>
@@ -15522,6 +15527,10 @@ function openPropForm(id){
       <div class="form-group"><label class="form-label">Buy closing costs <span style="color:var(--danger)">*</span></label><input class="form-input" id="fp-buycc" type="number" min="0" value="${escape(p.buyClosing||'')}" oninput="updateEquityPreview()" placeholder="Required (0 if none)"></div>
       <div class="form-group"><label class="form-label">Sell closing costs <span style="color:var(--danger)">*</span></label><input class="form-input" id="fp-sellcc" type="number" min="0" value="${escape(p.sellClosing||'')}" oninput="updateEquityPreview()" placeholder="Required (0 if none)"></div>
     </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Agent commission % of sale price <span style="color:var(--danger)">*</span></label><input class="form-input" id="fp-comm" type="number" min="0" max="100" step="0.01" value="${escape(p.commissionPct||'')}" oninput="updateEquityPreview()" placeholder="Required (0 if none)"></div>
+      <div class="form-group"><label class="form-label">Commission in dollars</label><div id="fp-comm-amt" class="form-input" style="background:var(--surface-2);color:var(--ink-2)">—</div></div>
+    </div>
     <div id="fp-equity-preview" style="font-size:12.5px;font-weight:600;margin:-8px 0 14px"></div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Under contract on <span style="font-weight:400;color:var(--ink-3)">(buyer signed)</span></label>
@@ -15713,19 +15722,23 @@ function updateEquityPreview(){
   const el = document.getElementById('fp-equity-preview');
   if(!el) return;
   const sellRaw = document.getElementById('fp-sell').value;
-  const bcRaw = document.getElementById('fp-buycc').value, scRaw = document.getElementById('fp-sellcc').value;
-  if(sellRaw===''){ el.style.color = (bcRaw===''||scRaw==='') ? 'var(--danger)' : 'var(--ink-3)'; el.textContent = (bcRaw===''||scRaw==='') ? 'Enter both closing costs (0 if none) so equity is not overstated.' : ''; return; }
+  const bcRaw = document.getElementById('fp-buycc').value, scRaw = document.getElementById('fp-sellcc').value, cmRaw = document.getElementById('fp-comm').value;
+  const miss = bcRaw==='' || scRaw==='' || cmRaw==='';
+  const commAmt = (parseFloat(sellRaw)||0) * (parseFloat(cmRaw)||0) / 100;
+  const amtEl = document.getElementById('fp-comm-amt');
+  if(amtEl) amtEl.textContent = (sellRaw==='' || cmRaw==='') ? '—' : `${money(Math.round(commAmt))} (${cmRaw}% of ${money(parseFloat(sellRaw)||0)})`;
+  if(sellRaw===''){ el.style.color = miss ? 'var(--danger)' : 'var(--ink-3)'; el.textContent = miss ? 'Enter both closing costs and the agent commission % (0 if none) so equity is not overstated.' : ''; return; }
   const buy = parseFloat(document.getElementById('fp-buy').value)||0;
   const sell = parseFloat(sellRaw)||0;
   const bc = parseFloat(bcRaw)||0, sc = parseFloat(scRaw)||0;
-  const equity = sell - buy - bc - sc;
-  el.style.color = (equity<0 || bcRaw==='' || scRaw==='') ? 'var(--danger)' : 'var(--accent)';
-  el.textContent = `Net equity after closing costs: ${equity>=0?'+':''}${money(equity)} (${money(sell)} sell − ${money(buy)} buy − ${money(bc)} buy closing − ${money(sc)} sell closing)` + ((bcRaw===''||scRaw==='') ? ' · closing costs missing, overstated' : '');
+  const equity = sell - buy - bc - sc - commAmt;
+  el.style.color = (equity<0 || miss) ? 'var(--danger)' : 'var(--accent)';
+  el.textContent = `Net equity after closing costs and commission: ${equity>=0?'+':''}${money(Math.round(equity))} (${money(sell)} sell − ${money(buy)} buy − ${money(bc)} buy closing − ${money(sc)} sell closing − ${money(Math.round(commAmt))} commission)` + (miss ? ' · costs missing, overstated' : '');
 }
 async function saveProp(id){
   const propertyId = $('#fp-propid').value.trim();
   if(!propertyId) return toast('Property ID is required','err');
-  if($('#fp-buycc').value==='' || $('#fp-sellcc').value==='') return toast('Enter buy and sell closing costs (use 0 only if there are none)','err');
+  if($('#fp-buycc').value==='' || $('#fp-sellcc').value==='' || $('#fp-comm').value==='') return toast('Enter buy closing, sell closing and agent commission % (use 0 only if there are none)','err');
   const existing = id ? state.props.find(x=>x.id===id) : null;
   const data = {
     id: id||uid(), propertyId,
@@ -15736,6 +15749,7 @@ async function saveProp(id){
     sellPrice: $('#fp-sell').value,
     buyClosing: $('#fp-buycc').value,
     sellClosing: $('#fp-sellcc').value,
+    commissionPct: $('#fp-comm').value,
     closingDate: $('#fp-closing').value,
     doubleClose: !!($('#fp-double-close')||{}).checked,
     ghlUrl: ($('#fp-ghl').value||'').trim(),
@@ -15950,7 +15964,7 @@ async function saveQuickProp(){
     id: uid(), propertyId,
     county: $('#qft-prop-county').value, state: 'TX',
     acres: $('#qft-prop-acres').value,
-    buyPrice: '', sellPrice: '', buyClosing: '', sellClosing: '', closingDate: '',
+    buyPrice: '', sellPrice: '', buyClosing: '', sellClosing: '', commissionPct: '', closingDate: '',
     status: 'pre-deal', notes: '', assignedTo: '',
     created: today()
   };

@@ -1091,3 +1091,7 @@ alter table public.gcal_connections add column if not exists shown_calendars tex
 -- null = never entered (the app flags these in red); 0 = entered, none.
 alter table public.properties add column if not exists buy_closing_costs numeric;
 alter table public.properties add column if not exists sell_closing_costs numeric;
+
+-- Properties: agent commission as % of sale price, subtracted from equity (2026-11-19).
+-- null = never entered (flagged in red in the app); 0 = entered, none.
+alter table public.properties add column if not exists commission_pct numeric;
