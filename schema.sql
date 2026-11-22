@@ -1100,3 +1100,7 @@ alter table public.properties add column if not exists commission_pct numeric;
 -- child_parcels holds each lot: name, acres, ask/sold price, Zillow/Redfin links, views/saves log.
 alter table public.properties add column if not exists is_subdivide boolean not null default false;
 alter table public.properties add column if not exists child_parcels jsonb not null default '[]'::jsonb;
+
+-- Properties: recently deleted (2026-11-22). Deleting sets deleted_at; the app hides these rows,
+-- offers Restore for 7 days, then removes them for good on the next load.
+alter table public.properties add column if not exists deleted_at timestamptz;

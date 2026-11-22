@@ -2292,6 +2292,7 @@ const StorageAdapter = {
       redfin_url:(p.redfinUrl||'').trim()||null,
       double_close:!!p.doubleClose,
       is_subdivide:!!p.isSubdivide,
+      deleted_at:p.deletedAt||null,
       child_parcels:normalizeChildren(p.children),
       listing_stats:normalizeListingStats(p.listingStats),
       agent_log:normalizeAgentLog(p.agentLog),
@@ -2377,6 +2378,7 @@ const StorageAdapter = {
       redfinUrl:p.redfin_url||'',
       doubleClose:!!p.double_close,
       isSubdivide:!!p.is_subdivide,
+      deletedAt:p.deleted_at||null,
       children:normalizeChildren(p.child_parcels),
       listingStats:normalizeListingStats(p.listing_stats),
       agentLog:normalizeAgentLog(p.agent_log),
@@ -2988,6 +2990,8 @@ const state = {
   // one of these two is ever set — see toggleFundingPanel().
   listingOpen:null,
   childrenOpen:null,
+  trashProps:[],
+  showTrash:false,
   childOpen:null,
   // Which property has the day-by-day listing log expanded inside its open
   // Listing details panel. Separate from listingOpen so collapsing the log
@@ -7094,7 +7098,21 @@ async function loadKpiEntriesInto(){
 function applyCore(data){
   state.coreFetchOk = data.fetchOk !== false;
   state.users = data.users;
-  state.props = data.props;
+  // Recently deleted properties (2026-11-22): rows with deletedAt set are held
+  // for 7 days, kept OUT of state.props so every screen and total ignores them,
+  // then removed for good.
+  const allProps = data.props || [];
+  state.props = allProps.filter(p => !p.deletedAt);
+  state.trashProps = allProps.filter(p => p.deletedAt);
+  if(state.coreFetchOk){
+    state.trashProps.filter(p => trashDaysLeft(p) <= 0).forEach(p => {
+      if(!state._purging) state._purging = {};
+      if(state._purging[p.id]) return;
+      state._purging[p.id] = true;
+      deleteOne('props', p.id).then(ok => { if(ok) state.trashProps = state.trashProps.filter(x => x.id !== p.id); });
+    });
+    state.trashProps = state.trashProps.filter(p => trashDaysLeft(p) > 0);
+  }
   state.tasks = data.tasks;
   state.projects = data.projects;
   state.kpis = data.kpis || [];
@@ -12724,7 +12742,8 @@ function renderProperties(){
         <div style="flex-basis:100%">${renderListingAlert(p)}${renderPropTaskStrip(p)}${renderClosingTimeline(p)}</div>
       </div>`;
     }).join('') || `<div class="empty"><i class="ti ti-home"></i><h3>No properties${statusFilter?` — ${PROP_STATUS_LABEL[statusFilter].toLowerCase()}`:''}</h3><p>${q?'Try a different search.':statusFilter?'Nothing in this status yet.':'Track your first deal.'}</p><button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button></div>`}
-    </div>`;
+    </div>
+    ${renderTrashSection()}`;
 }
 /* ---- Sold deals (2026-10-16) ----------------------------------------------
    Once a deal sells, all that matters here is what it contributed: the equity
@@ -15559,7 +15578,87 @@ function toggleTaskInDay(id, dateStr){
   });
 }
 
+/* ---- Recently deleted properties (2026-11-22) -----------------------------
+   Deleting a property moves it here for 7 days instead of erasing it. It can
+   be restored with everything intact (listing data, child parcels, funding,
+   costs). After 7 days it is removed for good the next time the app loads. */
+const TRASH_DAYS = 7;
+function trashDaysLeft(p){
+  const t = Date.parse(p.deletedAt || '');
+  if(isNaN(t)) return TRASH_DAYS;
+  return Math.ceil(TRASH_DAYS - (Date.now() - t) / 864e5);
+}
+async function softDeleteProp(id){
+  const p = state.props.find(x => x.id === id); if(!p) return;
+  if(!confirm(`Delete ${p.propertyId || 'this property'}? It moves to Recently deleted and can be restored for ${TRASH_DAYS} days, then it is gone for good.`)) return;
+  p.deletedAt = new Date().toISOString();
+  state.props = state.props.filter(x => x.id !== id);
+  state.trashProps = [p, ...state.trashProps];
+  if(state.fundingOpen === id) state.fundingOpen = null;
+  if(state.listingOpen === id) state.listingOpen = null;
+  if(state.tasksOpen === id) state.tasksOpen = null;
+  if(state.childrenOpen === id) state.childrenOpen = null;
+  const ok = await saveOne('props', p);
+  if(!ok){
+    // Couldn't save: put it back as it was
+    p.deletedAt = null;
+    state.trashProps = state.trashProps.filter(x => x.id !== id);
+    state.props = [p, ...state.props];
+    app.render();
+    return;
+  }
+  toast(`${p.propertyId || 'Property'} moved to Recently deleted (${TRASH_DAYS} days to restore)`);
+  app.render();
+}
+async function restoreProp(id){
+  const p = state.trashProps.find(x => x.id === id); if(!p) return;
+  p.deletedAt = null;
+  const ok = await saveOne('props', p);
+  if(!ok){ p.deletedAt = new Date().toISOString(); return; }
+  state.trashProps = state.trashProps.filter(x => x.id !== id);
+  state.props = [p, ...state.props];
+  toast(`${p.propertyId || 'Property'} restored`);
+  app.render();
+}
+async function purgeProp(id){
+  const p = state.trashProps.find(x => x.id === id); if(!p) return;
+  if(!confirm(`Permanently delete ${p.propertyId || 'this property'} now? This cannot be undone.`)) return;
+  const ok = await deleteOne('props', id);
+  if(!ok) return;
+  state.trashProps = state.trashProps.filter(x => x.id !== id);
+  toast('Deleted for good');
+  app.render();
+}
+function toggleTrash(){ state.showTrash = !state.showTrash; app.render(); }
+function renderTrashSection(){
+  const list = state.trashProps || [];
+  if(!list.length) return '';
+  const rows = state.showTrash ? list.map(p => {
+    const left = Math.max(1, trashDaysLeft(p));
+    return `<div class="item-row" style="align-items:center">
+      <div class="item-main">
+        <div class="item-title">${escape(p.propertyId || 'No property ID')}</div>
+        <div class="item-meta"><span>${escape(p.county||'')}, ${escape(p.state||'')}</span><span>· deleted ${escape(fmtLong((p.deletedAt||'').slice(0,10)))}</span>
+          <span style="color:${left<=2?'var(--danger)':'var(--ink-3)'};font-weight:600">· ${left} day${left===1?'':'s'} left</span></div>
+      </div>
+      <div class="item-actions">
+        <button class="btn btn-sm" onclick="restoreProp('${p.id}')"><i class="ti ti-arrow-back-up"></i> Restore</button>
+        <button class="btn btn-sm" onclick="purgeProp('${p.id}')"><i class="ti ti-trash"></i> Delete forever</button>
+      </div>
+    </div>`;
+  }).join('') : '';
+  return `<div style="margin-top:22px">
+    <button type="button" class="listing-log-toggle" onclick="toggleTrash()">
+      <i class="ti ti-${state.showTrash?'chevron-down':'chevron-right'}"></i>
+      Recently deleted <span class="funding-tab-count">${list.length}</span>
+      <span style="color:var(--ink-3);font-weight:400"> · kept ${TRASH_DAYS} days, then removed for good</span>
+    </button>
+    ${state.showTrash ? `<div class="item-list" style="margin-top:8px">${rows}</div>` : ''}
+  </div>`;
+}
+
 async function confirmDelete(kind, id){
+  if(kind === 'prop') return softDeleteProp(id);
   const labels = {prop:'property', task:'task', project:'project', user:'team member'};
   const map = {prop:'props', task:'tasks', project:'projects', user:'users'};
   let msg = `Delete this ${labels[kind]}? This cannot be undone.`;
