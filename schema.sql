@@ -1095,3 +1095,8 @@ alter table public.properties add column if not exists sell_closing_costs numeri
 -- Properties: agent commission as % of sale price, subtracted from equity (2026-11-19).
 -- null = never entered (flagged in red in the app); 0 = entered, none.
 alter table public.properties add column if not exists commission_pct numeric;
+
+-- Properties: subdivide projects with child parcels (2026-11-22).
+-- child_parcels holds each lot: name, acres, ask/sold price, Zillow/Redfin links, views/saves log.
+alter table public.properties add column if not exists is_subdivide boolean not null default false;
+alter table public.properties add column if not exists child_parcels jsonb not null default '[]'::jsonb;

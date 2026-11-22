@@ -2291,6 +2291,8 @@ const StorageAdapter = {
       listing_url_2:p.listingUrl2||null,
       redfin_url:(p.redfinUrl||'').trim()||null,
       double_close:!!p.doubleClose,
+      is_subdivide:!!p.isSubdivide,
+      child_parcels:normalizeChildren(p.children),
       listing_stats:normalizeListingStats(p.listingStats),
       agent_log:normalizeAgentLog(p.agentLog),
       fb_listing_url:p.fbListingUrl||null,
@@ -2374,6 +2376,8 @@ const StorageAdapter = {
       listingUrl2:p.listing_url_2||'',
       redfinUrl:p.redfin_url||'',
       doubleClose:!!p.double_close,
+      isSubdivide:!!p.is_subdivide,
+      children:normalizeChildren(p.child_parcels),
       listingStats:normalizeListingStats(p.listing_stats),
       agentLog:normalizeAgentLog(p.agent_log),
       fbListingUrl:p.fb_listing_url||'',
@@ -2983,6 +2987,8 @@ const state = {
   // Same idea for the Listing details tab, alongside the funding tab. Only
   // one of these two is ever set — see toggleFundingPanel().
   listingOpen:null,
+  childrenOpen:null,
+  childOpen:null,
   // Which property has the day-by-day listing log expanded inside its open
   // Listing details panel. Separate from listingOpen so collapsing the log
   // doesn't close the panel around it.
@@ -6365,6 +6371,27 @@ function normalizeListingStats(raw){
   return [...byDate.values()].sort((a,b) => a.date.localeCompare(b.date));
 }
 
+/* ---- Subdivide projects: child parcels (2026-11-22) ----------------------
+   A property marked as a subdivide project carries a list of child parcels.
+   Each child has its own name, acres, asking price, optional sold price, its
+   own Zillow and Redfin links, and its own daily views/saves log, so every lot
+   is tracked on its own inside the project. Round-trips to
+   properties.child_parcels (jsonb) and properties.is_subdivide. */
+function normalizeChildren(raw){
+  let list = raw;
+  if(typeof list === 'string'){
+    try{ list = JSON.parse(list); }catch(e){ return []; }
+  }
+  if(!Array.isArray(list)) return [];
+  return list.filter(c => c && typeof c === 'object' && c.id).map(c => ({
+    id:String(c.id), name:String(c.name||''), acres:c.acres!=null?String(c.acres):'',
+    askPrice:c.askPrice!=null?String(c.askPrice):'', soldPrice:c.soldPrice!=null?String(c.soldPrice):'',
+    listingUrl:String(c.listingUrl||''), redfinUrl:String(c.redfinUrl||''),
+    stats:normalizeListingStats(c.stats)
+  }));
+}
+const childLatest = c => { const st = normalizeListingStats(c.stats); return st.length ? st[st.length-1] : null; };
+
 /* ---- Agent check-in log ----------------------------------------------------
    A weekly touchpoint log for the listing agent(s) working a deal — separate
    from the Zillow numbers above, this is just a note that someone actually
@@ -6569,7 +6596,8 @@ function propStatus(p){
 }
 // Any listing link counts: Zillow 1, Zillow 2, or Redfin (2026-11-18).
 function hasListingLink(p){
-  return !!((p.listingUrl||'').trim() || (p.listingUrl2||'').trim() || (p.redfinUrl||'').trim());
+  return !!((p.listingUrl||'').trim() || (p.listingUrl2||'').trim() || (p.redfinUrl||'').trim()
+    || (p.isSubdivide && (p.children||[]).some(c => (c.listingUrl||'').trim() || (c.redfinUrl||'').trim())));
 }
 // The label next to the deal's name. A double close in the Closed tab reads
 // "Double close" instead of "Closed", since the purchase hasn't happened yet.
@@ -11272,6 +11300,7 @@ function renderPropPanels(p, bands){
   const fundingOpen = state.fundingOpen === p.id;
   const listingOpen = state.listingOpen === p.id;
   const tasksOpen   = state.tasksOpen === p.id;
+  const childrenOpen = state.childrenOpen === p.id;
   const stats = normalizeListingStats(p.listingStats);
   const openTasks = openTasksForProp(p.id);
   const overdueTasks = openTasks.filter(t => isOverdue(t.dueDate));
@@ -11285,6 +11314,11 @@ function renderPropPanels(p, bands){
     <i class="ti ti-${listingOpen?'chevron-down':'chevron-right'}"></i>
     Listing details${(stats.length + normalizeListingStats(p.fbListingStats).length)?` <span class="funding-tab-count">${stats.length + normalizeListingStats(p.fbListingStats).length}</span>`:''}
   </button>`;
+  const kids = p.children || [];
+  const childrenTab = p.isSubdivide ? `<button class="funding-tab ${childrenOpen?'is-open':''}" data-action="toggle-children" data-id="${p.id}">
+    <i class="ti ti-${childrenOpen?'chevron-down':'chevron-right'}"></i>
+    Child parcels${kids.length?` <span class="funding-tab-count">${kids.length}</span>`:''}
+  </button>` : '';
   // The count pill turns red when any of this deal's open work is overdue, so
   // a card tells you that without being opened.
   const tasksTab = `<button class="funding-tab ${tasksOpen?'is-open':''}" data-action="toggle-tasks" data-id="${p.id}"
@@ -11302,9 +11336,10 @@ function renderPropPanels(p, bands){
   // mangled hybrid of the two, and the tabs stop opening/closing cleanly.
   // Fixed slots keep each panel's node at the same index every render, so a
   // toggle only ever touches its own slot's contents.
-  return `<div class="funding-tabs">${fundingTab}${listingTab}${tasksTab}</div>
+  return `<div class="funding-tabs">${fundingTab}${listingTab}${childrenTab}${tasksTab}</div>
     <div class="funding-panel-slot">${fundingOpen ? renderFundingPanel(p, bands) : ''}</div>
     <div class="listing-panel-slot">${listingOpen ? renderListingPanel(p, stats) : ''}</div>
+    <div class="children-panel-slot">${p.isSubdivide && childrenOpen ? renderChildrenPanel(p) : ''}</div>
     <div class="tasks-panel-slot">${tasksOpen ? renderPropTasksPanel(p) : ''}</div>`;
 }
 
@@ -11411,6 +11446,7 @@ function toggleFundingPanel(id){
   state.fundingOpen = alreadyOpen ? null : id;
   state.listingOpen = null;
   state.tasksOpen = null;
+  state.childrenOpen = null;
   app.render();
 }
 function closeFundingPanel(){
@@ -11498,11 +11534,142 @@ function applyFundingTemplate(scope){
    pattern the property form uses, rather than built up as live row nodes
    like the funding editor: there's a fixed handful of fields here, not an
    open-ended list of rows. */
+/* ---- Child parcels panel (subdivide projects) ---------------------------
+   Fourth tab on a property marked as a subdivide project. Top: a roll-up of
+   the whole project. Below: one row per child lot; click a lot to open its
+   own links, price, and views/saves log and charts. */
+function toggleChildrenPanel(id){
+  const alreadyOpen = state.childrenOpen === id;
+  state.childrenOpen = alreadyOpen ? null : id;
+  state.fundingOpen = null; state.listingOpen = null; state.tasksOpen = null;
+  if(!alreadyOpen) state.childOpen = null;
+  app.render();
+}
+function toggleChild(cid){
+  state.childOpen = state.childOpen === cid ? null : cid;
+  app.render();
+}
+function renderChildrenPanel(p){
+  const kids = p.children || [];
+  const sum = (f) => kids.reduce((t,c) => t + (parseFloat(f(c))||0), 0);
+  const acres = sum(c => c.acres), ask = sum(c => c.askPrice), sold = sum(c => c.soldPrice);
+  const soldN = kids.filter(c => hasNum(c.soldPrice)).length;
+  const views = kids.reduce((t,c) => t + ((childLatest(c)||{}).views||0), 0);
+  const saves = kids.reduce((t,c) => t + ((childLatest(c)||{}).saves||0), 0);
+  const stat = (label, val) => `<div style="min-width:110px"><div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em">${label}</div><div style="font-weight:700;font-size:15px">${val}</div></div>`;
+  const rows = kids.map(c => {
+    const open = state.childOpen === c.id;
+    const last = childLatest(c);
+    const st = normalizeListingStats(c.stats);
+    const links = [c.listingUrl, c.redfinUrl].filter(u => (u||'').trim());
+    return `<div class="child-card" style="border:1px solid var(--border);border-radius:var(--r-md);margin-top:8px;background:var(--surface)">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 12px;cursor:pointer" onclick="toggleChild('${c.id}')">
+        <i class="ti ti-${open?'chevron-down':'chevron-right'}"></i>
+        <b>${escape(c.name||'Unnamed parcel')}</b>
+        <span style="color:var(--ink-3)">${c.acres?escape(c.acres)+' acres':''}${c.askPrice?` · ask ${money(c.askPrice)}`:''}</span>
+        <span style="margin-left:auto;display:flex;gap:10px;align-items:center;font-size:12.5px">
+          ${hasNum(c.soldPrice) ? `<span class="margin-pill">Sold ${money(c.soldPrice)}</span>` : (links.length ? '<span class="margin-pill" style="background:var(--accent-soft);color:var(--accent)">Listed</span>' : '<span style="color:var(--danger);font-weight:600">No link yet</span>')}
+          <span title="Latest views / saves (last 30 days)">${last ? `${last.views!=null?last.views.toLocaleString():'—'} views · ${last.saves!=null?last.saves.toLocaleString():'—'} saves` : 'no readings'}</span>
+        </span>
+      </div>
+      ${open ? `<div style="padding:4px 12px 12px;border-top:1px solid var(--border)" onclick="event.stopPropagation()">
+        <div class="form-row" style="margin-top:8px">
+          <div class="form-group"><label class="form-label">Parcel name</label><input class="form-input" id="ch-name-${c.id}" value="${escape(c.name)}" placeholder="Lot A"></div>
+          <div class="form-group"><label class="form-label">Acres</label><input class="form-input" id="ch-acres-${c.id}" type="number" step="0.01" min="0" value="${escape(c.acres)}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Asking price</label><input class="form-input" id="ch-ask-${c.id}" type="number" min="0" value="${escape(c.askPrice)}"></div>
+          <div class="form-group"><label class="form-label">Sold price <span style="font-weight:400;color:var(--ink-3)">(once sold)</span></label><input class="form-input" id="ch-sold-${c.id}" type="number" min="0" value="${escape(c.soldPrice)}"></div>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
+          <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px"><label class="form-label">Zillow link</label><input class="form-input" id="ch-zl-${c.id}" placeholder="https://www.zillow.com/…" value="${escape(c.listingUrl)}"></div>
+          ${c.listingUrl ? `<a class="btn btn-sm" href="${escape(c.listingUrl)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i></a>` : ''}
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px"><label class="form-label">Redfin link <span style="font-weight:400;color:var(--ink-3)">(optional)</span></label><input class="form-input" id="ch-rf-${c.id}" placeholder="https://www.redfin.com/…" value="${escape(c.redfinUrl)}"></div>
+          ${c.redfinUrl ? `<a class="btn btn-sm" href="${escape(c.redfinUrl)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i></a>` : ''}
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button type="button" class="btn btn-sm btn-primary" onclick="saveChild('${p.id}','${c.id}')">Save parcel</button>
+          <button type="button" class="btn btn-sm" onclick="deleteChild('${p.id}','${c.id}')"><i class="ti ti-trash"></i> Delete parcel</button>
+        </div>
+        <div class="listing-entry-row" style="margin-top:12px">
+          <input class="form-input" type="date" id="ch-date-${c.id}" value="${today()}">
+          <input class="form-input" type="number" min="0" step="1" id="ch-views-${c.id}" placeholder="Views (last 30 days)">
+          <input class="form-input" type="number" min="0" step="1" id="ch-saves-${c.id}" placeholder="Saves (last 30 days)">
+          <button type="button" class="btn btn-sm btn-primary" onclick="logChildEntry('${p.id}','${c.id}')"><i class="ti ti-plus"></i> Log</button>
+        </div>
+        ${renderListingCharts(st)}
+        ${st.length ? `<div style="font-size:12px;color:var(--ink-3);margin-top:6px">${st.length} reading${st.length===1?'':'s'}. <a href="#" onclick="event.preventDefault();deleteChildEntry('${p.id}','${c.id}','${st[st.length-1].date}')">Remove latest (${fmt(st[st.length-1].date)})</a></div>` : ''}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="funding-panel">
+    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:6px">
+      ${stat('Parcels', kids.length)}${stat('Total acres', acres ? Math.round(acres*100)/100 : '—')}${stat('Total asking', ask ? money(ask) : '—')}
+      ${stat('Sold', `${soldN} of ${kids.length}${soldN ? ' · ' + money(sold) : ''}`)}${stat('Views / saves now', `${views.toLocaleString()} / ${saves.toLocaleString()}`)}
+    </div>
+    ${rows || `<div class="prop-timeline-empty" style="margin:8px 0"><i class="ti ti-map-2" style="font-size:13px"></i> No child parcels yet. Add the first lot below.</div>`}
+    <div style="margin-top:10px"><button type="button" class="btn btn-sm btn-primary" onclick="addChild('${p.id}')"><i class="ti ti-plus"></i> Add child parcel</button></div>
+  </div>`;
+}
+async function addChild(pid){
+  const p = state.props.find(x=>x.id===pid); if(!p) return;
+  const c = {id:uid(), name:`Lot ${(p.children||[]).length + 1}`, acres:'', askPrice:'', soldPrice:'', listingUrl:'', redfinUrl:'', stats:[]};
+  p.children = [...(p.children||[]), c];
+  state.childOpen = c.id;
+  await saveOne('props', p);
+  app.render();
+}
+async function saveChild(pid, cid){
+  const p = state.props.find(x=>x.id===pid); if(!p) return;
+  const c = (p.children||[]).find(x=>x.id===cid); if(!c) return;
+  const v = id => ((document.getElementById(id+cid)||{}).value || '').trim();
+  c.name = v('ch-name-'); c.acres = v('ch-acres-'); c.askPrice = v('ch-ask-'); c.soldPrice = v('ch-sold-');
+  c.listingUrl = v('ch-zl-'); c.redfinUrl = v('ch-rf-');
+  await saveOne('props', p);
+  toast('Parcel saved');
+  app.render();
+}
+async function deleteChild(pid, cid){
+  const p = state.props.find(x=>x.id===pid); if(!p) return;
+  const c = (p.children||[]).find(x=>x.id===cid); if(!c) return;
+  if(!confirm(`Delete ${c.name||'this parcel'} and its views/saves history?`)) return;
+  p.children = p.children.filter(x=>x.id!==cid);
+  if(state.childOpen === cid) state.childOpen = null;
+  await saveOne('props', p);
+  toast('Parcel deleted');
+  app.render();
+}
+async function logChildEntry(pid, cid){
+  const p = state.props.find(x=>x.id===pid); if(!p) return;
+  const c = (p.children||[]).find(x=>x.id===cid); if(!c) return;
+  const g = id => (document.getElementById(id+cid)||{}).value;
+  const date = g('ch-date-') || today(), views = g('ch-views-'), saves = g('ch-saves-');
+  if(views === '' && saves === '') return toast('Enter views or saves first', 'err');
+  const stats = normalizeListingStats(c.stats);
+  const ex = stats.find(e => e.date === date);
+  c.stats = normalizeListingStats([...stats.filter(e=>e.date!==date), {
+    date, views: views !== '' ? numOrNull(views) : (ex ? ex.views : null),
+    saves: saves !== '' ? numOrNull(saves) : (ex ? ex.saves : null)}]);
+  await saveOne('props', p);
+  toast(`Logged ${c.name||'parcel'} ${fmtLong(date)}`);
+  app.render();
+}
+async function deleteChildEntry(pid, cid, date){
+  const p = state.props.find(x=>x.id===pid); if(!p) return;
+  const c = (p.children||[]).find(x=>x.id===cid); if(!c) return;
+  c.stats = normalizeListingStats(c.stats).filter(e => e.date !== date);
+  await saveOne('props', p);
+  app.render();
+}
+
 function toggleListingPanel(id){
   const alreadyOpen = state.listingOpen === id;
   state.listingOpen = alreadyOpen ? null : id;
   state.fundingOpen = null;
   state.tasksOpen = null;
+  state.childrenOpen = null;
   if(!alreadyOpen){ state.listingLogOpen = null; state.listingSource = 'zillow'; }   // reopen collapsed, on Zillow
   app.render();
 }
@@ -11512,6 +11679,7 @@ function toggleTasksPanel(id){
   state.tasksOpen = alreadyOpen ? null : id;
   state.fundingOpen = null;
   state.listingOpen = null;
+  state.childrenOpen = null;
   app.render();
 }
 // "New task" from inside a deal's panel — opens the normal task form with the
@@ -11539,6 +11707,7 @@ function openListingPanel(id, source){
   state.listingOpen = id;
   state.fundingOpen = null;
   state.tasksOpen = null;
+  state.childrenOpen = null;
   state.listingSource = source === 'facebook' ? 'facebook' : 'zillow';
   state.listingLogOpen = null;
   app.render();
@@ -12529,6 +12698,7 @@ function renderProperties(){
                   title="${status==='under-contract'?`A buyer signed ${fmtLong(p.underContractDate)}; not sold yet`:status==='listed'?'Has a Zillow or Redfin link under Listing details':status==='closed'&&p.doubleClose?`Double close: we hold the contract and close${p.closingDate?` on ${fmtLong(p.closingDate)}`:''} right before the sale`:status==='closed'?'Closing date has passed':'No closing date yet, or it is still ahead'}">
               ${propStatusLabel(p, status)}
             </span>
+            ${p.isSubdivide ? `<span class="prop-status-pill" style="background:var(--accent-soft);color:var(--accent)" title="Subdivide project with child parcels">Subdivide · ${(p.children||[]).length} parcel${(p.children||[]).length===1?'':'s'}</span>` : ''}
             ${p.doubleClose && (status==='listed'||status==='under-contract') ? `<span class="prop-status-pill prop-status-double-close" title="Double close: we close on the purchase right before the sale">Double close</span>` : ''}
             ${agentStalePill(p)}
             ${fbMissingPill(p)}
@@ -15237,6 +15407,7 @@ function bindViewEvents(){
         case 'open-listing': openListingPanel(id); break;
         case 'toggle-listing-log': toggleListingLog(id); break;
         case 'toggle-tasks': toggleTasksPanel(id); break;
+        case 'toggle-children': toggleChildrenPanel(id); break;
       }
     });
   });
@@ -15513,6 +15684,8 @@ function openPropForm(id){
         <label class="double-close-check"><input type="checkbox" id="fp-double-close" ${p.doubleClose?'checked':''}>
           <span><b>Double close</b><br><span style="color:var(--ink-3)">We hold the contract and market it, and only close on the purchase right before we sell. Shows in the Closed tab as "Double close".</span></span></label></div>
     </div>
+    <label class="double-close-check" style="margin:0 0 12px"><input type="checkbox" id="fp-subdivide" ${p.isSubdivide?'checked':''}>
+      <span><b>Subdivide project</b><br><span style="color:var(--ink-3)">This property is split into child parcels. Adds a "Child parcels" tab to the card where each lot gets its own Zillow link, price and views/saves tracking.</span></span></label>
     <div class="form-row">
       <div class="form-group"><label class="form-label">GHL link</label>
         <input class="form-input" id="fp-ghl" value="${escape(p.ghlUrl||'')}" placeholder="https://app.gohighlevel.com/…"></div>
@@ -15752,6 +15925,8 @@ async function saveProp(id){
     commissionPct: $('#fp-comm').value,
     closingDate: $('#fp-closing').value,
     doubleClose: !!($('#fp-double-close')||{}).checked,
+    isSubdivide: !!($('#fp-subdivide')||{}).checked,
+    children: existing ? (existing.children||[]) : [],
     ghlUrl: ($('#fp-ghl').value||'').trim(),
     landPortalUrl: ($('#fp-landportal').value||'').trim(),
     notes: $('#fp-notes').value,
