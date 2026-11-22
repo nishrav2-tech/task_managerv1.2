@@ -11330,7 +11330,7 @@ function renderPropPanels(p, bands){
   </button>`;
   const listingTab = `<button class="funding-tab ${listingOpen?'is-open':''}" data-action="toggle-listing" data-id="${p.id}">
     <i class="ti ti-${listingOpen?'chevron-down':'chevron-right'}"></i>
-    Listing details${(stats.length + normalizeListingStats(p.fbListingStats).length)?` <span class="funding-tab-count">${stats.length + normalizeListingStats(p.fbListingStats).length}</span>`:''}
+    Listing details${p.isSubdivide ? ((p.children||[]).length ? ` <span class="funding-tab-count">${(p.children||[]).length}</span>` : '') : ((stats.length + normalizeListingStats(p.fbListingStats).length)?` <span class="funding-tab-count">${stats.length + normalizeListingStats(p.fbListingStats).length}</span>`:'')}
   </button>`;
   const kids = p.children || [];
   const childrenTab = p.isSubdivide ? `<button class="funding-tab ${childrenOpen?'is-open':''}" data-action="toggle-children" data-id="${p.id}">
@@ -11354,10 +11354,9 @@ function renderPropPanels(p, bands){
   // mangled hybrid of the two, and the tabs stop opening/closing cleanly.
   // Fixed slots keep each panel's node at the same index every render, so a
   // toggle only ever touches its own slot's contents.
-  return `<div class="funding-tabs">${fundingTab}${listingTab}${childrenTab}${tasksTab}</div>
+  return `<div class="funding-tabs">${fundingTab}${listingTab}${tasksTab}</div>
     <div class="funding-panel-slot">${fundingOpen ? renderFundingPanel(p, bands) : ''}</div>
-    <div class="listing-panel-slot">${listingOpen ? renderListingPanel(p, stats) : ''}</div>
-    <div class="children-panel-slot">${p.isSubdivide && childrenOpen ? renderChildrenPanel(p) : ''}</div>
+    <div class="listing-panel-slot">${listingOpen ? (p.isSubdivide ? renderChildrenPanel(p) : renderListingPanel(p, stats)) : ''}</div>
     <div class="tasks-panel-slot">${tasksOpen ? renderPropTasksPanel(p) : ''}</div>`;
 }
 
@@ -11688,7 +11687,7 @@ function toggleListingPanel(id){
   state.fundingOpen = null;
   state.tasksOpen = null;
   state.childrenOpen = null;
-  if(!alreadyOpen){ state.listingLogOpen = null; state.listingSource = 'zillow'; }   // reopen collapsed, on Zillow
+  if(!alreadyOpen){ state.listingLogOpen = null; state.listingSource = 'zillow'; state.childOpen = null; }   // reopen collapsed, on Zillow
   app.render();
 }
 // The deal's task list, third of the three tabs and exclusive with them.
@@ -15778,13 +15777,13 @@ function openPropForm(id){
       <div class="form-group"><label class="form-label">State</label><input class="form-input" id="fp-state" value="${escape(p.state||'TX')}"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Acres</label><input class="form-input" id="fp-acres" type="number" step="0.1" value="${escape(p.acres||'')}"></div>
+      <div class="form-group"><label class="form-label">Acres</label><input class="form-input" id="fp-acres" type="number" step="0.1" value="${escape(p.acres||'')}">
+        <label class="double-close-check"><input type="checkbox" id="fp-subdivide" ${p.isSubdivide?'checked':''}>
+          <span><b>Subdivide project</b><br><span style="color:var(--ink-3)">Split into child parcels. Adds a "Child parcels" tab where each lot gets its own Zillow link, price and views/saves.</span></span></label></div>
       <div class="form-group"><label class="form-label">Closing date</label><input class="form-input" id="fp-closing" type="date" value="${p.closingDate||''}" oninput="updateFundingTotal('form')">
         <label class="double-close-check"><input type="checkbox" id="fp-double-close" ${p.doubleClose?'checked':''}>
           <span><b>Double close</b><br><span style="color:var(--ink-3)">We hold the contract and market it, and only close on the purchase right before we sell. Shows in the Closed tab as "Double close".</span></span></label></div>
     </div>
-    <label class="double-close-check" style="margin:0 0 12px"><input type="checkbox" id="fp-subdivide" ${p.isSubdivide?'checked':''}>
-      <span><b>Subdivide project</b><br><span style="color:var(--ink-3)">This property is split into child parcels. Adds a "Child parcels" tab to the card where each lot gets its own Zillow link, price and views/saves tracking.</span></span></label>
     <div class="form-row">
       <div class="form-group"><label class="form-label">GHL link</label>
         <input class="form-input" id="fp-ghl" value="${escape(p.ghlUrl||'')}" placeholder="https://app.gohighlevel.com/…"></div>
