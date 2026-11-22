@@ -5481,6 +5481,8 @@ async function saveMarkUnderContract(id){
   const before = {underContractDate:p.underContractDate, sellPrice:p.sellPrice};
   p.underContractDate = date;
   if(price !== '') p.sellPrice = price;
+  const needU = costsNeeded(p);
+  if(needU.length){ Object.assign(p, before); return toast(`Before marking under contract, add ${needU.join(' and ')} (pencil icon, use 0 if none)`,'err'); }
   if(!await saveOne('props', p)){ Object.assign(p, before); app.render(); return; }
   closeSubModal();
   toast(`${p.propertyId} is under contract`);
@@ -6348,7 +6350,18 @@ const hasNum = v => v!=='' && v!=null && !isNaN(parseFloat(v));
 // Agent commission is a % of the sale price. Dollar amount = sell price x pct / 100.
 const commissionOf = p => (parseFloat(p.sellPrice)||0) * (parseFloat(p.commissionPct)||0) / 100;
 // True when buy closing, sell closing or the commission % was never entered.
-const closingCostsMissing = p => !hasNum(p.buyClosing) || !hasNum(p.sellClosing) || !hasNum(p.commissionPct);
+// Which costs a property must have entered depends on its stage (0 counts as entered):
+//   Pre-closing: nothing.   Closed: buy closing costs.
+//   Listed / under contract: also the agent commission.   Sold: also sell closing costs.
+function costsNeeded(p){
+  const st = propStatus(p), need = [];
+  if(st !== 'pre-closing' && !hasNum(p.buyClosing)) need.push('buy closing costs');
+  if((st === 'listed' || st === 'under-contract' || st === 'sold') && !hasNum(p.commissionPct)) need.push('agent commission');
+  if(st === 'sold' && !hasNum(p.sellClosing)) need.push('sell closing costs');
+  return need;
+}
+const closingCostsMissing = p => costsNeeded(p).length > 0;
+const costsTag = p => ' · ADD ' + costsNeeded(p).join(' + ').toUpperCase();
 function equityOf(p){
   if(p.sellPrice===''||p.sellPrice==null) return null;
   return (parseFloat(p.sellPrice)||0) - (parseFloat(p.buyPrice)||0)
@@ -12831,7 +12844,7 @@ function renderProperties(){
           <div class="price-row">
             <div class="price-item"><span class="price-label">Buy</span><span class="price-value">${money(p.buyPrice)}</span></div>
             <div class="price-item"><span class="price-label">Sell</span><span class="price-value">${p.sellPrice?money(p.sellPrice):'—'}</span></div>
-            ${equity!==null?`<span class="margin-pill" style="${equity<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${equity>=0?'+':''}${money(equity)} net equity${equityPct!==null?` (${equityPct>=0?'+':''}${equityPct}%)`:''}${closingCostsMissing(p)?' · COSTS MISSING':''}</span>`:''}
+            ${equity!==null?`<span class="margin-pill" style="${equity<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${equity>=0?'+':''}${money(equity)} net equity${equityPct!==null?` (${equityPct>=0?'+':''}${equityPct}%)`:''}${closingCostsMissing(p)?costsTag(p):''}</span>`:''}
           </div>
         </div>
         <div class="item-actions">
@@ -12878,7 +12891,7 @@ function renderSoldCard(p){
         <div class="price-item"><span class="price-label">Buy</span><span class="price-value">${money(p.buyPrice)}</span></div>
         <div class="price-item"><span class="price-label">Sold for</span><span class="price-value">${p.sellPrice?money(p.sellPrice):'—'}</span></div>
         ${eq!==null
-          ? `<span class="margin-pill" style="${eq<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${eq>=0?'+':''}${money(eq)} net equity (after closing costs and commission)${closingCostsMissing(p)?' · COSTS MISSING':''}</span>`
+          ? `<span class="margin-pill" style="${eq<0||closingCostsMissing(p)?'background:var(--danger-soft);color:var(--danger)':''}">${eq>=0?'+':''}${money(eq)} net equity (after closing costs and commission)${closingCostsMissing(p)?costsTag(p):''}</span>`
           : `<span class="margin-pill" style="background:var(--danger-soft);color:var(--danger)">Add the sale price to count its equity</span>`}
       </div>
     </div>
@@ -12903,7 +12916,7 @@ function openMarkSold(id){
       <div class="form-group"><label class="form-label">Sale price</label>
         <input class="form-input" id="ms-price" type="number" min="0" value="${escape(p.sellPrice||'')}"></div>
     </div>
-    <p class="form-hint">It moves to the Sold tab and counts as equity: sale price minus the ${money(p.buyPrice)} buy price , both closing costs (buy ${hasNum(p.buyClosing)?money(p.buyClosing):'NOT ENTERED'}, sell ${hasNum(p.sellClosing)?money(p.sellClosing):'NOT ENTERED'}) and the agent commission (${hasNum(p.commissionPct)?p.commissionPct+'%':'NOT ENTERED'}). To undo, clear the sold date in Edit.</p>
+    <p class="form-hint">It moves to the Sold tab and counts as equity: sale price minus the ${money(p.buyPrice)} buy price , both closing costs (buy ${hasNum(p.buyClosing)?money(p.buyClosing):'not entered'}, sell ${hasNum(p.sellClosing)?money(p.sellClosing):'not entered'}) and the agent commission (${hasNum(p.commissionPct)?p.commissionPct+'%':'not entered'}). All three are needed to mark it sold. To undo, clear the sold date in Edit.</p>
     <div class="modal-actions">
       <button class="btn" onclick="closeSubModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveMarkSold('${p.id}')">Mark sold</button>
@@ -12919,6 +12932,8 @@ async function saveMarkSold(id){
   const before = {soldDate:p.soldDate, sellPrice:p.sellPrice};
   p.soldDate = date;
   if(price !== '') p.sellPrice = price;
+  const needS = costsNeeded(p);
+  if(needS.length){ Object.assign(p, before); return toast(`Before marking sold, add ${needS.join(' and ')} (pencil icon, use 0 if none)`,'err'); }
   if(!await saveOne('props', p)){ Object.assign(p, before); app.render(); return; }
   closeSubModal();
   toast(`${p.propertyId} marked sold`);
@@ -15898,13 +15913,14 @@ function openPropForm(id){
       <div class="form-group"><label class="form-label">Sell price</label><input class="form-input" id="fp-sell" type="number" value="${escape(p.sellPrice||'')}" oninput="updateEquityPreview()" placeholder="Once known"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Buy closing costs <span style="color:var(--danger)">*</span></label><input class="form-input" id="fp-buycc" type="number" min="0" value="${escape(p.buyClosing||'')}" oninput="updateEquityPreview()" placeholder="Required (0 if none)"></div>
-      <div class="form-group"><label class="form-label">Sell closing costs <span style="color:var(--danger)">*</span></label><input class="form-input" id="fp-sellcc" type="number" min="0" value="${escape(p.sellClosing||'')}" oninput="updateEquityPreview()" placeholder="Required (0 if none)"></div>
+      <div class="form-group"><label class="form-label">Buy closing costs </label><input class="form-input" id="fp-buycc" type="number" min="0" value="${escape(p.buyClosing||'')}" oninput="updateEquityPreview()" placeholder="Needed once closed (0 if none)"></div>
+      <div class="form-group"><label class="form-label">Sell closing costs </label><input class="form-input" id="fp-sellcc" type="number" min="0" value="${escape(p.sellClosing||'')}" oninput="updateEquityPreview()" placeholder="Needed once sold (0 if none)"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Agent commission % of sale price <span style="color:var(--danger)">*</span></label><input class="form-input" id="fp-comm" type="number" min="0" max="100" step="0.01" value="${escape(p.commissionPct||'')}" oninput="updateEquityPreview()" placeholder="Required (0 if none)"></div>
+      <div class="form-group"><label class="form-label">Agent commission % of sale price </label><input class="form-input" id="fp-comm" type="number" min="0" max="100" step="0.01" value="${escape(p.commissionPct||'')}" oninput="updateEquityPreview()" placeholder="Needed once listed (0 if none)"></div>
       <div class="form-group"><label class="form-label">Commission in dollars</label><div id="fp-comm-amt" class="form-input" style="background:var(--surface-2);color:var(--ink-2)">—</div></div>
     </div>
+    <p class="form-hint" style="margin:-4px 0 8px">Pre-closing: all optional. <b>Closed</b>: buy closing costs needed. <b>Listed</b>: also the agent commission. <b>Sold</b>: also sell closing costs. Enter 0 if there are none.</p>
     <div id="fp-equity-preview" style="font-size:12.5px;font-weight:600;margin:-8px 0 14px"></div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Under contract on <span style="font-weight:400;color:var(--ink-3)">(buyer signed)</span></label>
@@ -16097,7 +16113,7 @@ function updateEquityPreview(){
   if(!el) return;
   const sellRaw = document.getElementById('fp-sell').value;
   const bcRaw = document.getElementById('fp-buycc').value, scRaw = document.getElementById('fp-sellcc').value, cmRaw = document.getElementById('fp-comm').value;
-  const miss = bcRaw==='' || scRaw==='' || cmRaw==='';
+  const miss = false; // blank closing costs / commission just count as 0
   const commAmt = (parseFloat(sellRaw)||0) * (parseFloat(cmRaw)||0) / 100;
   const amtEl = document.getElementById('fp-comm-amt');
   if(amtEl) amtEl.textContent = (sellRaw==='' || cmRaw==='') ? '—' : `${money(Math.round(commAmt))} (${cmRaw}% of ${money(parseFloat(sellRaw)||0)})`;
@@ -16112,7 +16128,6 @@ function updateEquityPreview(){
 async function saveProp(id){
   const propertyId = $('#fp-propid').value.trim();
   if(!propertyId) return toast('Property ID is required','err');
-  if($('#fp-buycc').value==='' || $('#fp-sellcc').value==='' || $('#fp-comm').value==='') return toast('Enter buy closing, sell closing and agent commission % (use 0 only if there are none)','err');
   const existing = id ? state.props.find(x=>x.id===id) : null;
   const data = {
     id: id||uid(), propertyId,
@@ -16146,6 +16161,8 @@ async function saveProp(id){
     underContractDate: ($('#fp-uc').value||''),
     created: existing ? existing.created : today()
   };
+  const need = costsNeeded(data);
+  if(need.length) return toast(`This property is ${PROP_STATUS_LABEL[propStatus(data)].toLowerCase()}, so enter ${need.join(' and ')} (use 0 if there are none)`,'err');
   if(id){ const i=state.props.findIndex(p=>p.id===id); state.props[i]=data; }
   else state.props.unshift(data);
   const ok = await saveOne('props', data);
