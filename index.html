@@ -2990,6 +2990,8 @@ const state = {
   // one of these two is ever set — see toggleFundingPanel().
   listingOpen:null,
   childrenOpen:null,
+  childMetric:'newSaves',
+  childHidden:{},
   trashProps:[],
   showTrash:false,
   childOpen:null,
@@ -11566,6 +11568,104 @@ function toggleChild(cid){
   state.childOpen = state.childOpen === cid ? null : cid;
   app.render();
 }
+/* ---- Compare child parcels on one chart ---------------------------------
+   One line per lot, each in its own colour, on a shared date axis. A metric
+   switch picks what is plotted (new saves/views per day, or the rolling 30-day
+   totals), and the lot chips choose which lots are drawn: click to hide or
+   show, "only" to look at one lot by itself. */
+const CHILD_COLORS = ['#2563eb','#dc2626','#16a34a','#d97706','#7c3aed','#0891b2','#db2777','#65a30d'];
+const CHILD_METRICS = {
+  newSaves:{label:'New saves / day', unit:'new saves per day'},
+  newViews:{label:'New views / day', unit:'new views per day'},
+  saves:{label:'Total saves (30d)', unit:'saves, last 30 days'},
+  views:{label:'Total views (30d)', unit:'views, last 30 days'}
+};
+const childColor = (p, c) => CHILD_COLORS[Math.max(0, (p.children||[]).findIndex(x => x.id === c.id)) % CHILD_COLORS.length];
+const childHiddenIds = p => (state.childHidden && state.childHidden[p.id]) || [];
+function setChildMetric(m){ if(CHILD_METRICS[m]) state.childMetric = m; app.render(); }
+function toggleChildShown(pid, cid){
+  const h = new Set(state.childHidden[pid] || []);
+  h.has(cid) ? h.delete(cid) : h.add(cid);
+  state.childHidden[pid] = [...h]; app.render();
+}
+function soloChild(pid, cid){
+  const p = state.props.find(x=>x.id===pid); if(!p) return;
+  state.childHidden[pid] = (p.children||[]).filter(c => c.id !== cid).map(c => c.id); app.render();
+}
+function showAllChildren(pid){ state.childHidden[pid] = []; app.render(); }
+function childSeries(c, metric){
+  const st = normalizeListingStats(c.stats);
+  if(metric === 'newSaves' || metric === 'newViews'){
+    const key = metric;
+    return listingDeltas(st).filter(d => d[key] != null).map(d => ({date:d.date, v:d[key], gap:d.gap}));
+  }
+  return st.filter(e => e[metric] != null).map(e => ({date:e.date, v:e[metric]}));
+}
+function renderChildCompare(p){
+  const kids = p.children || [];
+  if(!kids.length) return '';
+  const metric = CHILD_METRICS[state.childMetric] ? state.childMetric : 'newSaves';
+  const hidden = new Set(childHiddenIds(p));
+  const chips = kids.map(c => {
+    const off = hidden.has(c.id), col = childColor(p, c);
+    return `<span style="display:inline-flex;align-items:center;border:1px solid ${off?'var(--border)':col};border-radius:999px;overflow:hidden;opacity:${off?.5:1}">
+      <button type="button" onclick="toggleChildShown('${p.id}','${c.id}')" title="${off?'Show':'Hide'} this lot on the chart"
+        style="display:inline-flex;align-items:center;gap:6px;border:0;background:${off?'transparent':col+'22'};padding:4px 9px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ink)">
+        <span style="width:10px;height:10px;border-radius:50%;background:${col};flex-shrink:0"></span>${escape(c.name||'Unnamed')}</button>
+      <button type="button" onclick="soloChild('${p.id}','${c.id}')" title="Show only this lot"
+        style="border:0;border-left:1px solid var(--border);background:transparent;padding:4px 8px;font:inherit;font-size:11px;color:var(--ink-3);cursor:pointer">only</button>
+    </span>`;
+  }).join('');
+  const metricBtns = Object.entries(CHILD_METRICS).map(([k,m]) =>
+    `<button type="button" class="listing-src-btn ${metric===k?'active':''}" onclick="setChildMetric('${k}')">${m.label}</button>`).join('');
+
+  const shown = kids.filter(c => !hidden.has(c.id));
+  const series = shown.map(c => ({c, col:childColor(p, c), pts:childSeries(c, metric)})).filter(x => x.pts.length);
+  let chart;
+  if(!shown.length){
+    chart = `<div class="prop-timeline-empty" style="margin:8px 0"><i class="ti ti-eye-off" style="font-size:13px"></i> All lots are hidden. Click a lot above to show it.</div>`;
+  }else if(!series.length){
+    const need = (metric === 'newSaves' || metric === 'newViews') ? 'Log views and saves on at least two different days for a lot' : 'Log views and saves for a lot';
+    chart = `<div class="prop-timeline-empty" style="margin:8px 0"><i class="ti ti-chart-line" style="font-size:13px"></i> ${need} to see its line here.</div>`;
+  }else{
+    const W = 460, H = 180, padL = 34, padR = 12, padT = 12, padB = 22;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const allPts = series.flatMap(x => x.pts);
+    const t0 = Math.min(...allPts.map(q => dateMs(q.date))), t1 = Math.max(...allPts.map(q => dateMs(q.date)));
+    const maxV = Math.max(1, ...allPts.map(q => q.v));
+    const xFor = d => padL + (t1 === t0 ? plotW / 2 : ((dateMs(d) - t0) / (t1 - t0)) * plotW);
+    const yFor = v => padT + plotH - (v / maxV) * plotH;
+    const fmtV = v => (Math.round(v * 10) / 10).toLocaleString();
+    const grid = [0, 0.5, 1].map(f => {
+      const y = padT + plotH - f * plotH;
+      return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
+        <text x="${padL-6}" y="${(y+3).toFixed(1)}" font-size="9" fill="var(--ink-3)" text-anchor="end">${fmtV(maxV*f)}</text>`;
+    }).join('');
+    const ticks = 4, labels = [];
+    for(let k = 0; k < ticks; k++){
+      const t = t0 + (t1 - t0) * (ticks === 1 ? 0 : k / (ticks - 1));
+      const d = isoLocal(new Date(t));
+      labels.push(`<text x="${xFor(d).toFixed(1)}" y="${H-6}" font-size="9" fill="var(--ink-3)" text-anchor="${k===0?'start':k===ticks-1?'end':'middle'}">${fmt(d)}</text>`);
+      if(t1 === t0) break;
+    }
+    const lines = series.map(x => {
+      const path = x.pts.map((q,i) => `${i?'L':'M'}${xFor(q.date).toFixed(1)},${yFor(q.v).toFixed(1)}`).join(' ');
+      const dots = x.pts.map(q => `<circle cx="${xFor(q.date).toFixed(1)}" cy="${yFor(q.v).toFixed(1)}" r="3.5" fill="${x.col}">
+        <title>${escape(x.c.name||'Lot')} · ${escape(fmtLong(q.date))} · ${fmtV(q.v)} ${CHILD_METRICS[metric].unit}${q.gap>1?` (spread over ${q.gap} days)`:''}</title></circle>`).join('');
+      return `<path d="${path}" fill="none" stroke="${x.col}" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
+    }).join('');
+    chart = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;overflow:visible">${grid}${lines}${labels.join('')}</svg>`;
+  }
+  return `<div style="margin:10px 0 4px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface)">
+    <div class="listing-chart-title">Compare lots · ${escape(CHILD_METRICS[metric].unit)}</div>
+    <div class="listing-src-switch" style="margin-top:6px">${metricBtns}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:10px 0 6px">${chips}
+      ${hidden.size ? `<button type="button" class="btn btn-sm" onclick="showAllChildren('${p.id}')">Show all</button>` : ''}</div>
+    ${chart}
+    <div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">Hover a dot for the exact number. Each lot keeps its own colour, and its own charts and log are in its row below.</div>
+  </div>`;
+}
+
 function renderChildrenPanel(p){
   const kids = p.children || [];
   const sum = (f) => kids.reduce((t,c) => t + (parseFloat(f(c))||0), 0);
@@ -11582,6 +11682,7 @@ function renderChildrenPanel(p){
     return `<div class="child-card" style="border:1px solid var(--border);border-radius:var(--r-md);margin-top:8px;background:var(--surface)">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 12px;cursor:pointer" onclick="toggleChild('${c.id}')">
         <i class="ti ti-${open?'chevron-down':'chevron-right'}"></i>
+        <span style="width:10px;height:10px;border-radius:50%;background:${childColor(p, c)};flex-shrink:0"></span>
         <b>${escape(c.name||'Unnamed parcel')}</b>
         <span style="color:var(--ink-3)">${c.acres?escape(c.acres)+' acres':''}${c.askPrice?` · ask ${money(c.askPrice)}`:''}</span>
         <span style="margin-left:auto;display:flex;gap:10px;align-items:center;font-size:12.5px">
@@ -11626,8 +11727,10 @@ function renderChildrenPanel(p){
       ${stat('Parcels', kids.length)}${stat('Total acres', acres ? Math.round(acres*100)/100 : '—')}${stat('Total asking', ask ? money(ask) : '—')}
       ${stat('Sold', `${soldN} of ${kids.length}${soldN ? ' · ' + money(sold) : ''}`)}${stat('Views / saves now', `${views.toLocaleString()} / ${saves.toLocaleString()}`)}
     </div>
+    ${renderChildCompare(p)}
     ${rows || `<div class="prop-timeline-empty" style="margin:8px 0"><i class="ti ti-map-2" style="font-size:13px"></i> No child parcels yet. Add the first lot below.</div>`}
     <div style="margin-top:10px"><button type="button" class="btn btn-sm btn-primary" onclick="addChild('${p.id}')"><i class="ti ti-plus"></i> Add child parcel</button></div>
+    ${renderAgentLog(p)}
   </div>`;
 }
 async function addChild(pid){
