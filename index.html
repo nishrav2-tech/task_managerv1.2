@@ -12790,7 +12790,7 @@ function renderProperties(){
   </div>` : '';
 
   return pageHeader('Deals', 'Properties', 'Every parcel, offer, and ARV.',
-    `<button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button>`) + `
+    `<a class="btn" href="https://nishrav2-tech.github.io/tc-flow/#/" target="_blank" rel="noopener" title="Open TC Flow in a new tab"><i class="ti ti-file-check"></i> TC Flow</a> <button class="btn btn-primary" data-action="new-prop"><i class="ti ti-plus"></i> Add property</button>`) + `
     ${banner}${fbBanner}
     <div class="seg-control" role="tablist" style="margin-bottom:12px">
       <button class="seg-btn ${!statusFilter?'active':''}" role="tab" aria-selected="${!statusFilter}" onclick="setPropStatusFilter('')">
