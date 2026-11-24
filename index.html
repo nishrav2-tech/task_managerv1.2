@@ -2150,6 +2150,53 @@ button.prop-agent-stale{cursor:pointer;font-family:inherit}
   .form-row,.form-row-3{grid-template-columns:1fr}
   .member-stats-4{grid-template-columns:repeat(2,1fr)}
 }
+
+/* ---- phone pass 2 (2026-11-24): stop grids from stretching past the screen ---- */
+@media (max-width:900px){
+  .grid-3,.grid-2{grid-template-columns:minmax(0,1fr)}
+  .grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid>*,.main>*{min-width:0}
+  .member-stats-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pipeline,.proj-board{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:640px){
+  .main{padding:16px 14px}
+  /* team cards */
+  .member-card{padding:14px}
+  .member-head{flex-wrap:wrap}
+  .member-access-btns{margin-left:0;flex:1 1 100%}
+  .member-access-btns .btn{flex:1 1 auto;justify-content:center}
+  .member-task-item span:last-child{min-width:0}
+  /* dashboard stat cards were capped at 260px by an inline style */
+  .stat-card{max-width:none!important;min-width:0!important;flex:1 1 calc(50% - 8px)!important}
+  /* today's agenda: title gets the full row, buttons drop underneath */
+  .agenda-scroll .item-row{flex-wrap:wrap;row-gap:8px}
+  .agenda-scroll .item-row .item-main{flex:1 1 calc(100% - 48px);min-width:0}
+  .agenda-scroll .item-row .item-actions{margin-left:auto}
+  /* 16px inputs stop iOS from zooming the page when a field is tapped */
+  input:not([type=checkbox]):not([type=radio]),select,textarea{font-size:16px}
+  .icon-btn{min-width:34px;min-height:34px}
+}
+
+/* ---- phone pass 2: Markets + modals ---- */
+@media (max-width:700px){
+  .mk-table tr:not(.mk-detail):not(.mk-divider) > :first-child{position:sticky;left:0;z-index:2;background:var(--surface);min-width:118px;max-width:140px;box-shadow:1px 0 0 var(--border)}
+  .mk-table thead th:first-child{z-index:3;background:var(--surface)}
+  .mk-table tr.mk-on:not(.mk-detail) > :first-child{background:var(--surface)}
+  .mk-scroll{max-height:none}
+  .mk-head{padding:12px 14px;gap:8px}
+  .mk-head-stats{flex-wrap:wrap;gap:8px 18px}
+  .mk-head-stats span{white-space:nowrap}
+}
+@media (max-width:640px){
+  .modal-bg{padding:10px;align-items:flex-end}
+  .modal{padding:20px 18px 0;max-height:92vh;border-radius:var(--r-xl) var(--r-xl) 14px 14px}
+  .modal-actions{position:sticky;bottom:0;background:var(--surface);margin:18px -18px 0;padding:12px 18px calc(12px + env(safe-area-inset-bottom));z-index:5}
+  .form-row-3{grid-template-columns:1fr}
+  .member-stats{margin-top:10px}
+  .funding-tabs{gap:4px}
+  .funding-tab{flex:1 1 0;min-width:0;justify-content:center;text-align:center;padding:8px 6px}
+}
 </style>
 </head>
 <body>
