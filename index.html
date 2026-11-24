@@ -1421,7 +1421,18 @@ button.prop-agent-stale{cursor:pointer;font-family:inherit}
 }
 .alog-kind.k-conversation{background:var(--surface-2);color:var(--ink-2)}
 .alog-kind.k-contract{background:var(--accent-soft);color:var(--accent)}
-.alog-note{flex:1;min-width:0;font-size:12.5px;color:var(--ink-2);line-height:1.45}
+.alog-note{flex:1;min-width:0;font-size:12.5px;color:var(--ink-2);line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.alog-notes-input{min-height:38px;resize:vertical}
+.alog-undo-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 12px;margin-bottom:12px;border:1px dashed var(--border);
+  border-radius:var(--r-md);background:var(--surface-2);font-size:12.5px;color:var(--ink-2);
+}
+.alog-undo-more{color:var(--ink-3);font-size:11.5px;margin-left:4px}
+.toast-undo{
+  margin-left:10px;background:none;border:1px solid currentColor;color:inherit;
+  border-radius:6px;padding:3px 10px;font:inherit;font-weight:700;cursor:pointer;
+}
 .alog-note.is-empty{color:var(--ink-3);font-style:italic}
 .alog-who{font-size:10.5px;color:var(--ink-3);white-space:nowrap}
 
@@ -13641,9 +13652,15 @@ async function clockOut(){
 async function deleteCallSession(id){
   const i = state.callSessions.findIndex(s=>s.id===id);
   if(i < 0) return;
+  const row = state.callSessions[i];
   state.callSessions.splice(i,1);
-  await deleteOne('callSessions', id);
   app.render();
+  if(!await deleteOne('callSessions', id)){
+    state.callSessions.splice(i,0,row);
+    app.render();
+    return;
+  }
+  pushAlogUndo('callSessions', row, `call session ${fmtClock(row.startedAt)}${row.endedAt?'–'+fmtClock(row.endedAt):''}`);
 }
 
 /* A running session's elapsed time has to move without a re-render: repainting
@@ -13697,11 +13714,113 @@ async function logActivityEntry(){
   const n = document.getElementById('alog-notes');
   if(n) n.focus();
 }
+/* Delete is undoable (2026-11-24). The removed row is kept in a session-only
+   stack (last 20) so it can be put back exactly as it was, same id, same time,
+   same notes. Restoring is a plain upsert of that row. */
+state.alogUndo = state.alogUndo || [];
+const ALOG_UNDO_COLLS = {activityEntries:'activityEntries', callSessions:'callSessions'};
 async function deleteActivityEntry(id){
   const i = state.activityEntries.findIndex(e=>e.id===id);
   if(i < 0) return;
+  const row = state.activityEntries[i];
   state.activityEntries.splice(i,1);
-  await deleteOne('activityEntries', id);
+  app.render();
+  if(!await deleteOne('activityEntries', id)){
+    state.activityEntries.splice(i,0,row);
+    app.render();
+    return;
+  }
+  pushAlogUndo('activityEntries', row, `${ALOG_KINDS[row.kind]||'Entry'} with ${row.contactName}`);
+}
+function pushAlogUndo(coll, row, label){
+  state.alogUndo.push({coll, row, label});
+  if(state.alogUndo.length > 20) state.alogUndo.shift();
+  undoToast(`Deleted ${label}`);
+  app.render();
+}
+async function undoAlogDelete(){
+  const u = state.alogUndo.pop();
+  if(!u) return;
+  const list = state[u.coll];
+  if(!list.some(x => x.id === u.row.id)) list.unshift(u.row);
+  app.render();
+  if(!await saveOne(u.coll, u.row)){
+    const j = list.findIndex(x => x.id === u.row.id);
+    if(j >= 0) list.splice(j,1);
+    state.alogUndo.push(u);
+    app.render();
+    return;
+  }
+  $('#toast-root').innerHTML = '';
+  toast(`Restored ${u.label}`);
+}
+function alogUndoBar(){
+  const u = state.alogUndo[state.alogUndo.length - 1];
+  if(!u) return '';
+  const more = state.alogUndo.length - 1;
+  return `<div class="alog-undo-bar">
+    <span><i class="ti ti-trash"></i> Deleted ${escape(u.label)}${more ? ` <span class="alog-undo-more">+${more} more</span>` : ''}</span>
+    <button class="btn btn-sm" onclick="undoAlogDelete()"><i class="ti ti-arrow-back-up"></i> Undo</button>
+  </div>`;
+}
+// A toast with its own Undo button, up longer than a normal one so there is
+// time to reach for it. The bar above the entries stays either way.
+function undoToast(msg){
+  const root = $('#toast-root');
+  clearTimeout(_toastTimer);
+  _toastIsErr = false;
+  root.innerHTML = `<div class="toast"><i class="ti ti-trash"></i>${escape(msg)}
+    <button type="button" class="toast-undo" onclick="undoAlogDelete()">Undo</button></div>`;
+  _toastTimer = setTimeout(()=>{ root.innerHTML=''; }, 8000);
+}
+
+// Edit any logged entry: name, time, type and notes. The day stays the same.
+function editActivityEntry(id){
+  const e = state.activityEntries.find(x => x.id === id);
+  if(!e) return;
+  showSubModal(`<div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <h2 class="modal-title">Edit entry · ${escape(fmtLong(e.date))}</h2>
+      <button class="icon-btn" onclick="closeSubModal()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Who</label>
+        <input class="form-input" id="alog-e-name" autocomplete="off" value="${escape(e.contactName)}"></div>
+      <div class="form-group"><label class="form-label">Time</label>
+        <input class="form-input" id="alog-e-time" type="time" value="${lgTimeValue(e.occurredAt)}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Type</label>
+      <select class="form-select" id="alog-e-kind">
+        ${Object.entries(ALOG_KINDS).map(([k,l])=>`<option value="${k}" ${k===e.kind?'selected':''}>${l}</option>`).join('')}
+      </select></div>
+    <div class="form-group"><label class="form-label">Notes</label>
+      <textarea class="form-textarea" id="alog-e-notes" rows="4">${escape(e.notes||'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveActivityEntryEdit('${e.id}')">Save</button>
+    </div>
+  </div>`);
+}
+async function saveActivityEntryEdit(id){
+  const i = state.activityEntries.findIndex(x => x.id === id);
+  if(i < 0) return;
+  const before = state.activityEntries[i];
+  const name = ($('#alog-e-name').value || '').trim();
+  if(!name) return toast('Who did you speak to?','err');
+  const timeVal = $('#alog-e-time').value || '';
+  const next = {...before,
+    contactName: name,
+    kind: $('#alog-e-kind').value === 'contract' ? 'contract' : 'conversation',
+    notes: ($('#alog-e-notes').value || '').trim(),
+    occurredAt: timeVal ? new Date(`${before.date}T${timeVal}:00`).toISOString() : before.occurredAt};
+  state.activityEntries[i] = next;
+  if(!await saveOne('activityEntries', next)){
+    state.activityEntries[i] = before;
+    app.render();
+    return;
+  }
+  closeSubModal();
+  toast('Entry updated');
   app.render();
 }
 
@@ -13879,12 +13998,8 @@ function renderLeadConversionLog(date, viewUser, mine, isToday){
   <div class="alog-form">
     <div class="form-group">
       <label class="form-label">Who</label>
-      <input class="form-input" id="alog-name" list="alog-names" placeholder="Seller or lead name"
+      <input class="form-input" id="alog-name" placeholder="Seller or lead name" autocomplete="off"
              onkeydown="if(event.key==='Enter')logActivityEntry()">
-      <datalist id="alog-names">
-        ${[...new Set(state.activityEntries.map(e=>e.contactName).filter(Boolean))]
-          .slice(0,200).map(n=>`<option value="${escape(n)}"></option>`).join('')}
-      </datalist>
     </div>
     <div class="form-group">
       <label class="form-label">Time</label>
@@ -13898,11 +14013,14 @@ function renderLeadConversionLog(date, viewUser, mine, isToday){
     </div>
     <div class="form-group alog-form-notes">
       <label class="form-label">Notes</label>
-      <input class="form-input" id="alog-notes" placeholder="What was said"
-             onkeydown="if(event.key==='Enter')logActivityEntry()">
+      <textarea class="form-textarea alog-notes-input" id="alog-notes" rows="1"
+                placeholder="What was said (Shift+Enter for a new line)"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();logActivityEntry()}"></textarea>
     </div>
     <button class="btn btn-primary" onclick="logActivityEntry()"><i class="ti ti-plus"></i> Log</button>
   </div>
+
+  ${alogUndoBar()}
 
   ${groups.length ? groups.map(g=>`
     <div class="alog-group">
@@ -13920,6 +14038,7 @@ function renderLeadConversionLog(date, viewUser, mine, isToday){
           </span>
           <span class="alog-note ${e.notes?'':'is-empty'}">${e.notes?escape(e.notes):'no notes'}</span>
           ${!viewUser && userName_(e.userId) ? `<span class="alog-who">${escape(userName_(e.userId))}</span>` : ''}
+          <button class="icon-btn" title="Edit entry" onclick="editActivityEntry('${e.id}')">${ICON_EDIT}</button>
           <button class="icon-btn" title="Delete entry" onclick="deleteActivityEntry('${e.id}')">${ICON_DELETE}</button>
         </div>`).join('')}
     </div>`).join('')
