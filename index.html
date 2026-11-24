@@ -4806,6 +4806,108 @@ function renderMkCalc(c){
   return `<div class="mkc"><div class="mk-ctl-label">Subdivide calculator</div>${inputs}${body}</div>`;
 }
 
+/* ---- Market velocity estimation (2026-11-24) -------------------------------
+   Type a parcel size and get how fast comparable land moves in this county.
+   Uses the county's acreage bins (sold last 1, 6 and 12 months, and for sale
+   now) over every bin that overlaps the parcel size +/- the chosen spread.
+
+     sold per month     = sold in the window / months in the window
+     months of supply   = (for sale now + 1) / sold per month
+     absorption / month = sold per month / for sale now
+
+   The +1 counts the parcel being priced as one more listing in the queue.
+   The estimate is a range: the fastest and slowest of the 1, 6 and 12 month
+   paces, with the 12 month pace as the steadiest single number. It is how long
+   the current supply takes to clear at recent speed, not a promise for one
+   listing, and it assumes a normal, market-priced listing. */
+const MK_VEL_SPREAD = [['0.25','Very close (±25%)'],['0.5','Similar size (±50%)'],['1','Wide (±100%)']];
+function mkVelCfg(fips){
+  const ui = mkUi();
+  ui.vel = ui.vel || {};
+  return ui.vel[fips] || (ui.vel[fips] = {acres:'', spread:'0.5'});
+}
+function setMkVel(fips){
+  const cfg = mkVelCfg(fips);
+  const a = document.getElementById('mkv-ac-' + fips), sp = document.getElementById('mkv-sp-' + fips);
+  const n = a ? parseFloat(a.value) : NaN;
+  cfg.acres = Number.isFinite(n) && n > 0 ? n : '';
+  if(sp) cfg.spread = sp.value;
+  app.render();
+}
+const mkVelKey = (e, fips) => { if(e.key === 'Enter'){ e.preventDefault(); setMkVel(fips); } };
+// Pure maths so it can be checked on its own: bins is {a, s1, s6, s12}.
+function mkVelocity(bins, acres, spread){
+  if(!bins || !Array.isArray(bins.a) || !(acres > 0)) return null;
+  const bandLo = acres * (1 - spread), bandHi = acres * (1 + spread);
+  const idx = [];
+  MK_EDGES.forEach((lo, i) => {
+    const hi = i + 1 < MK_EDGES.length ? MK_EDGES[i + 1] : Infinity;
+    if(lo < bandHi && hi > bandLo) idx.push(i);
+  });
+  if(!idx.length) return null;
+  const sum = arr => (arr || []).reduce((t, v, i) => t + (idx.includes(i) ? (v || 0) : 0), 0);
+  const active = sum(bins.a);
+  const lo = MK_EDGES[idx[0]], last = idx[idx.length - 1];
+  const hi = last + 1 < MK_EDGES.length ? MK_EDGES[last + 1] : Infinity;
+  const wins = [[1, sum(bins.s1)], [6, sum(bins.s6)], [12, sum(bins.s12)]].map(([m, sold]) => {
+    const rate = sold / m;
+    return {m, sold, rate, supply: rate > 0 ? (active + 1) / rate : null, absorb: rate > 0 && active ? rate / active * 100 : null};
+  });
+  const sup = wins.map(w => w.supply).filter(v => v != null);
+  const w12 = wins[2];
+  return {
+    lo, hi, active, wins,
+    low: sup.length ? Math.min(...sup) : null,
+    high: sup.length ? Math.max(...sup) : null,
+    steady: w12.supply,
+    sold12: w12.sold,
+    confidence: w12.sold >= 15 ? 'Good' : w12.sold >= 5 ? 'Moderate' : 'Thin',
+  };
+}
+function renderMkVelocity(c){
+  const fips = c.fips, r = c.r || {}, cfg = mkVelCfg(fips);
+  const inputs = `<div class="mkc-inputs">
+      <label>Parcel acres<input class="form-input" id="mkv-ac-${fips}" type="number" min="0.1" step="0.1" value="${cfg.acres}" placeholder="e.g. 10" onkeydown="mkVelKey(event,'${fips}')"></label>
+      <label title="Which lot sizes count as comparable. Widen it when a county has few sales near that size.">Compare against
+        <select class="form-input" id="mkv-sp-${fips}" style="width:170px" onchange="setMkVel('${fips}')">${MK_VEL_SPREAD.map(([v, l]) => `<option value="${v}" ${cfg.spread===v?'selected':''}>${l}</option>`).join('')}</select></label>
+      <button class="btn btn-sm btn-primary" onclick="setMkVel('${fips}')"><i class="ti ti-gauge"></i> Estimate</button>
+    </div>`;
+  let body = '';
+  if(!r.bins || !r.bins.a){
+    body = `<p class="debt-muted mkc-note">This county has no acreage data yet. Refresh it from Landportal (state header) to see sold and for-sale counts by lot size.</p>`;
+  }else if(cfg.acres === ''){
+    body = `<p class="debt-muted mkc-note">Enter a parcel size to see how fast similar land sells here.</p>`;
+  }else{
+    const v = mkVelocity(r.bins, +cfg.acres, +cfg.spread);
+    if(!v){
+      body = `<p class="debt-muted mkc-note">No data for that size.</p>`;
+    }else{
+      const range = v.low == null ? 'No sales' : mkMo(v.low) === mkMo(v.high) ? `${mkMo(v.low)} mo` : `${mkMo(v.low)} – ${mkMo(v.high)} mo`;
+      const confTxt = v.confidence === 'Thin' ? `Thin data: only ${v.sold12} comparable sale${v.sold12===1?'':'s'} in 12 months, treat this loosely or widen the size range.`
+        : v.confidence === 'Moderate' ? `${v.sold12} comparable sales in 12 months.` : `${v.sold12} comparable sales in 12 months, a solid sample.`;
+      const sizeLbl = `${v.lo}${v.hi === Infinity ? '+' : '–' + v.hi} ac`;
+      const rows = v.wins.map(w => `<tr>
+          <td>Last ${w.m} month${w.m===1?'':'s'}</td>
+          <td class="num">${w.sold}</td>
+          <td class="num">${w.rate ? (Math.round(w.rate * 10) / 10) : 0}</td>
+          <td class="num">${w.supply != null ? mkMo(w.supply) + ' mo' : '—'}</td>
+          <td class="num">${w.absorb != null ? w.absorb.toFixed(1) + '%' : '—'}</td>
+        </tr>`).join('');
+      body = `<div class="mkc-summary">
+          <div><span>Expected time to sell</span><b>${range}</b><small>${v.steady != null ? `Steadiest (12 mo pace): about ${mkMo(v.steady)} mo` : 'No comparable sales in 12 months'}</small></div>
+          <div><span>For sale now</span><b>${mkNum(v.active)}</b><small>${sizeLbl} listings in this county</small></div>
+          <div><span>Sold, last 12 months</span><b>${mkNum(v.sold12)}</b><small>${v.confidence} confidence</small></div>
+        </div>
+        <div class="debt-table-wrap"><table class="debt-table">
+          <thead><tr><th>Window</th><th class="num">Sold</th><th class="num">Sold per month</th><th class="num">Months to clear supply</th><th class="num">Absorption / month</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+        <p class="debt-muted mkc-note">${confTxt} Comparing against ${sizeLbl} (your ${cfg.acres} ac ±${Math.round(cfg.spread * 100)}%, rounded out to Landportal's size bands). Months to clear supply = (for sale + 1) ÷ sold per month. It shows how long today's listings take to sell at recent speed, for a normally priced listing.</p>`;
+    }
+  }
+  return `<div class="mkc"><div class="mk-ctl-label">Market velocity estimation</div>${inputs}${body}</div>`;
+}
+
 function renderMkCountyDetail(c){
   const r = c.r || {};
   const ui = mkUi();
@@ -4839,6 +4941,7 @@ function renderMkCountyDetail(c){
       ${ppa}
     </div>
   </div>
+  ${renderMkVelocity(c)}
   ${renderMkCalc(c)}`;
 }
 
